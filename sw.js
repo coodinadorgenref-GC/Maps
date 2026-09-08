@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v1';
+const CACHE_SHELL = 'rutas-gc-shell-v2';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -12,6 +12,7 @@ const SHELL_ASSETS = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './denue-import.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
