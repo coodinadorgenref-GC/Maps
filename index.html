@@ -70,6 +70,13 @@
     border:1px solid var(--line); font-size:18px;
     box-shadow:0 6px 14px rgba(0,0,0,.35);
   }
+  .fit-fab{
+    position:fixed; right:16px; bottom:216px; z-index:1200;
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--line); font-size:16px;
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+  }
 
   .sheet{
     position:fixed; left:0; right:0; bottom:0; z-index:1300;
@@ -183,6 +190,7 @@
 <div id="map"></div>
 
 <button class="locate-fab" id="btnLocate" title="Centrar en mi ubicación">◎</button>
+<button class="fit-fab" id="btnFit" title="Ver todos los prospectos">⤢</button>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
 <div class="sheet" id="sheet">
@@ -276,6 +284,20 @@ document.getElementById('btnLocate').addEventListener('click', () => {
   centrarEnMiUbicacion();
 });
 
+document.getElementById('btnFit').addEventListener('click', () => {
+  ajustarVistaATodos();
+});
+
+function ajustarVistaATodos(){
+  const visibles = prospectos.filter(pasaFiltro);
+  if(visibles.length === 0){
+    mostrarToast('No hay prospectos que mostrar con el filtro actual');
+    return;
+  }
+  const bounds = L.latLngBounds(visibles.map(p => [p.lat, p.lng]));
+  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+}
+
 function centrarEnMiUbicacion(){
   if(!navigator.geolocation){ mostrarToast('Este dispositivo no soporta GPS'); return; }
   navigator.geolocation.getCurrentPosition(pos => {
@@ -330,7 +352,7 @@ let currentTab = 'lista';
 let estadoFiltro = { estatus: 'Todos', estado: 'Todos' };
 let editandoId = null;
 
-document.getElementById('sheetHandle').addEventListener('click', toggleSheet);
+habilitarArrastreSheet();
 document.getElementById('btnAdd').addEventListener('click', () => {
   editandoId = null;
   tempCoord = null;
@@ -346,6 +368,63 @@ document.querySelectorAll('.tab').forEach(btn => {
 function abrirSheet(){ sheet.classList.add('open'); }
 function cerrarSheet(){ sheet.classList.remove('open'); }
 function toggleSheet(){ sheet.classList.toggle('open'); }
+
+function habilitarArrastreSheet(){
+  const handle = document.getElementById('sheetHandle');
+  let startY = null;
+  let startHeight = 0;
+
+  const onMove = (e) => {
+    if(startY === null) return;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const delta = clientY - startY;
+    const isOpen = sheet.classList.contains('open');
+    const base = isOpen ? 0 : startHeight - 74;
+    let newY = base + delta;
+    newY = Math.max(0, Math.min(startHeight - 74, newY));
+    sheet.style.transition = 'none';
+    sheet.style.transform = `translateY(${newY}px)`;
+  };
+
+  const onEnd = (e) => {
+    if(startY === null) return;
+    const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+    const delta = clientY - startY;
+    const isOpenBefore = sheet.classList.contains('open');
+    const threshold = 55;
+
+    sheet.style.transition = '';
+    sheet.style.transform = '';
+
+    if(Math.abs(delta) < 8){
+      sheet.classList.toggle('open', !isOpenBefore);
+    } else if(delta < -threshold){
+      sheet.classList.add('open');
+    } else if(delta > threshold){
+      sheet.classList.remove('open');
+    } else {
+      sheet.classList.toggle('open', isOpenBefore);
+    }
+
+    startY = null;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onEnd);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onEnd);
+  };
+
+  const onStart = (e) => {
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startHeight = sheet.offsetHeight;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive:true });
+    document.addEventListener('touchend', onEnd);
+  };
+
+  handle.addEventListener('mousedown', onStart);
+  handle.addEventListener('touchstart', onStart, { passive:true });
+}
 
 function cambiarTab(tab){
   currentTab = tab;
@@ -381,9 +460,9 @@ function renderLista(){
     <div class="chip-row">${chipsEstatus}</div>
     <div class="chip-row">${chipsEstado}</div>
     <div class="save-row" style="margin-bottom:12px">
-      <button class="btn teal" id="btnImportar" style="flex:1">Importar DENUE (JSON)</button>
+      <button class="btn primary" id="btnImportar" style="flex:1">Importar DENUE (CSV / JSON)</button>
     </div>
-    <input type="file" id="fileImportar" accept="application/json" style="display:none">
+    <input type="file" id="fileImportar" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
     ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa, o importa tu DENUE.</div>'}
   `;
 
@@ -400,44 +479,228 @@ function renderLista(){
 
   const fileInput = document.getElementById('fileImportar');
   document.getElementById('btnImportar').addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', importarDenue);
+  fileInput.addEventListener('change', manejarArchivoImportado);
 }
 
-function importarDenue(ev){
+/* ---------- Importación: enrutador por tipo de archivo ---------- */
+function manejarArchivoImportado(ev){
   const file = ev.target.files[0];
+  ev.target.value = '';
   if(!file) return;
+
+  const esCSV = /\.csv$/i.test(file.name) || file.type.includes('csv');
+  const esJSON = /\.json$/i.test(file.name) || file.type.includes('json');
+
+  if(esJSON){
+    importarJSON(file);
+  } else if(esCSV){
+    pendingCSVFile = file;
+    leerCSV(file, 'windows-1252');
+  } else {
+    mostrarToast('Usa un archivo .csv o .json. Si tienes .xlsx, guárdalo como CSV desde Excel');
+  }
+}
+
+/* ---------- Fusión común (usada por JSON y CSV) ---------- */
+function fusionarImportados(datos){
+  const existentes = new Set(prospectos.map(p => p.id));
+  let nuevos = 0, actualizados = 0;
+  datos.forEach(d => {
+    if(!d.id || d.lat == null || d.lng == null || isNaN(d.lat) || isNaN(d.lng)) return;
+    if(existentes.has(d.id)){
+      const i = prospectos.findIndex(p => p.id === d.id);
+      // No se pisa el trabajo ya hecho en campo: solo se actualiza si sigue como estaba desde la importación
+      if(prospectos[i].origen === 'DENUE' && !prospectos[i].pendienteSync){
+        prospectos[i] = { ...prospectos[i], ...d };
+        actualizados++;
+      }
+    } else {
+      prospectos.push(d);
+      nuevos++;
+    }
+  });
+
+  guardarProspectos(prospectos);
+  renderMarcadores();
+  actualizarHeader();
+  renderLista();
+  mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
+  if(nuevos > 0 || actualizados > 0){ ajustarVistaATodos(); }
+}
+
+/* ---------- Importar JSON (formato ya limpio, mismo esquema de la app) ---------- */
+function importarJSON(file){
   const reader = new FileReader();
   reader.onload = () => {
     let datos;
     try{ datos = JSON.parse(reader.result); }
     catch(e){ mostrarToast('El archivo no es un JSON válido'); return; }
     if(!Array.isArray(datos)){ mostrarToast('Formato inesperado en el archivo'); return; }
-
-    const existentes = new Set(prospectos.map(p => p.id));
-    let nuevos = 0, actualizados = 0;
-    datos.forEach(d => {
-      if(!d.id || d.lat == null || d.lng == null) return;
-      if(existentes.has(d.id)){
-        const i = prospectos.findIndex(p => p.id === d.id);
-        // No se pisa el trabajo ya hecho en campo: solo se actualiza si sigue como estaba desde el DENUE
-        if(prospectos[i].origen === 'DENUE' && !prospectos[i].pendienteSync){
-          prospectos[i] = { ...prospectos[i], ...d };
-          actualizados++;
-        }
-      } else {
-        prospectos.push(d);
-        nuevos++;
-      }
-    });
-
-    guardarProspectos(prospectos);
-    renderMarcadores();
-    actualizarHeader();
-    renderLista();
-    mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
+    fusionarImportados(datos);
   };
   reader.readAsText(file);
-  ev.target.value = '';
+}
+
+/* ---------- Importar CSV con selector de columnas (como Google My Maps) ---------- */
+let pendingCSVFile = null;
+let importCSVState = null; // { headers, dataRows, encoding }
+
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i = 0; i < text.length; i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else { inQuotes = false; }
+      } else { field += c; }
+    } else {
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ row.push(field); field = ''; }
+      else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
+      else if(c === '\r'){ /* se ignora, el salto real lo maneja \n */ }
+      else { field += c; }
+    }
+  }
+  if(field.length > 0 || row.length > 0){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+function leerCSV(file, encoding){
+  const reader = new FileReader();
+  reader.onload = () => {
+    const filas = parseCSV(reader.result);
+    if(filas.length < 2){ mostrarToast('El archivo no tiene datos'); return; }
+    const headers = filas[0].map(h => h.trim());
+    const dataRows = filas.slice(1).filter(r => r.some(v => v && v.trim() !== ''));
+    importCSVState = { headers, dataRows, encoding };
+    renderWizardCSV();
+  };
+  reader.onerror = () => mostrarToast('No se pudo leer el archivo');
+  reader.readAsText(file, encoding);
+}
+
+function detectarColumna(headers, patron){
+  return headers.find(h => patron.test(h)) || headers[0];
+}
+
+function renderWizardCSV(){
+  const { headers, dataRows } = importCSVState;
+  const autoNombre = detectarColumna(headers, /nombre.*unidad|^nombre$|t[ií]tulo/i);
+  const autoLat = detectarColumna(headers, /latitud|^lat$/i);
+  const autoLng = detectarColumna(headers, /longitud|^lng$|^lon$/i);
+
+  const opciones = (sel) => headers.map(h =>
+    `<option value="${escapeHtml(h)}" ${h===sel?'selected':''}>${escapeHtml(h)}</option>`
+  ).join('');
+
+  sheetBody.innerHTML = `
+    <div style="margin-bottom:14px;">
+      <div style="font-weight:700; font-size:15px; margin-bottom:4px;">Importar CSV</div>
+      <div style="font-size:12.5px; color:var(--text-dim);">Se detectaron ${dataRows.length} filas. Elige qué columna corresponde a cada dato.</div>
+    </div>
+    <div class="field">
+      <label>Columna de nombre / título</label>
+      <select id="wNombre">${opciones(autoNombre)}</select>
+    </div>
+    <div class="field">
+      <label>Columna de latitud</label>
+      <select id="wLat">${opciones(autoLat)}</select>
+    </div>
+    <div class="field">
+      <label>Columna de longitud</label>
+      <select id="wLng">${opciones(autoLng)}</select>
+    </div>
+    <div class="field">
+      <label>Vista previa (primera fila)</label>
+      <div id="wPreview" style="font-size:12px; color:var(--text-dim); background:var(--surface-2); border-radius:8px; padding:8px;"></div>
+    </div>
+    <div class="save-row">
+      <button class="btn" id="btnCambiarCodif" style="flex:1">¿Acentos raros? Cambiar codificación</button>
+    </div>
+    <div class="save-row" style="margin-top:8px;">
+      <button class="btn primary" id="btnContinuarWizard" style="flex:2">Importar</button>
+      <button class="btn danger" id="btnCancelarWizard">Cancelar</button>
+    </div>
+  `;
+
+  const actualizarPreview = () => {
+    const iN = headers.indexOf(document.getElementById('wNombre').value);
+    const iLa = headers.indexOf(document.getElementById('wLat').value);
+    const iLo = headers.indexOf(document.getElementById('wLng').value);
+    const f = dataRows[0] || [];
+    document.getElementById('wPreview').textContent =
+      `${f[iN] || '—'}  ·  ${f[iLa] || '—'}, ${f[iLo] || '—'}`;
+  };
+  ['wNombre','wLat','wLng'].forEach(id => document.getElementById(id).addEventListener('change', actualizarPreview));
+  actualizarPreview();
+
+  document.getElementById('btnCambiarCodif').addEventListener('click', () => {
+    const nuevaCodif = importCSVState.encoding === 'windows-1252' ? 'utf-8' : 'windows-1252';
+    leerCSV(pendingCSVFile, nuevaCodif);
+  });
+  document.getElementById('btnCancelarWizard').addEventListener('click', () => {
+    importCSVState = null;
+    cambiarTab('lista');
+  });
+  document.getElementById('btnContinuarWizard').addEventListener('click', finalizarImportacionCSV);
+}
+
+function finalizarImportacionCSV(){
+  const { headers, dataRows } = importCSVState;
+  const colNombre = document.getElementById('wNombre').value;
+  const colLat = document.getElementById('wLat').value;
+  const colLng = document.getElementById('wLng').value;
+  const iN = headers.indexOf(colNombre);
+  const iLa = headers.indexOf(colLat);
+  const iLo = headers.indexOf(colLng);
+
+  // Columnas de contexto que se detectan solas si existen (típicas del DENUE)
+  const iId = headers.findIndex(h => /^id$/i.test(h));
+  const iGiro = headers.findIndex(h => /clase de.*actividad|giro/i.test(h));
+  const iEstrato = headers.findIndex(h => /estrato/i.test(h));
+  const iTel = headers.findIndex(h => /tel[eé]fono/i.test(h));
+  const iMunicipio = headers.findIndex(h => /^municipio$/i.test(h));
+  const iLocalidad = headers.findIndex(h => /^localidad$/i.test(h));
+  const iEntidad = headers.findIndex(h => /entidad federativa/i.test(h));
+
+  const datos = dataRows.map((r, idx) => {
+    const lat = parseFloat(String(r[iLa]).replace(',', '.'));
+    const lng = parseFloat(String(r[iLo]).replace(',', '.'));
+    const nombre = (r[iN] || '').trim();
+    if(!nombre || isNaN(lat) || isNaN(lng)) return null;
+
+    const notasParts = [iGiro, iEstrato, iTel]
+      .map(i => i >= 0 ? (r[i] || '').trim() : '')
+      .filter(Boolean);
+
+    const id = iId >= 0 && r[iId] ? `denue_${r[iId].trim()}` : `csv_${idx}_${lat}_${lng}`;
+
+    return {
+      id,
+      nombre,
+      lat: Math.round(lat * 1e6) / 1e6,
+      lng: Math.round(lng * 1e6) / 1e6,
+      estatus: 'Prospecto',
+      frecuencia: 'Ocasional',
+      notas: notasParts.join(' · '),
+      origen: 'DENUE',
+      estado: iEntidad >= 0 ? tituloCase((r[iEntidad] || '').trim()) : undefined,
+      municipio: iMunicipio >= 0 ? (r[iMunicipio] || '').trim() : undefined,
+      localidad: iLocalidad >= 0 ? (r[iLocalidad] || '').trim() : undefined,
+      fechaUltimaVisita: null,
+      pendienteSync: false
+    };
+  }).filter(Boolean);
+
+  importCSVState = null;
+  pendingCSVFile = null;
+  fusionarImportados(datos);
+}
+
+function tituloCase(s){
+  return s.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
 }
 
 function abrirDetalle(id){
@@ -565,6 +828,7 @@ function mostrarToast(msg){
 renderMarcadores();
 actualizarHeader();
 renderLista();
+if(prospectos.length > 0){ ajustarVistaATodos(); }
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
