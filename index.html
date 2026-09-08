@@ -162,6 +162,56 @@
   .item .meta{ font-size:12px; color:var(--text-dim); }
   .item .go{ font-size:18px; color:var(--text-dim); padding:6px; }
 
+  .filters-toggle{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:13.5px; font-weight:600; color:var(--text);
+    margin-bottom:10px;
+  }
+  .filters-toggle .arrow{ color:var(--text-dim); font-size:11px; }
+  .filters-toggle .badge{
+    background:var(--teal); color:#0E1518; font-size:11px; font-weight:700;
+    border-radius:20px; padding:1px 7px; margin-left:6px;
+  }
+  .filters-panel{
+    background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 10px 2px; margin-bottom:10px;
+  }
+  .filters-panel .filter-label{ font-size:11px; color:var(--text-dim); margin:2px 2px 6px; }
+  .filters-panel select{
+    width:100%; background:var(--surface); border:1px solid var(--line);
+    color:var(--text); border-radius:10px; padding:9px 11px; font-size:13.5px;
+    font-family:inherit; margin-bottom:12px;
+  }
+  .filters-panel .btn{ width:100%; margin-bottom:10px; }
+
+  .route-banner{
+    position:fixed; top:0; left:0; right:0; z-index:1400;
+    background:var(--teal); color:#0E1518; text-align:center;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+    font-size:13.5px; font-weight:600; display:none;
+  }
+  .route-bar{
+    position:fixed; left:12px; right:12px; bottom:calc(74px + 12px); z-index:1250;
+    background:var(--surface); border:1px solid var(--teal); border-radius:14px;
+    padding:10px 12px; display:none; align-items:center; gap:8px;
+    box-shadow:0 6px 18px rgba(0,0,0,.4);
+  }
+  .route-bar.show{ display:flex; }
+  .route-bar .count{ flex:1; font-size:13px; font-weight:600; }
+  .route-bar .btn{ flex:none; padding:9px 13px; font-size:12.5px; }
+  /* Mientras el panel inferior está abierto, ocultamos el banner y la barra
+     flotante de ruta: quedarían tapados de todas formas y solo estorban. */
+  .sheet.open ~ .route-banner,
+  .sheet.open ~ .route-bar{ display:none !important; }
+
+  .route-order-tip{
+    background:var(--accent) !important; color:var(--accent-ink) !important; border:none !important;
+    font-weight:700; font-size:11px; padding:1px 6px; border-radius:20px;
+    box-shadow:none !important;
+  }
+  .route-order-tip::before{ display:none; }
+
   .empty{ text-align:center; color:var(--text-dim); font-size:13.5px; padding:30px 10px; }
 
   .toast{
@@ -214,6 +264,13 @@
   <div class="sheet-body" id="sheetBody"></div>
 </div>
 
+<div class="route-banner" id="routeBanner">Toca los prospectos en el mapa para agregarlos a la ruta</div>
+<div class="route-bar" id="routeBar">
+  <div class="count" id="routeBarCount">0 seleccionados</div>
+  <button class="btn primary" id="routeBarCalc">Calcular ruta</button>
+  <button class="btn danger" id="routeBarCancel">Cancelar</button>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -260,25 +317,59 @@ let userMarker = null;
 function pasaFiltro(p){
   const okEstatus = estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus;
   const okEstado = estadoFiltro.estado === 'Todos' || !p.estado || p.estado === estadoFiltro.estado;
-  return okEstatus && okEstado;
+  const okLocalidad = estadoFiltro.localidad === 'Todos' || (p.localidad || 'Sin localidad') === estadoFiltro.localidad;
+  return okEstatus && okEstado && okLocalidad;
+}
+
+// Localidades presentes en los prospectos actuales, sin repetidos y en
+// orden alfabético A-Z (para el filtro y para no tener que revisar el mapa
+// entero buscando una zona en particular).
+function obtenerLocalidadesOrdenadas(){
+  return [...new Set(prospectos.map(p => p.localidad || 'Sin localidad'))]
+    .sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 function renderMarcadores(){
   markersLayer.clearLayers();
+  const ordenSeleccion = [...seleccionRuta]; // el Set conserva el orden en que se fueron tocando
   prospectos
     .filter(pasaFiltro)
     .forEach(p => {
       const esDenue = p.origen === 'DENUE';
+      const seleccionado = modoRuta && seleccionRuta.has(p.id);
       const m = L.circleMarker([p.lat, p.lng], {
-        radius: esDenue ? 7 : 9,
-        color: '#FFFFFF',
-        weight: esDenue ? 1.5 : 2.5,
+        radius: seleccionado ? 12 : (esDenue ? 7 : 9),
+        color: seleccionado ? '#C4D600' : '#FFFFFF',
+        weight: seleccionado ? 3.5 : (esDenue ? 1.5 : 2.5),
         fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
         fillOpacity: esDenue ? 0.92 : 0.97
-      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
-      m.on('click', () => abrirDetalle(p.id));
+      });
+
+      if(modoRuta){
+        // En modo "Planear ruta" tocar el punto lo agrega/quita de la ruta
+        // en vez de abrir su ficha: es más rápido que buscarlo en la lista.
+        m.on('click', () => alternarSeleccionRuta(p.id));
+        if(seleccionado){
+          m.bindTooltip(String(ordenSeleccion.indexOf(p.id) + 1), {
+            permanent: true, direction: 'top', offset: [0, -4], className: 'route-order-tip'
+          });
+        }
+      } else {
+        m.bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.localidad ? ' · ' + escapeHtml(p.localidad) : (p.municipio ? ' · ' + escapeHtml(p.municipio) : '')}</span>`);
+        m.on('click', () => abrirDetalle(p.id));
+      }
       markersLayer.addLayer(m);
     });
+}
+
+// Alterna la selección de un prospecto para la ruta (llamado al tocarlo en
+// el mapa o en la lista) y mantiene todo sincronizado: marcadores, la barra
+// flotante de conteo y, si la lista está abierta, sus checkboxes.
+function alternarSeleccionRuta(id){
+  if(seleccionRuta.has(id)) seleccionRuta.delete(id); else seleccionRuta.add(id);
+  renderMarcadores();
+  actualizarRouteBar();
+  if(currentTab === 'lista') renderLista();
 }
 
 function escapeHtml(s){
@@ -299,6 +390,12 @@ document.getElementById('btnFit').addEventListener('click', () => {
 });
 
 document.getElementById('btnZonaOffline').addEventListener('click', descargarZonaSinSenal);
+
+document.getElementById('routeBarCalc').addEventListener('click', () => {
+  if(seleccionRuta.size === 0){ mostrarToast('Toca al menos un prospecto en el mapa'); return; }
+  calcularYMostrarRuta();
+});
+document.getElementById('routeBarCancel').addEventListener('click', () => activarModoRuta(false));
 
 /* ---------- Guardar tiles del mapa para trabajar sin señal ----------
    En carretera/poblados sin cobertura, Leaflet no puede pedir tiles nuevos.
@@ -416,7 +513,8 @@ function fijarCoordTemporal(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todos' };
+let filtrosAbiertos = false;
 let editandoId = null;
 let modoRuta = false;
 let seleccionRuta = new Set();
@@ -507,11 +605,17 @@ function cambiarTab(tab){
 
 /* ---------- Vista: Lista ---------- */
 function renderLista(){
+  const localidades = obtenerLocalidadesOrdenadas();
+  const filtrosActivos = ['estatus', 'estado', 'localidad'].filter(k => estadoFiltro[k] !== 'Todos').length;
+
   const chipsEstatus = ['Todos', ...ESTATUS].map(e =>
     `<button class="chip ${estadoFiltro.estatus===e?'active':''}" data-tipo="estatus" data-valor="${e}">${e}</button>`
   ).join('');
   const chipsEstado = ['Todos', ...ESTADOS].map(e =>
     `<button class="chip ${estadoFiltro.estado===e?'active':''}" data-tipo="estado" data-valor="${e}">${e}</button>`
+  ).join('');
+  const opcionesLocalidad = ['Todos', ...localidades].map(l =>
+    `<option value="${escapeHtml(l)}" ${estadoFiltro.localidad===l?'selected':''}>${l === 'Todos' ? 'Todas las localidades' : escapeHtml(l)}</option>`
   ).join('');
 
   const items = prospectos
@@ -523,26 +627,43 @@ function renderLista(){
           : `<span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}"></span>`}
         <div class="info">
           <div class="name">${escapeHtml(p.nombre)}</div>
-          <div class="meta">${p.estatus} · ${p.frecuencia} · ${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
+          <div class="meta">${p.estatus} · ${p.frecuencia} · ${p.origen}${p.localidad ? ' · ' + escapeHtml(p.localidad) : (p.municipio ? ' · ' + escapeHtml(p.municipio) : '')}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
         </div>
         ${modoRuta ? '' : '<span class="go">›</span>'}
       </div>
     `).join('');
 
   sheetBody.innerHTML = `
-    <div class="chip-row">${chipsEstatus}</div>
-    <div class="chip-row">${chipsEstado}</div>
+    <div class="filters-toggle" id="filtrosToggle">
+      <span>Filtros${filtrosActivos ? `<span class="badge">${filtrosActivos}</span>` : ''}</span>
+      <span class="arrow">${filtrosAbiertos ? '▲ ocultar' : '▼ mostrar'}</span>
+    </div>
+    <div class="filters-panel" style="display:${filtrosAbiertos ? 'block' : 'none'}">
+      <div class="filter-label">Estatus</div>
+      <div class="chip-row">${chipsEstatus}</div>
+      <div class="filter-label">Estado</div>
+      <div class="chip-row">${chipsEstado}</div>
+      <div class="filter-label">Localidad (A–Z)</div>
+      <select id="filtroLocalidad">${opcionesLocalidad}</select>
+      ${filtrosActivos ? `<button class="btn" id="btnLimpiarFiltros">Limpiar filtros</button>` : ''}
+    </div>
     <div class="save-row" style="margin-bottom:10px">
       <button class="btn ${modoRuta ? 'teal' : ''}" id="btnModoRuta" style="flex:1">${modoRuta ? 'Cancelar selección' : 'Planear ruta'}</button>
       <button class="btn primary" id="btnImportar" style="flex:1">Importar otra lista (CSV / JSON)</button>
     </div>
+    ${modoRuta ? `<div style="font-size:12px; color:var(--text-dim); margin:-4px 0 10px;">Toca los prospectos aquí abajo o directo en el mapa para agregarlos a la ruta.</div>` : ''}
     ${modoRuta && seleccionRuta.size > 0 ? `
     <div class="save-row" style="margin-bottom:10px">
       <button class="btn primary" id="btnCalcularRuta" style="flex:1">Calcular ruta (${seleccionRuta.size})</button>
     </div>` : ''}
     <input type="file" id="fileImportar" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
-    ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa, o importa tu DENUE.</div>'}
+    ${items || `<div class="empty">${prospectos.length ? 'Ningún prospecto coincide con estos filtros.' : 'Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa, o importa tu DENUE.'}</div>`}
   `;
+
+  document.getElementById('filtrosToggle').addEventListener('click', () => {
+    filtrosAbiertos = !filtrosAbiertos;
+    renderLista();
+  });
 
   sheetBody.querySelectorAll('.chip').forEach(c => {
     c.addEventListener('click', () => {
@@ -552,20 +673,31 @@ function renderLista(){
     });
   });
 
+  const selLocalidad = document.getElementById('filtroLocalidad');
+  if(selLocalidad){
+    selLocalidad.addEventListener('change', () => {
+      estadoFiltro.localidad = selLocalidad.value;
+      renderLista();
+      renderMarcadores();
+    });
+  }
+
+  const btnLimpiar = document.getElementById('btnLimpiarFiltros');
+  if(btnLimpiar){
+    btnLimpiar.addEventListener('click', () => {
+      estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todos' };
+      renderLista();
+      renderMarcadores();
+    });
+  }
+
   if(modoRuta){
     sheetBody.querySelectorAll('.chk-ruta').forEach(chk => {
       chk.addEventListener('click', (e) => e.stopPropagation());
-      chk.addEventListener('change', () => {
-        if(chk.checked) seleccionRuta.add(chk.dataset.id); else seleccionRuta.delete(chk.dataset.id);
-        renderLista();
-      });
+      chk.addEventListener('change', () => alternarSeleccionRuta(chk.dataset.id));
     });
     sheetBody.querySelectorAll('.item').forEach(it => {
-      it.addEventListener('click', () => {
-        const id = it.dataset.id;
-        if(seleccionRuta.has(id)) seleccionRuta.delete(id); else seleccionRuta.add(id);
-        renderLista();
-      });
+      it.addEventListener('click', () => alternarSeleccionRuta(it.dataset.id));
     });
     const btnCalc = document.getElementById('btnCalcularRuta');
     if(btnCalc) btnCalc.addEventListener('click', calcularYMostrarRuta);
@@ -576,14 +708,38 @@ function renderLista(){
   }
 
   document.getElementById('btnModoRuta').addEventListener('click', () => {
-    modoRuta = !modoRuta;
-    if(!modoRuta) seleccionRuta.clear();
-    renderLista();
+    activarModoRuta(!modoRuta);
   });
 
   const fileInput = document.getElementById('fileImportar');
   document.getElementById('btnImportar').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', manejarArchivoImportado);
+}
+
+// Enciende o apaga el "modo ruta": al activarlo cerramos el panel para
+// dejar ver el mapa completo (así se puede tocar directo sobre los puntos)
+// y mostramos el banner + la barra flotante con el conteo.
+function activarModoRuta(activar){
+  modoRuta = activar;
+  if(!modoRuta) seleccionRuta.clear();
+  renderMarcadores();
+  actualizarRouteBar();
+  const banner = document.getElementById('routeBanner');
+  if(modoRuta){
+    banner.style.display = 'block';
+    cerrarSheet();
+  } else {
+    banner.style.display = 'none';
+  }
+  if(currentTab === 'lista') renderLista();
+}
+
+function actualizarRouteBar(){
+  const bar = document.getElementById('routeBar');
+  if(!bar) return;
+  bar.classList.toggle('show', modoRuta);
+  document.getElementById('routeBarCount').textContent =
+    `${seleccionRuta.size} prospecto${seleccionRuta.size === 1 ? '' : 's'} seleccionado${seleccionRuta.size === 1 ? '' : 's'}`;
 }
 
 /* ---------- Vista: Ruta (selección de prospectos + orden sugerido) ---------- */
@@ -676,8 +832,7 @@ function renderRuta(){
   document.getElementById('btnAbrirGoogleMaps').addEventListener('click', abrirEnGoogleMaps);
   document.getElementById('btnCancelarRuta').addEventListener('click', () => {
     rutaCalculada = null;
-    seleccionRuta.clear();
-    modoRuta = false;
+    activarModoRuta(false);
     cambiarTab('lista');
   });
 }
@@ -1088,6 +1243,7 @@ function mostrarToast(msg){
 renderMarcadores();
 actualizarHeader();
 renderLista();
+actualizarRouteBar();
 if(prospectos.length > 0){ ajustarVistaATodos(); }
 cargarDenueCompartido();
 
