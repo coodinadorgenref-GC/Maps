@@ -223,6 +223,7 @@ const COLOR_ESTATUS = {
   'Cliente':   '#C4D600',
   'Descartado':'#6B7480'
 };
+const ESTADOS = ['Yucatán','Quintana Roo'];
 
 /* ---------- Mapa ---------- */
 const map = L.map('map', { zoomControl:false, attributionControl:true })
@@ -238,19 +239,25 @@ L.control.zoom({ position:'bottomleft' }).addTo(map);
 const markersLayer = L.layerGroup().addTo(map);
 let userMarker = null;
 
+function pasaFiltro(p){
+  const okEstatus = estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus;
+  const okEstado = estadoFiltro.estado === 'Todos' || !p.estado || p.estado === estadoFiltro.estado;
+  return okEstatus && okEstado;
+}
+
 function renderMarcadores(){
   markersLayer.clearLayers();
-  const filtro = estadoFiltro.estatus;
   prospectos
-    .filter(p => filtro === 'Todos' || p.estatus === filtro)
+    .filter(pasaFiltro)
     .forEach(p => {
+      const esDenue = p.origen === 'DENUE';
       const m = L.circleMarker([p.lat, p.lng], {
-        radius: 8,
+        radius: esDenue ? 6 : 8,
         color: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
         fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
-        fillOpacity: 0.85,
-        weight: 2
-      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}`);
+        fillOpacity: esDenue ? 0.45 : 0.9,
+        weight: esDenue ? 1 : 2
+      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
       m.on('click', () => abrirDetalle(p.id));
       markersLayer.addLayer(m);
     });
@@ -320,7 +327,7 @@ function fijarCoordTemporal(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos' };
 let editandoId = null;
 
 document.getElementById('sheetHandle').addEventListener('click', toggleSheet);
@@ -350,31 +357,39 @@ function cambiarTab(tab){
 
 /* ---------- Vista: Lista ---------- */
 function renderLista(){
-  const chips = ['Todos', ...ESTATUS].map(e =>
-    `<button class="chip ${estadoFiltro.estatus===e?'active':''}" data-estatus="${e}">${e}</button>`
+  const chipsEstatus = ['Todos', ...ESTATUS].map(e =>
+    `<button class="chip ${estadoFiltro.estatus===e?'active':''}" data-tipo="estatus" data-valor="${e}">${e}</button>`
+  ).join('');
+  const chipsEstado = ['Todos', ...ESTADOS].map(e =>
+    `<button class="chip ${estadoFiltro.estado===e?'active':''}" data-tipo="estado" data-valor="${e}">${e}</button>`
   ).join('');
 
   const items = prospectos
-    .filter(p => estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus)
+    .filter(pasaFiltro)
     .map(p => `
       <div class="item" data-id="${p.id}">
         <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}"></span>
         <div class="info">
           <div class="name">${escapeHtml(p.nombre)}</div>
-          <div class="meta">${p.estatus} · ${p.frecuencia} · ${p.origen}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
+          <div class="meta">${p.estatus} · ${p.frecuencia} · ${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
         </div>
         <span class="go">›</span>
       </div>
     `).join('');
 
   sheetBody.innerHTML = `
-    <div class="chip-row">${chips}</div>
-    ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa.</div>'}
+    <div class="chip-row">${chipsEstatus}</div>
+    <div class="chip-row">${chipsEstado}</div>
+    <div class="save-row" style="margin-bottom:12px">
+      <button class="btn teal" id="btnImportar" style="flex:1">Importar DENUE (JSON)</button>
+    </div>
+    <input type="file" id="fileImportar" accept="application/json" style="display:none">
+    ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa, o importa tu DENUE.</div>'}
   `;
 
   sheetBody.querySelectorAll('.chip').forEach(c => {
     c.addEventListener('click', () => {
-      estadoFiltro.estatus = c.dataset.estatus;
+      estadoFiltro[c.dataset.tipo] = c.dataset.valor;
       renderLista();
       renderMarcadores();
     });
@@ -382,6 +397,47 @@ function renderLista(){
   sheetBody.querySelectorAll('.item').forEach(it => {
     it.addEventListener('click', () => abrirDetalle(it.dataset.id));
   });
+
+  const fileInput = document.getElementById('fileImportar');
+  document.getElementById('btnImportar').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', importarDenue);
+}
+
+function importarDenue(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let datos;
+    try{ datos = JSON.parse(reader.result); }
+    catch(e){ mostrarToast('El archivo no es un JSON válido'); return; }
+    if(!Array.isArray(datos)){ mostrarToast('Formato inesperado en el archivo'); return; }
+
+    const existentes = new Set(prospectos.map(p => p.id));
+    let nuevos = 0, actualizados = 0;
+    datos.forEach(d => {
+      if(!d.id || d.lat == null || d.lng == null) return;
+      if(existentes.has(d.id)){
+        const i = prospectos.findIndex(p => p.id === d.id);
+        // No se pisa el trabajo ya hecho en campo: solo se actualiza si sigue como estaba desde el DENUE
+        if(prospectos[i].origen === 'DENUE' && !prospectos[i].pendienteSync){
+          prospectos[i] = { ...prospectos[i], ...d };
+          actualizados++;
+        }
+      } else {
+        prospectos.push(d);
+        nuevos++;
+      }
+    });
+
+    guardarProspectos(prospectos);
+    renderMarcadores();
+    actualizarHeader();
+    renderLista();
+    mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
+  };
+  reader.readAsText(file);
+  ev.target.value = '';
 }
 
 function abrirDetalle(id){
