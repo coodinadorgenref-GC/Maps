@@ -49,6 +49,7 @@
     box-shadow:0 0 0 3px rgba(255,255,255,.04);
   }
   .sync-dot.pend{background:var(--ochre);}
+  .sync-dot.offline{background:var(--danger);}
   .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim);}
 
   #map{ position:absolute; inset:0; }
@@ -72,6 +73,13 @@
   }
   .fit-fab{
     position:fixed; right:16px; bottom:216px; z-index:1200;
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--line); font-size:16px;
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+  }
+  .zone-fab{
+    position:fixed; right:16px; bottom:268px; z-index:1200;
     width:44px; height:44px; border-radius:50%;
     background:var(--surface); color:var(--text);
     border:1px solid var(--line); font-size:16px;
@@ -191,6 +199,7 @@
 
 <button class="locate-fab" id="btnLocate" title="Centrar en mi ubicación">◎</button>
 <button class="fit-fab" id="btnFit" title="Ver todos los prospectos">⤢</button>
+<button class="zone-fab" id="btnZonaOffline" title="Guardar el mapa de esta zona para trabajar sin señal">⬇</button>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
 <div class="sheet" id="sheet">
@@ -200,6 +209,7 @@
   <div class="sheet-tabs">
     <button class="tab active" data-tab="lista">Lista</button>
     <button class="tab" data-tab="alta">Agregar</button>
+    <button class="tab" data-tab="ruta">Ruta</button>
   </div>
   <div class="sheet-body" id="sheetBody"></div>
 </div>
@@ -288,6 +298,57 @@ document.getElementById('btnFit').addEventListener('click', () => {
   ajustarVistaATodos();
 });
 
+document.getElementById('btnZonaOffline').addEventListener('click', descargarZonaSinSenal);
+
+/* ---------- Guardar tiles del mapa para trabajar sin señal ----------
+   En carretera/poblados sin cobertura, Leaflet no puede pedir tiles nuevos.
+   Este botón descarga por adelantado (mientras haya señal) los recuadros del
+   mapa de la zona visible, en un rango de zooms, y los deja en la misma caché
+   que usa el service worker (rutas-gc-tiles-v1) para que se sirvan solos
+   cuando no haya conexión. */
+const TILES_CACHE_NAME = 'rutas-gc-tiles-v1'; // debe coincidir con CACHE_TILES en sw.js
+
+function latLngATile(lat, lng, zoom){
+  const n = Math.pow(2, zoom);
+  const x = Math.floor((lng + 180) / 360 * n);
+  const latRad = lat * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
+}
+
+async function descargarZonaSinSenal(){
+  if(!('caches' in window)){ mostrarToast('Este navegador no permite guardar mapas sin conexión'); return; }
+  if(!navigator.onLine){ mostrarToast('Necesitas señal ahora para guardar el mapa de esta zona'); return; }
+
+  const zoomBase = map.getZoom();
+  const zooms = [...new Set([
+    Math.max(zoomBase - 1, 10), zoomBase, Math.min(zoomBase + 1, 17), Math.min(zoomBase + 2, 17)
+  ])];
+  const bounds = map.getBounds();
+  const subdominios = ['a', 'b', 'c'];
+
+  mostrarToast('Descargando mapa de esta zona…');
+  const cache = await caches.open(TILES_CACHE_NAME);
+  let total = 0;
+  const tareas = [];
+
+  zooms.forEach(z => {
+    const nwTile = latLngATile(bounds.getNorth(), bounds.getWest(), z);
+    const seTile = latLngATile(bounds.getSouth(), bounds.getEast(), z);
+    for(let x = nwTile.x; x <= seTile.x; x++){
+      for(let y = nwTile.y; y <= seTile.y; y++){
+        const s = subdominios[(x + y) % subdominios.length];
+        const url = `https://${s}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
+        total++;
+        tareas.push(fetch(url, { mode: 'no-cors' }).then(r => cache.put(url, r)).catch(() => {}));
+      }
+    }
+  });
+
+  await Promise.all(tareas);
+  mostrarToast(`Zona guardada: ${total} recuadros de mapa listos para sin señal`);
+}
+
 function ajustarVistaATodos(){
   const visibles = prospectos.filter(pasaFiltro);
   if(visibles.length === 0){
@@ -357,6 +418,9 @@ const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
 let estadoFiltro = { estatus: 'Todos', estado: 'Todos' };
 let editandoId = null;
+let modoRuta = false;
+let seleccionRuta = new Set();
+let rutaCalculada = null;
 
 habilitarArrastreSheet();
 document.getElementById('btnAdd').addEventListener('click', () => {
@@ -438,6 +502,7 @@ function cambiarTab(tab){
   abrirSheet();
   if(tab === 'lista') renderLista();
   if(tab === 'alta') renderFormAlta();
+  if(tab === 'ruta') renderRuta();
 }
 
 /* ---------- Vista: Lista ---------- */
@@ -453,21 +518,28 @@ function renderLista(){
     .filter(pasaFiltro)
     .map(p => `
       <div class="item" data-id="${p.id}">
-        <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}"></span>
+        ${modoRuta
+          ? `<input type="checkbox" class="chk-ruta" data-id="${p.id}" ${seleccionRuta.has(p.id) ? 'checked' : ''}>`
+          : `<span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}"></span>`}
         <div class="info">
           <div class="name">${escapeHtml(p.nombre)}</div>
           <div class="meta">${p.estatus} · ${p.frecuencia} · ${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
         </div>
-        <span class="go">›</span>
+        ${modoRuta ? '' : '<span class="go">›</span>'}
       </div>
     `).join('');
 
   sheetBody.innerHTML = `
     <div class="chip-row">${chipsEstatus}</div>
     <div class="chip-row">${chipsEstado}</div>
-    <div class="save-row" style="margin-bottom:12px">
+    <div class="save-row" style="margin-bottom:10px">
+      <button class="btn ${modoRuta ? 'teal' : ''}" id="btnModoRuta" style="flex:1">${modoRuta ? 'Cancelar selección' : 'Planear ruta'}</button>
       <button class="btn primary" id="btnImportar" style="flex:1">Importar otra lista (CSV / JSON)</button>
     </div>
+    ${modoRuta && seleccionRuta.size > 0 ? `
+    <div class="save-row" style="margin-bottom:10px">
+      <button class="btn primary" id="btnCalcularRuta" style="flex:1">Calcular ruta (${seleccionRuta.size})</button>
+    </div>` : ''}
     <input type="file" id="fileImportar" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
     ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa, o importa tu DENUE.</div>'}
   `;
@@ -479,13 +551,160 @@ function renderLista(){
       renderMarcadores();
     });
   });
-  sheetBody.querySelectorAll('.item').forEach(it => {
-    it.addEventListener('click', () => abrirDetalle(it.dataset.id));
+
+  if(modoRuta){
+    sheetBody.querySelectorAll('.chk-ruta').forEach(chk => {
+      chk.addEventListener('click', (e) => e.stopPropagation());
+      chk.addEventListener('change', () => {
+        if(chk.checked) seleccionRuta.add(chk.dataset.id); else seleccionRuta.delete(chk.dataset.id);
+        renderLista();
+      });
+    });
+    sheetBody.querySelectorAll('.item').forEach(it => {
+      it.addEventListener('click', () => {
+        const id = it.dataset.id;
+        if(seleccionRuta.has(id)) seleccionRuta.delete(id); else seleccionRuta.add(id);
+        renderLista();
+      });
+    });
+    const btnCalc = document.getElementById('btnCalcularRuta');
+    if(btnCalc) btnCalc.addEventListener('click', calcularYMostrarRuta);
+  } else {
+    sheetBody.querySelectorAll('.item').forEach(it => {
+      it.addEventListener('click', () => abrirDetalle(it.dataset.id));
+    });
+  }
+
+  document.getElementById('btnModoRuta').addEventListener('click', () => {
+    modoRuta = !modoRuta;
+    if(!modoRuta) seleccionRuta.clear();
+    renderLista();
   });
 
   const fileInput = document.getElementById('fileImportar');
   document.getElementById('btnImportar').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', manejarArchivoImportado);
+}
+
+/* ---------- Vista: Ruta (selección de prospectos + orden sugerido) ---------- */
+function distanciaKm(a, b){
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// Heurística del vecino más cercano: no es la ruta perfecta, pero evita ir y
+// venir sobre los mismos tramos, que es justo el problema a resolver aquí.
+function ordenarPorVecinoMasCercano(origen, puntos){
+  const restantes = [...puntos];
+  const orden = [];
+  let actual = origen;
+  if(!actual && restantes.length){
+    actual = { lat: restantes[0].lat, lng: restantes[0].lng };
+    orden.push(restantes.shift());
+  }
+  while(restantes.length){
+    let mejorIdx = 0, mejorDist = Infinity;
+    restantes.forEach((p, i) => {
+      const d = distanciaKm(actual, p);
+      if(d < mejorDist){ mejorDist = d; mejorIdx = i; }
+    });
+    const siguiente = restantes.splice(mejorIdx, 1)[0];
+    orden.push(siguiente);
+    actual = { lat: siguiente.lat, lng: siguiente.lng };
+  }
+  return orden;
+}
+
+function calcularYMostrarRuta(){
+  const seleccionados = prospectos.filter(p => seleccionRuta.has(p.id));
+  if(seleccionados.length === 0){ mostrarToast('Selecciona al menos un prospecto'); return; }
+
+  const construir = (origen) => {
+    rutaCalculada = { origen, paradas: ordenarPorVecinoMasCercano(origen, seleccionados) };
+    cambiarTab('ruta');
+  };
+
+  if(navigator.geolocation){
+    mostrarToast('Calculando ruta desde tu ubicación…');
+    navigator.geolocation.getCurrentPosition(
+      pos => construir({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => construir(null),
+      { enableHighAccuracy: true, timeout: 6000 }
+    );
+  } else {
+    construir(null);
+  }
+}
+
+function renderRuta(){
+  if(!rutaCalculada || rutaCalculada.paradas.length === 0){
+    sheetBody.innerHTML = `<div class="empty">Ve a “Lista”, toca “Planear ruta”, elige los prospectos a visitar hoy y presiona “Calcular ruta”.</div>`;
+    return;
+  }
+  const { origen, paradas } = rutaCalculada;
+  let distTotal = 0;
+  let anterior = origen;
+  const filas = paradas.map((p, i) => {
+    const d = anterior ? distanciaKm(anterior, p) : 0;
+    if(anterior) distTotal += d;
+    anterior = { lat: p.lat, lng: p.lng };
+    return `
+      <div class="item">
+        <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}; width:22px; height:22px; display:flex; align-items:center; justify-content:center; color:#0E1518; font-size:11px; font-weight:700;">${i + 1}</span>
+        <div class="info">
+          <div class="name">${escapeHtml(p.nombre)}</div>
+          <div class="meta">${i === 0 && !origen ? 'Punto de partida' : d.toFixed(1) + ' km desde la parada anterior'}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  sheetBody.innerHTML = `
+    <div style="margin-bottom:12px;">
+      <div style="font-weight:700; font-size:15px;">${paradas.length} paradas · ~${distTotal.toFixed(1)} km en línea recta</div>
+      <div style="font-size:12px; color:var(--text-dim);">Orden sugerido por cercanía${origen ? ' desde tu ubicación actual' : ''} para no cruzar tu propio camino. La distancia es aproximada (línea recta, no por calles).</div>
+    </div>
+    ${filas}
+    <div class="save-row" style="margin-top:14px;">
+      <button class="btn primary" id="btnAbrirGoogleMaps" style="flex:2">Abrir ruta en Google Maps</button>
+      <button class="btn danger" id="btnCancelarRuta">Cancelar</button>
+    </div>
+  `;
+
+  document.getElementById('btnAbrirGoogleMaps').addEventListener('click', abrirEnGoogleMaps);
+  document.getElementById('btnCancelarRuta').addEventListener('click', () => {
+    rutaCalculada = null;
+    seleccionRuta.clear();
+    modoRuta = false;
+    cambiarTab('lista');
+  });
+}
+
+// Google Maps no tiene turn-by-turn "embebido" gratis, pero sí acepta un
+// origen + varias paradas intermedias + destino por URL: le pasamos el
+// orden que ya calculamos y él se encarga de la navegación real por calles.
+function abrirEnGoogleMaps(){
+  let { origen, paradas } = rutaCalculada;
+  if(paradas.length === 0) return;
+
+  if(paradas.length > 10){
+    mostrarToast('Google Maps admite hasta 10 paradas por ruta; se abrirán las primeras 10');
+    paradas = paradas.slice(0, 10);
+  }
+
+  const destino = paradas[paradas.length - 1];
+  const intermedias = paradas.slice(0, -1);
+
+  const params = new URLSearchParams();
+  params.set('api', '1');
+  if(origen) params.set('origin', `${origen.lat},${origen.lng}`);
+  params.set('destination', `${destino.lat},${destino.lng}`);
+  if(intermedias.length) params.set('waypoints', intermedias.map(p => `${p.lat},${p.lng}`).join('|'));
+  params.set('travelmode', 'driving');
+
+  window.open(`https://www.google.com/maps/dir/?${params.toString()}`, '_blank');
 }
 
 /* ---------- Importación: enrutador por tipo de archivo ---------- */
@@ -774,7 +993,7 @@ function renderFormAlta(){
 
     <div class="save-row">
       <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
-      ${p ? '<button class="btn danger" id="btnEliminar">Ya no existe / Eliminar</button>' : ''}
+      ${p ? '<button class="btn danger" id="btnEliminar">Eliminar</button>' : ''}
     </div>
   `;
 
@@ -840,11 +1059,20 @@ function actualizarHeader(){
   const pendientes = prospectos.filter(p => p.pendienteSync).length;
   const dot = document.getElementById('syncDot');
   const txt = document.getElementById('syncText');
+  if(!navigator.onLine){
+    dot.classList.remove('pend');
+    dot.classList.add('offline');
+    txt.textContent = 'Sin conexión';
+    return;
+  }
+  dot.classList.remove('offline');
   if(!SHEET_ENDPOINT){
     dot.classList.toggle('pend', pendientes > 0);
     txt.textContent = pendientes > 0 ? `${pendientes} sin sincronizar` : 'Local';
   }
 }
+window.addEventListener('online', actualizarHeader);
+window.addEventListener('offline', actualizarHeader);
 
 /* ---------- Toast ---------- */
 let toastTimer = null;
