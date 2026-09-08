@@ -19,7 +19,7 @@
     --accent:#C4D600;
     --accent-ink:#14181C;
     --teal:#4FA8A0;
-    --ochre:#E2B93B;
+    --ochre:#FF8A1E;
     --danger:#D65F5F;
     --radius:14px;
   }
@@ -226,10 +226,10 @@ let prospectos = cargarProspectos();
 const ESTATUS = ['Prospecto','Visitado','Cliente','Descartado'];
 const FRECUENCIA = ['Ocasional','Mensual','Semanal'];
 const COLOR_ESTATUS = {
-  'Prospecto': '#E2B93B',
-  'Visitado':  '#4FA8A0',
+  'Prospecto': '#FF8A1E',
+  'Visitado':  '#2FA89D',
   'Cliente':   '#C4D600',
-  'Descartado':'#6B7480'
+  'Descartado':'#8A94A0'
 };
 const ESTADOS = ['Yucatán','Quintana Roo'];
 
@@ -260,11 +260,11 @@ function renderMarcadores(){
     .forEach(p => {
       const esDenue = p.origen === 'DENUE';
       const m = L.circleMarker([p.lat, p.lng], {
-        radius: esDenue ? 6 : 8,
-        color: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
+        radius: esDenue ? 7 : 9,
+        color: '#FFFFFF',
+        weight: esDenue ? 1.5 : 2.5,
         fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
-        fillOpacity: esDenue ? 0.45 : 0.9,
-        weight: esDenue ? 1 : 2
+        fillOpacity: esDenue ? 0.92 : 0.97
       }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
       m.on('click', () => abrirDetalle(p.id));
       markersLayer.addLayer(m);
@@ -316,6 +316,12 @@ function usarGPSparaAlta(){
   navigator.geolocation.getCurrentPosition(pos => {
     fijarCoordTemporal(pos.coords.latitude, pos.coords.longitude);
     map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+    if(editandoId){
+      // Estar parado frente al negocio ya es una visita: se sugiere el estatus,
+      // pero se puede cambiar manualmente si no aplica.
+      const sel = document.getElementById('fEstatus');
+      if(sel && sel.value === 'Prospecto') sel.value = 'Visitado';
+    }
   }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy:true, timeout:8000 });
 }
 
@@ -460,7 +466,7 @@ function renderLista(){
     <div class="chip-row">${chipsEstatus}</div>
     <div class="chip-row">${chipsEstado}</div>
     <div class="save-row" style="margin-bottom:12px">
-      <button class="btn primary" id="btnImportar" style="flex:1">Importar DENUE (CSV / JSON)</button>
+      <button class="btn primary" id="btnImportar" style="flex:1">Importar otra lista (CSV / JSON)</button>
     </div>
     <input type="file" id="fileImportar" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
     ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa, o importa tu DENUE.</div>'}
@@ -501,8 +507,9 @@ function manejarArchivoImportado(ev){
   }
 }
 
-/* ---------- Fusión común (usada por JSON y CSV) ---------- */
-function fusionarImportados(datos){
+/* ---------- Fusión común (usada por JSON, CSV y el catálogo compartido) ---------- */
+function fusionarImportados(datos, opts = {}){
+  const silencioso = !!opts.silencioso;
   const existentes = new Set(prospectos.map(p => p.id));
   let nuevos = 0, actualizados = 0;
   datos.forEach(d => {
@@ -524,8 +531,32 @@ function fusionarImportados(datos){
   renderMarcadores();
   actualizarHeader();
   renderLista();
-  mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
-  if(nuevos > 0 || actualizados > 0){ ajustarVistaATodos(); }
+
+  if(!silencioso){
+    mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
+    if(nuevos > 0 || actualizados > 0){ ajustarVistaATodos(); }
+  } else if(nuevos > 0){
+    // Primera vez que este dispositivo recibe el catálogo compartido: encuadra la vista.
+    ajustarVistaATodos();
+    mostrarToast(`Catálogo cargado: ${nuevos} ubicaciones`);
+  }
+}
+
+/* ---------- Catálogo DENUE compartido (denue-import.json en el propio repo) ----------
+   Este archivo se sube una sola vez al repositorio (junto con index.html) y cada
+   dispositivo lo descarga solo al abrir la app: así el celular ve lo mismo que la PC
+   sin tener que importar el archivo manualmente en cada equipo. Para actualizar el
+   catálogo más adelante, basta con reemplazar denue-import.json en el repo y volver
+   a publicar; los prospectos que ya se trabajaron en campo (pendienteSync) no se pisan. */
+function cargarDenueCompartido(){
+  fetch('denue-import.json', { cache: 'no-cache' })
+    .then(r => r.ok ? r.json() : null)
+    .then(datos => {
+      if(Array.isArray(datos) && datos.length){
+        fusionarImportados(datos, { silencioso: true });
+      }
+    })
+    .catch(() => { /* sin señal: se queda con lo que ya haya guardado en este dispositivo */ });
 }
 
 /* ---------- Importar JSON (formato ya limpio, mismo esquema de la app) ---------- */
@@ -715,7 +746,7 @@ function renderFormAlta(){
 
   sheetBody.innerHTML = `
     <div class="loc-row">
-      <button class="btn primary" id="btnGPS">Usar mi ubicación (GPS)</button>
+      <button class="btn primary" id="btnGPS">${p ? 'Corregir aquí (GPS)' : 'Usar mi ubicación (GPS)'}</button>
       <button class="btn" id="btnMapPick">Marcar en el mapa</button>
     </div>
     <div class="coord-pill" id="coordPill">${tempCoord ? `Ubicación lista: ${tempCoord.lat.toFixed(5)}, ${tempCoord.lng.toFixed(5)}` : ''}</div>
@@ -743,7 +774,7 @@ function renderFormAlta(){
 
     <div class="save-row">
       <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
-      ${p ? '<button class="btn danger" id="btnEliminar">Eliminar</button>' : ''}
+      ${p ? '<button class="btn danger" id="btnEliminar">Ya no existe / Eliminar</button>' : ''}
     </div>
   `;
 
@@ -793,6 +824,7 @@ function guardarDesdeForm(){
 }
 
 function eliminarActual(){
+  if(!confirm('¿Eliminar esta ubicación? Ya no aparecerá en el mapa ni en la lista.')) return;
   prospectos = prospectos.filter(x => x.id !== editandoId);
   guardarProspectos(prospectos);
   renderMarcadores();
@@ -829,6 +861,7 @@ renderMarcadores();
 actualizarHeader();
 renderLista();
 if(prospectos.length > 0){ ajustarVistaATodos(); }
+cargarDenueCompartido();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
