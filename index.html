@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Prospectos & Rutas GC</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14181C">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg:#14181C;
+    --surface:#1E242B;
+    --surface-2:#262D35;
+    --line: #333B44;
+    --text:#EDEFF1;
+    --text-dim:#9AA4AE;
+    --accent:#C4D600;
+    --accent-ink:#14181C;
+    --teal:#4FA8A0;
+    --ochre:#E2B93B;
+    --danger:#D65F5F;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    overflow:hidden;
+  }
+  header{
+    position:fixed; top:0; left:0; right:0; z-index:1200;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+    background:linear-gradient(180deg, rgba(20,24,28,.95), rgba(20,24,28,.75));
+    backdrop-filter: blur(6px);
+  }
+  header h1{
+    font-size:16px; font-weight:700; letter-spacing:-0.2px; margin:0;
+  }
+  header .sub{
+    font-size:11.5px; color:var(--text-dim); margin-top:1px;
+  }
+  .sync-dot{
+    width:9px; height:9px; border-radius:50%; background:var(--text-dim);
+    box-shadow:0 0 0 3px rgba(255,255,255,.04);
+  }
+  .sync-dot.pend{background:var(--ochre);}
+  .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim);}
+
+  #map{ position:absolute; inset:0; }
+  .leaflet-control-attribution{ font-size:9px; }
+
+  .fab{
+    position:fixed; right:16px; bottom:96px; z-index:1200;
+    width:56px; height:56px; border-radius:50%;
+    background:var(--accent); color:var(--accent-ink);
+    border:none; font-size:28px; font-weight:600; line-height:1;
+    box-shadow:0 6px 18px rgba(0,0,0,.4);
+  }
+  .fab:active{ transform: scale(.95); }
+
+  .locate-fab{
+    position:fixed; right:16px; bottom:164px; z-index:1200;
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--line); font-size:18px;
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+  }
+
+  .sheet{
+    position:fixed; left:0; right:0; bottom:0; z-index:1300;
+    background:var(--surface);
+    border-radius:18px 18px 0 0;
+    border-top:1px solid var(--line);
+    box-shadow:0 -8px 24px rgba(0,0,0,.4);
+    max-height:82vh;
+    transform: translateY(calc(100% - 74px));
+    transition: transform .25s ease;
+    display:flex; flex-direction:column;
+  }
+  .sheet.open{ transform: translateY(0); }
+  .sheet-handle{
+    padding:10px 16px 6px; cursor:pointer;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .sheet-handle .bar{
+    width:36px; height:4px; border-radius:2px; background:var(--line);
+    margin: 0 auto;
+  }
+  .sheet-tabs{
+    display:flex; gap:6px; padding:0 14px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  .tab{
+    flex:1; text-align:center; padding:9px 0; border-radius:10px;
+    font-size:13px; color:var(--text-dim); background:transparent; border:none;
+  }
+  .tab.active{ background:var(--surface-2); color:var(--text); font-weight:600; }
+  .sheet-body{ overflow-y:auto; padding:14px 16px 24px; }
+
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:12px; color:var(--text-dim); margin-bottom:5px; }
+  .field input[type=text], .field textarea, .field select{
+    width:100%; background:var(--surface-2); border:1px solid var(--line);
+    color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px;
+    font-family:inherit;
+  }
+  .field textarea{ min-height:64px; resize:vertical; }
+
+  .loc-row{ display:flex; gap:8px; margin-bottom:14px; }
+  .btn{
+    border:none; border-radius:10px; padding:10px 14px; font-size:13.5px;
+    font-weight:600; color:var(--text); background:var(--surface-2);
+    border:1px solid var(--line); flex:1;
+  }
+  .btn.primary{ background:var(--accent); color:var(--accent-ink); border:none; }
+  .btn.teal{ background:transparent; color:var(--teal); border:1px solid var(--teal); }
+  .btn.danger{ background:transparent; color:var(--danger); border:1px solid var(--danger); }
+  .btn:active{ filter:brightness(.92); }
+
+  .coord-pill{
+    font-size:12px; color:var(--teal); background:rgba(79,168,160,.12);
+    border:1px solid rgba(79,168,160,.35); border-radius:8px; padding:6px 10px;
+    margin-bottom:12px; display:none;
+  }
+
+  .save-row{ display:flex; gap:8px; margin-top:6px; }
+
+  .chip-row{ display:flex; gap:6px; overflow-x:auto; padding-bottom:10px; margin-bottom:6px; }
+  .chip{
+    white-space:nowrap; font-size:12px; padding:6px 11px; border-radius:20px;
+    background:var(--surface-2); color:var(--text-dim); border:1px solid var(--line);
+  }
+  .chip.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); font-weight:600; }
+
+  .item{
+    display:flex; align-items:center; gap:10px;
+    padding:11px 4px; border-bottom:1px solid var(--line);
+  }
+  .item .dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .item .info{ flex:1; min-width:0; }
+  .item .name{ font-size:14.5px; font-weight:600; }
+  .item .meta{ font-size:12px; color:var(--text-dim); }
+  .item .go{ font-size:18px; color:var(--text-dim); padding:6px; }
+
+  .empty{ text-align:center; color:var(--text-dim); font-size:13.5px; padding:30px 10px; }
+
+  .toast{
+    position:fixed; left:50%; bottom:180px; transform:translateX(-50%);
+    background:var(--surface-2); color:var(--text); padding:10px 16px;
+    border-radius:10px; font-size:13px; border:1px solid var(--line);
+    z-index:1500; opacity:0; transition:opacity .2s ease; pointer-events:none;
+  }
+  .toast.show{ opacity:1; }
+
+  .pick-banner{
+    position:fixed; top:0; left:0; right:0; z-index:1400;
+    background:var(--teal); color:#0E1518; text-align:center;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+    font-size:13.5px; font-weight:600; display:none;
+  }
+</style>
+</head>
+<body>
+
+<div id="pickBanner" class="pick-banner">Toca un punto en el mapa para marcar la ubicación</div>
+
+<header>
+  <div>
+    <h1>Prospectos & Rutas</h1>
+    <div class="sub" id="headerSub">0 registrados</div>
+  </div>
+  <div class="sync-wrap">
+    <span class="sync-dot" id="syncDot"></span>
+    <span id="syncText">Local</span>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<button class="locate-fab" id="btnLocate" title="Centrar en mi ubicación">◎</button>
+<button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-handle" id="sheetHandle">
+    <div class="bar"></div>
+  </div>
+  <div class="sheet-tabs">
+    <button class="tab active" data-tab="lista">Lista</button>
+    <button class="tab" data-tab="alta">Agregar</button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ---------- Estado y almacenamiento local ---------- */
+const STORAGE_KEY = 'gc_prospectos_v1';
+// TODO: cuando esté listo el Apps Script del Sheet, poner aquí la URL del
+// Web App y activar syncPendientes(). Mientras tanto todo vive local.
+const SHEET_ENDPOINT = '';
+
+function cargarProspectos(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch(e){ return []; }
+}
+function guardarProspectos(lista){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+}
+let prospectos = cargarProspectos();
+
+const ESTATUS = ['Prospecto','Visitado','Cliente','Descartado'];
+const FRECUENCIA = ['Ocasional','Mensual','Semanal'];
+const COLOR_ESTATUS = {
+  'Prospecto': '#E2B93B',
+  'Visitado':  '#4FA8A0',
+  'Cliente':   '#C4D600',
+  'Descartado':'#6B7480'
+};
+
+/* ---------- Mapa ---------- */
+const map = L.map('map', { zoomControl:false, attributionControl:true })
+  .setView([20.70, -89.10], 9); // centrado aprox. en Yucatán
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18,
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+L.control.zoom({ position:'bottomleft' }).addTo(map);
+
+const markersLayer = L.layerGroup().addTo(map);
+let userMarker = null;
+
+function renderMarcadores(){
+  markersLayer.clearLayers();
+  const filtro = estadoFiltro.estatus;
+  prospectos
+    .filter(p => filtro === 'Todos' || p.estatus === filtro)
+    .forEach(p => {
+      const m = L.circleMarker([p.lat, p.lng], {
+        radius: 8,
+        color: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
+        fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
+        fillOpacity: 0.85,
+        weight: 2
+      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}`);
+      m.on('click', () => abrirDetalle(p.id));
+      markersLayer.addLayer(m);
+    });
+}
+
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+/* ---------- Selección de ubicación (GPS o toque en mapa) ---------- */
+let pickingLocation = false;
+let tempCoord = null;
+let tempMarker = null;
+
+document.getElementById('btnLocate').addEventListener('click', () => {
+  centrarEnMiUbicacion();
+});
+
+function centrarEnMiUbicacion(){
+  if(!navigator.geolocation){ mostrarToast('Este dispositivo no soporta GPS'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const {latitude, longitude} = pos.coords;
+    map.setView([latitude, longitude], 15);
+    if(userMarker) map.removeLayer(userMarker);
+    userMarker = L.circleMarker([latitude, longitude], {
+      radius:7, color:'#fff', weight:2, fillColor:'#4FA8A0', fillOpacity:1
+    }).addTo(map);
+  }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy:true, timeout:8000 });
+}
+
+function usarGPSparaAlta(){
+  if(!navigator.geolocation){ mostrarToast('Este dispositivo no soporta GPS'); return; }
+  mostrarToast('Obteniendo ubicación…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    fijarCoordTemporal(pos.coords.latitude, pos.coords.longitude);
+    map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+  }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy:true, timeout:8000 });
+}
+
+function activarSeleccionEnMapa(){
+  pickingLocation = true;
+  document.getElementById('pickBanner').style.display = 'block';
+  cerrarSheet();
+}
+
+map.on('click', (e) => {
+  if(!pickingLocation) return;
+  pickingLocation = false;
+  document.getElementById('pickBanner').style.display = 'none';
+  fijarCoordTemporal(e.latlng.lat, e.latlng.lng);
+  abrirSheet();
+  cambiarTab('alta');
+});
+
+function fijarCoordTemporal(lat, lng){
+  tempCoord = { lat, lng };
+  if(tempMarker) map.removeLayer(tempMarker);
+  tempMarker = L.marker([lat, lng]).addTo(map);
+  const pill = document.getElementById('coordPill');
+  if(pill){
+    pill.style.display = 'block';
+    pill.textContent = `Ubicación lista: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  }
+}
+
+/* ---------- Bottom sheet ---------- */
+const sheet = document.getElementById('sheet');
+const sheetBody = document.getElementById('sheetBody');
+let currentTab = 'lista';
+let estadoFiltro = { estatus: 'Todos' };
+let editandoId = null;
+
+document.getElementById('sheetHandle').addEventListener('click', toggleSheet);
+document.getElementById('btnAdd').addEventListener('click', () => {
+  editandoId = null;
+  tempCoord = null;
+  if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
+  abrirSheet();
+  cambiarTab('alta');
+});
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => cambiarTab(btn.dataset.tab));
+});
+
+function abrirSheet(){ sheet.classList.add('open'); }
+function cerrarSheet(){ sheet.classList.remove('open'); }
+function toggleSheet(){ sheet.classList.toggle('open'); }
+
+function cambiarTab(tab){
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  abrirSheet();
+  if(tab === 'lista') renderLista();
+  if(tab === 'alta') renderFormAlta();
+}
+
+/* ---------- Vista: Lista ---------- */
+function renderLista(){
+  const chips = ['Todos', ...ESTATUS].map(e =>
+    `<button class="chip ${estadoFiltro.estatus===e?'active':''}" data-estatus="${e}">${e}</button>`
+  ).join('');
+
+  const items = prospectos
+    .filter(p => estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus)
+    .map(p => `
+      <div class="item" data-id="${p.id}">
+        <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}"></span>
+        <div class="info">
+          <div class="name">${escapeHtml(p.nombre)}</div>
+          <div class="meta">${p.estatus} · ${p.frecuencia} · ${p.origen}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
+        </div>
+        <span class="go">›</span>
+      </div>
+    `).join('');
+
+  sheetBody.innerHTML = `
+    <div class="chip-row">${chips}</div>
+    ${items || '<div class="empty">Aún no hay prospectos registrados.<br>Toca “Agregar” o el botón + del mapa.</div>'}
+  `;
+
+  sheetBody.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', () => {
+      estadoFiltro.estatus = c.dataset.estatus;
+      renderLista();
+      renderMarcadores();
+    });
+  });
+  sheetBody.querySelectorAll('.item').forEach(it => {
+    it.addEventListener('click', () => abrirDetalle(it.dataset.id));
+  });
+}
+
+function abrirDetalle(id){
+  editandoId = id;
+  cambiarTab('alta');
+}
+
+/* ---------- Vista: Alta / edición ---------- */
+function renderFormAlta(){
+  const p = editandoId ? prospectos.find(x => x.id === editandoId) : null;
+  if(p){ tempCoord = { lat: p.lat, lng: p.lng }; }
+
+  sheetBody.innerHTML = `
+    <div class="loc-row">
+      <button class="btn primary" id="btnGPS">Usar mi ubicación (GPS)</button>
+      <button class="btn" id="btnMapPick">Marcar en el mapa</button>
+    </div>
+    <div class="coord-pill" id="coordPill">${tempCoord ? `Ubicación lista: ${tempCoord.lat.toFixed(5)}, ${tempCoord.lng.toFixed(5)}` : ''}</div>
+
+    <div class="field">
+      <label>Nombre del negocio</label>
+      <input type="text" id="fNombre" placeholder="Ej. Refaccionaria Los 3 Hermanos" value="${p ? escapeHtml(p.nombre) : ''}">
+    </div>
+    <div class="field">
+      <label>Estatus</label>
+      <select id="fEstatus">
+        ${ESTATUS.map(e => `<option ${p && p.estatus===e ? 'selected':''}>${e}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Frecuencia de visita</label>
+      <select id="fFrecuencia">
+        ${FRECUENCIA.map(f => `<option ${p && p.frecuencia===f ? 'selected':''}>${f}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Notas</label>
+      <textarea id="fNotas" placeholder="Referencias, contacto, horario…">${p ? escapeHtml(p.notas||'') : ''}</textarea>
+    </div>
+
+    <div class="save-row">
+      <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
+      ${p ? '<button class="btn danger" id="btnEliminar">Eliminar</button>' : ''}
+    </div>
+  `;
+
+  if(tempCoord){
+    const pill = document.getElementById('coordPill');
+    pill.style.display = 'block';
+  }
+
+  document.getElementById('btnGPS').addEventListener('click', usarGPSparaAlta);
+  document.getElementById('btnMapPick').addEventListener('click', activarSeleccionEnMapa);
+  document.getElementById('btnGuardar').addEventListener('click', guardarDesdeForm);
+  const btnEliminar = document.getElementById('btnEliminar');
+  if(btnEliminar) btnEliminar.addEventListener('click', eliminarActual);
+}
+
+function guardarDesdeForm(){
+  const nombre = document.getElementById('fNombre').value.trim();
+  const estatus = document.getElementById('fEstatus').value;
+  const frecuencia = document.getElementById('fFrecuencia').value;
+  const notas = document.getElementById('fNotas').value.trim();
+
+  if(!nombre){ mostrarToast('Falta el nombre del negocio'); return; }
+  if(!tempCoord){ mostrarToast('Falta la ubicación: usa GPS o marca en el mapa'); return; }
+
+  if(editandoId){
+    const p = prospectos.find(x => x.id === editandoId);
+    Object.assign(p, { nombre, estatus, frecuencia, notas, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true });
+  } else {
+    prospectos.push({
+      id: 'p_' + Date.now(),
+      nombre, estatus, frecuencia, notas,
+      lat: tempCoord.lat, lng: tempCoord.lng,
+      origen: 'Manual',
+      fechaUltimaVisita: null,
+      pendienteSync: true
+    });
+  }
+
+  guardarProspectos(prospectos);
+  renderMarcadores();
+  actualizarHeader();
+  if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
+  tempCoord = null;
+  editandoId = null;
+  mostrarToast('Guardado localmente');
+  cambiarTab('lista');
+}
+
+function eliminarActual(){
+  prospectos = prospectos.filter(x => x.id !== editandoId);
+  guardarProspectos(prospectos);
+  renderMarcadores();
+  actualizarHeader();
+  editandoId = null;
+  mostrarToast('Prospecto eliminado');
+  cambiarTab('lista');
+}
+
+/* ---------- Header / sincronización ---------- */
+function actualizarHeader(){
+  document.getElementById('headerSub').textContent = `${prospectos.length} registrados`;
+  const pendientes = prospectos.filter(p => p.pendienteSync).length;
+  const dot = document.getElementById('syncDot');
+  const txt = document.getElementById('syncText');
+  if(!SHEET_ENDPOINT){
+    dot.classList.toggle('pend', pendientes > 0);
+    txt.textContent = pendientes > 0 ? `${pendientes} sin sincronizar` : 'Local';
+  }
+}
+
+/* ---------- Toast ---------- */
+let toastTimer = null;
+function mostrarToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ---------- Arranque ---------- */
+renderMarcadores();
+actualizarHeader();
+renderLista();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
