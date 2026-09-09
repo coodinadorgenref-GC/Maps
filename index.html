@@ -71,6 +71,23 @@
     border:1px solid var(--line); font-size:18px;
     box-shadow:0 6px 14px rgba(0,0,0,.35);
   }
+  .locate-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
+
+  .ubi-divicon{ position:relative; }
+  .ubi-punto{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:14px; height:14px; border-radius:50%;
+    background:#3B82F6; border:3px solid #FFFFFF;
+    box-shadow:0 0 0 2px rgba(59,130,246,.35);
+  }
+  .ubi-cono{
+    position:absolute; left:50%; top:50%; margin-left:-9px; margin-top:-26px;
+    width:0; height:0;
+    border-left:9px solid transparent;
+    border-right:9px solid transparent;
+    border-bottom:26px solid rgba(59,130,246,.55);
+    transform-origin:50% 100%;
+  }
   .fit-fab{
     position:fixed; right:16px; bottom:216px; z-index:1200;
     width:44px; height:44px; border-radius:50%;
@@ -108,6 +125,18 @@
   .route-banner .go{ background:#0E1518; color:#fff; }
   .route-banner .cancel{ background:transparent; color:#0E1518; border:1px solid #0E1518; }
 
+  .leaflet-tooltip.ruta-num-tooltip{
+    background:transparent; border:none; box-shadow:none;
+    color:#0E1518; font-size:11px; font-weight:800;
+    padding:0; pointer-events:none;
+  }
+  .leaflet-tooltip.ruta-num-tooltip::before{ display:none; }
+
+  .quitar-parada{
+    background:none; border:none; color:var(--danger);
+    font-size:18px; line-height:1; padding:6px 6px; cursor:pointer;
+  }
+
   .sheet{
     position:fixed; left:0; right:0; bottom:0; z-index:1300;
     background:var(--surface);
@@ -137,6 +166,11 @@
     font-size:13px; color:var(--text-dim); background:transparent; border:none;
   }
   .tab.active{ background:var(--surface-2); color:var(--text); font-weight:600; }
+  .tab-back{
+    padding:9px 12px; border-radius:10px; font-size:13px; font-weight:600;
+    color:var(--text); background:transparent; border:none;
+  }
+  .tab-title{ flex:1; text-align:center; padding:9px 0; font-size:13px; font-weight:600; color:var(--text); }
   .sheet-body{ overflow-y:auto; padding:14px 16px 24px; }
 
   .field{ margin-bottom:12px; }
@@ -226,7 +260,7 @@
 
 <div id="map"></div>
 
-<button class="locate-fab" id="btnLocate" title="Centrar en mi ubicación">◎</button>
+<button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo">◎</button>
 <button class="fit-fab" id="btnFit" title="Ver todos los prospectos">⤢</button>
 <button class="zone-fab" id="btnZonaOffline" title="Guardar el mapa de esta zona para trabajar sin señal">⬇</button>
 <button class="route-fab" id="btnPlanRuta" title="Planear ruta: selecciona prospectos en el mapa">🧭</button>
@@ -236,11 +270,7 @@
   <div class="sheet-handle" id="sheetHandle">
     <div class="bar"></div>
   </div>
-  <div class="sheet-tabs">
-    <button class="tab active" data-tab="lista">Lista</button>
-    <button class="tab" data-tab="alta">Agregar</button>
-    <button class="tab" data-tab="ruta">Ruta</button>
-  </div>
+  <div class="sheet-tabs" id="sheetTabs"></div>
   <div class="sheet-body" id="sheetBody"></div>
 </div>
 
@@ -291,7 +321,9 @@ function pasaFiltro(p){
   const okEstatus = estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus;
   const okEstado = estadoFiltro.estado === 'Todos' || !p.estado || p.estado === estadoFiltro.estado;
   const okLocalidad = estadoFiltro.localidad === 'Todas' || p.localidad === estadoFiltro.localidad;
-  return okEstatus && okEstado && okLocalidad;
+  const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
+  const okBusqueda = !textoBusqueda || (p.nombre || '').toLowerCase().includes(textoBusqueda.toLowerCase());
+  return okEstatus && okEstado && okLocalidad && okFrecuencia && okBusqueda;
 }
 
 function localidadesDisponibles(){
@@ -305,7 +337,9 @@ function renderMarcadores(){
     .filter(pasaFiltro)
     .forEach(p => {
       const esDenue = p.origen === 'DENUE';
-      const seleccionado = modoRuta && seleccionRuta.has(p.id);
+      const idxRuta = rutaCalculada ? rutaCalculada.paradas.findIndex(x => x.id === p.id) : -1;
+      const enRuta = idxRuta !== -1;
+      const seleccionado = (modoRuta && seleccionRuta.has(p.id)) || enRuta;
       const m = L.circleMarker([p.lat, p.lng], {
         radius: seleccionado ? (esDenue ? 10 : 12) : (esDenue ? 7 : 9),
         color: seleccionado ? '#C4D600' : '#FFFFFF',
@@ -313,9 +347,13 @@ function renderMarcadores(){
         fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
         fillOpacity: esDenue ? 0.92 : 0.97
       }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
+      if(enRuta){
+        m.bindTooltip(String(idxRuta + 1), { permanent: true, direction: 'center', className: 'ruta-num-tooltip' });
+      }
       m.on('click', () => {
-        if(modoRuta) toggleSeleccionRuta(p.id);
-        else abrirDetalle(p.id);
+        if(modoRuta){ toggleSeleccionRuta(p.id); return; }
+        if(enRuta){ quitarParadaDeRuta(p.id); return; }
+        abrirDetalle(p.id);
       });
       markersLayer.addLayer(m);
     });
@@ -330,8 +368,113 @@ let pickingLocation = false;
 let tempCoord = null;
 let tempMarker = null;
 
+/* ---------- Ubicación en el mapa: un toque centra, otro sigue con rumbo ----------
+   Imita el botón de "mi ubicación" de Google Maps: 1er toque = centra y
+   muestra un punto; 2do toque = modo "siguiendo", el punto se convierte en
+   un cono que gira según hacia dónde apunta el teléfono, y el mapa se
+   recentra solo con cada actualización de GPS. Si el usuario mueve el mapa
+   con el dedo, se sale del seguimiento (para no pelear con su gesto). */
+let modoUbicacion = 'apagado'; // 'apagado' | 'centrado' | 'siguiendo'
+let watchIdUbicacion = null;
+let listenerRumbo = null;
+let ultimoRumbo = 0;
+
+function iconoUbicacion(conRumbo){
+  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${ultimoRumbo}deg)"></div>` : '';
+  return L.divIcon({
+    className: 'ubi-divicon',
+    html: `${cono}<div class="ubi-punto"></div>`,
+    iconSize: [1, 1],
+    iconAnchor: [0, 0]
+  });
+}
+
+function colocarMarcadorUbicacion(lat, lng, conRumbo){
+  const icon = iconoUbicacion(conRumbo);
+  if(userMarker){
+    userMarker.setLatLng([lat, lng]);
+    userMarker.setIcon(icon);
+  } else {
+    userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000, interactive: false }).addTo(map);
+  }
+}
+
+function detenerSeguimientoUbicacion(){
+  if(watchIdUbicacion !== null){ navigator.geolocation.clearWatch(watchIdUbicacion); watchIdUbicacion = null; }
+  if(listenerRumbo){
+    window.removeEventListener('deviceorientationabsolute', listenerRumbo);
+    window.removeEventListener('deviceorientation', listenerRumbo);
+    listenerRumbo = null;
+  }
+}
+
+function salirModoUbicacion(){
+  detenerSeguimientoUbicacion();
+  modoUbicacion = 'apagado';
+  document.getElementById('btnLocate').classList.remove('active');
+  if(userMarker) userMarker.setIcon(iconoUbicacion(false));
+}
+
+function activarSeguimientoConRumbo(){
+  modoUbicacion = 'siguiendo';
+  document.getElementById('btnLocate').classList.add('active');
+  mostrarToast('Siguiendo tu ubicación y hacia dónde apunta el teléfono');
+
+  watchIdUbicacion = navigator.geolocation.watchPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    map.panTo([latitude, longitude], { animate: true });
+    colocarMarcadorUbicacion(latitude, longitude, true);
+  }, () => {}, { enableHighAccuracy: true });
+
+  listenerRumbo = (e) => {
+    let rumbo = null;
+    if(typeof e.webkitCompassHeading === 'number') rumbo = e.webkitCompassHeading; // Safari/iOS
+    else if(e.alpha != null) rumbo = 360 - e.alpha;
+    if(rumbo == null) return;
+    ultimoRumbo = rumbo;
+    if(userMarker) userMarker.setIcon(iconoUbicacion(true));
+  };
+
+  // iOS exige pedir permiso explícito para el sensor de orientación,
+  // y solo lo concede si se pide justo dentro de un toque del usuario.
+  if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+    DeviceOrientationEvent.requestPermission()
+      .then(resp => { if(resp === 'granted') window.addEventListener('deviceorientation', listenerRumbo); })
+      .catch(() => {});
+  } else {
+    window.addEventListener('deviceorientationabsolute', listenerRumbo);
+    window.addEventListener('deviceorientation', listenerRumbo);
+  }
+}
+
 document.getElementById('btnLocate').addEventListener('click', () => {
-  centrarEnMiUbicacion();
+  if(!navigator.geolocation){ mostrarToast('Este dispositivo no soporta GPS'); return; }
+
+  if(modoUbicacion === 'apagado'){
+    mostrarToast('Buscando tu ubicación…');
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      map.setView([latitude, longitude], Math.max(map.getZoom(), 15));
+      colocarMarcadorUbicacion(latitude, longitude, false);
+      modoUbicacion = 'centrado';
+      document.getElementById('btnLocate').classList.add('active');
+    }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy: true, timeout: 8000 });
+  } else if(modoUbicacion === 'centrado'){
+    activarSeguimientoConRumbo();
+  } else {
+    salirModoUbicacion();
+  }
+});
+
+// Manipular el mapa con el dedo (arrastrarlo) es la señal natural de que ya
+// no se quiere seguir centrado automáticamente en la ubicación.
+map.on('dragstart', () => {
+  if(modoUbicacion !== 'apagado') salirModoUbicacion();
+});
+
+// Ahorra batería: si la app queda en segundo plano, se detiene el GPS/brújula.
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden && modoUbicacion !== 'apagado') salirModoUbicacion();
 });
 
 document.getElementById('btnFit').addEventListener('click', () => {
@@ -408,6 +551,15 @@ async function descargarZonaSinSenal(){
   if(!('caches' in window)){ mostrarToast('Este navegador no permite guardar mapas sin conexión'); return; }
   if(!navigator.onLine){ mostrarToast('Necesitas señal ahora para guardar el mapa de esta zona'); return; }
 
+  const confirmado = confirm(
+    'Esto guarda las imágenes del mapa (calles, no los prospectos) de la zona que ves ahora mismo, ' +
+    'para que el mapa siga viéndose cuando pierdas señal más adelante (los prospectos y sus datos ya ' +
+    'funcionan sin señal siempre, esto es solo para que el fondo del mapa no se quede en blanco).\n\n' +
+    'Acércate o aléjate hasta encuadrar la zona que quieres cubrir antes de continuar.\n\n' +
+    '¿Descargar el mapa de esta zona?'
+  );
+  if(!confirmado) return;
+
   const zoomBase = map.getZoom();
   const zooms = [...new Set([
     Math.max(zoomBase - 1, 10), zoomBase, Math.min(zoomBase + 1, 17), Math.min(zoomBase + 2, 17)
@@ -415,9 +567,9 @@ async function descargarZonaSinSenal(){
   const bounds = map.getBounds();
   const subdominios = ['a', 'b', 'c'];
 
-  mostrarToast('Descargando mapa de esta zona…');
+  mostrarToast('Descargando mapa de esta zona… puede tardar unos segundos');
   const cache = await caches.open(TILES_CACHE_NAME);
-  let total = 0;
+  let total = 0, ok = 0;
   const tareas = [];
 
   zooms.forEach(z => {
@@ -428,13 +580,20 @@ async function descargarZonaSinSenal(){
         const s = subdominios[(x + y) % subdominios.length];
         const url = `https://${s}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
         total++;
-        tareas.push(fetch(url, { mode: 'no-cors' }).then(r => cache.put(url, r)).catch(() => {}));
+        tareas.push(
+          fetch(url, { mode: 'no-cors' }).then(r => { cache.put(url, r); ok++; }).catch(() => {})
+        );
       }
     }
   });
 
   await Promise.all(tareas);
-  mostrarToast(`Zona guardada: ${total} recuadros de mapa listos para sin señal`);
+  if(ok === 0){
+    mostrarToast('No se pudo descargar el mapa: revisa tu señal e inténtalo de nuevo');
+  } else {
+    const pesoAprox = ((ok * 15) / 1024).toFixed(1); // ~15 KB por recuadro, estimado
+    mostrarToast(`Zona guardada: ${ok} de ${total} recuadros (~${pesoAprox} MB) listos para sin señal`);
+  }
 }
 
 function ajustarVistaATodos(){
@@ -445,18 +604,6 @@ function ajustarVistaATodos(){
   }
   const bounds = L.latLngBounds(visibles.map(p => [p.lat, p.lng]));
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-}
-
-function centrarEnMiUbicacion(){
-  if(!navigator.geolocation){ mostrarToast('Este dispositivo no soporta GPS'); return; }
-  navigator.geolocation.getCurrentPosition(pos => {
-    const {latitude, longitude} = pos.coords;
-    map.setView([latitude, longitude], 15);
-    if(userMarker) map.removeLayer(userMarker);
-    userMarker = L.circleMarker([latitude, longitude], {
-      radius:7, color:'#fff', weight:2, fillColor:'#4FA8A0', fillOpacity:1
-    }).addTo(map);
-  }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy:true, timeout:8000 });
 }
 
 function usarGPSparaAlta(){
@@ -504,8 +651,9 @@ function fijarCoordTemporal(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas' };
 let filtrosAbiertos = false;
+let textoBusqueda = '';
 let editandoId = null;
 let modoRuta = false;
 let seleccionRuta = new Set();
@@ -518,10 +666,6 @@ document.getElementById('btnAdd').addEventListener('click', () => {
   if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
   abrirSheet();
   cambiarTab('alta');
-});
-
-document.querySelectorAll('.tab').forEach(btn => {
-  btn.addEventListener('click', () => cambiarTab(btn.dataset.tab));
 });
 
 function abrirSheet(){ sheet.classList.add('open'); }
@@ -587,11 +731,28 @@ function habilitarArrastreSheet(){
 
 function cambiarTab(tab){
   currentTab = tab;
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  renderSheetTabs();
   abrirSheet();
   if(tab === 'lista') renderLista();
   if(tab === 'alta') renderFormAlta();
   if(tab === 'ruta') renderRuta();
+}
+
+// "Agregar" y "Ruta" ya se activan desde sus propios botones en el mapa (+ y
+// 🧭), así que no necesitan ser pestañas fijas todo el tiempo: solo aparece
+// un "‹ Lista" para regresar, evitando el botón duplicado.
+function renderSheetTabs(){
+  const tabsEl = document.getElementById('sheetTabs');
+  if(currentTab === 'lista'){
+    tabsEl.innerHTML = `<div class="tab-title">Lista de prospectos</div>`;
+    return;
+  }
+  const titulo = currentTab === 'alta' ? (editandoId ? 'Editar prospecto' : 'Agregar prospecto') : 'Ruta';
+  tabsEl.innerHTML = `
+    <button class="tab-back" id="btnVolverLista">‹ Lista</button>
+    <div class="tab-title">${titulo}</div>
+  `;
+  document.getElementById('btnVolverLista').addEventListener('click', () => cambiarTab('lista'));
 }
 
 /* ---------- Vista: Lista ---------- */
@@ -602,10 +763,14 @@ function renderLista(){
   const chipsEstado = ['Todos', ...ESTADOS].map(e =>
     `<button class="chip ${estadoFiltro.estado===e?'active':''}" data-tipo="estado" data-valor="${e}">${e}</button>`
   ).join('');
+  const chipsFrecuencia = ['Todas', ...FRECUENCIA].map(f =>
+    `<button class="chip ${estadoFiltro.frecuencia===f?'active':''}" data-tipo="frecuencia" data-valor="${f}">${f}</button>`
+  ).join('');
   const localidades = localidadesDisponibles();
 
-  const filtrosActivos = ['estatus', 'estado', 'localidad']
-    .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length;
+  const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia']
+    .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length
+    + (textoBusqueda ? 1 : 0);
 
   const items = prospectos
     .filter(pasaFiltro)
@@ -629,8 +794,13 @@ function renderLista(){
       <button class="btn primary" id="btnImportar" style="flex:1">Importar otra lista (CSV / JSON)</button>
     </div>
     ${filtrosAbiertos ? `
+      <div class="field">
+        <label>Buscar por nombre</label>
+        <input type="text" id="inputBusqueda" placeholder="Escribe un nombre…" value="${escapeHtml(textoBusqueda)}">
+      </div>
       <div class="chip-row">${chipsEstatus}</div>
       <div class="chip-row">${chipsEstado}</div>
+      <div class="chip-row">${chipsFrecuencia}</div>
       <div class="field">
         <label>Localidad (A-Z)</label>
         <select id="selLocalidad">
@@ -663,6 +833,17 @@ function renderLista(){
     estadoFiltro.localidad = selLocalidad.value;
     renderLista();
     renderMarcadores();
+  });
+
+  const inputBusqueda = document.getElementById('inputBusqueda');
+  if(inputBusqueda) inputBusqueda.addEventListener('input', () => {
+    textoBusqueda = inputBusqueda.value;
+    renderLista();
+    renderMarcadores();
+    // Re-render reemplaza el input; se regresa el foco y el cursor al final
+    // para poder seguir escribiendo sin que se cierre el teclado.
+    const el = document.getElementById('inputBusqueda');
+    if(el){ el.focus(); const v = el.value; el.value = ''; el.value = v; }
   });
 
   sheetBody.querySelectorAll('.item').forEach(it => {
@@ -709,18 +890,54 @@ function ordenarPorVecinoMasCercano(origen, puntos){
   return orden;
 }
 
+function largoDeRuta(origen, orden){
+  let total = 0;
+  let anterior = origen;
+  orden.forEach(p => {
+    if(anterior) total += distanciaKm(anterior, p);
+    anterior = p;
+  });
+  return total;
+}
+
+// El vecino más cercano por sí solo puede dejar un punto "colgado" que obliga
+// a regresar sobre lo ya recorrido cuando hay varios negocios muy juntos.
+// 2-opt revisa pares de tramos y, si invertir el segmento entre ellos acorta
+// la ruta, lo hace — así se destrancan esas vueltas exageradas.
+function optimizarRuta(origen, puntos){
+  let ruta = ordenarPorVecinoMasCercano(origen, puntos);
+  if(ruta.length < 3) return ruta;
+
+  let mejorado = true;
+  let vueltas = 0;
+  while(mejorado && vueltas < 60){
+    mejorado = false;
+    vueltas++;
+    for(let i = 0; i < ruta.length - 1; i++){
+      for(let j = i + 1; j < ruta.length; j++){
+        const candidata = ruta.slice(0, i).concat(ruta.slice(i, j + 1).reverse(), ruta.slice(j + 1));
+        if(largoDeRuta(origen, candidata) < largoDeRuta(origen, ruta) - 1e-9){
+          ruta = candidata;
+          mejorado = true;
+        }
+      }
+    }
+  }
+  return ruta;
+}
+
 function calcularYMostrarRuta(){
   const seleccionados = prospectos.filter(p => seleccionRuta.has(p.id));
   if(seleccionados.length === 0){ mostrarToast('Selecciona al menos un prospecto'); return; }
 
   const construir = (origen) => {
-    rutaCalculada = { origen, paradas: ordenarPorVecinoMasCercano(origen, seleccionados) };
+    rutaCalculada = { origen, paradas: optimizarRuta(origen, seleccionados) };
     salirModoRutaEnMapa();
     cambiarTab('ruta');
   };
 
   if(navigator.geolocation){
-    mostrarToast('Calculando ruta desde tu ubicación…');
+    mostrarToast('Calculando la mejor ruta desde tu ubicación…');
     navigator.geolocation.getCurrentPosition(
       pos => construir({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => construir(null),
@@ -744,19 +961,20 @@ function renderRuta(){
     if(anterior) distTotal += d;
     anterior = { lat: p.lat, lng: p.lng };
     return `
-      <div class="item">
+      <div class="item" data-id="${p.id}">
         <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}; width:22px; height:22px; display:flex; align-items:center; justify-content:center; color:#0E1518; font-size:11px; font-weight:700;">${i + 1}</span>
         <div class="info">
           <div class="name">${escapeHtml(p.nombre)}</div>
           <div class="meta">${i === 0 && !origen ? 'Punto de partida' : d.toFixed(1) + ' km desde la parada anterior'}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</div>
         </div>
+        <button class="quitar-parada" data-id="${p.id}" title="Quitar de la ruta">✕</button>
       </div>`;
   }).join('');
 
   sheetBody.innerHTML = `
     <div style="margin-bottom:12px;">
       <div style="font-weight:700; font-size:15px;">${paradas.length} paradas · ~${distTotal.toFixed(1)} km en línea recta</div>
-      <div style="font-size:12px; color:var(--text-dim);">Orden sugerido por cercanía${origen ? ' desde tu ubicación actual' : ''} para no cruzar tu propio camino. La distancia es aproximada (línea recta, no por calles).</div>
+      <div style="font-size:12px; color:var(--text-dim);">Ruta optimizada${origen ? ' desde tu ubicación actual' : ''} para evitar vueltas y cruces cuando hay negocios muy juntos. Toca ✕ o el punto en el mapa para quitar una parada. La distancia es aproximada (línea recta, no por calles).</div>
     </div>
     ${filas}
     <div class="save-row" style="margin-top:14px;">
@@ -765,6 +983,19 @@ function renderRuta(){
     </div>
   `;
 
+  sheetBody.querySelectorAll('.quitar-parada').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      quitarParadaDeRuta(btn.dataset.id);
+    });
+  });
+  sheetBody.querySelectorAll('.item').forEach(it => {
+    it.addEventListener('click', () => {
+      const parada = rutaCalculada.paradas.find(x => x.id === it.dataset.id);
+      if(parada){ map.setView([parada.lat, parada.lng], 17); cerrarSheet(); }
+    });
+  });
+
   document.getElementById('btnAbrirGoogleMaps').addEventListener('click', abrirEnGoogleMaps);
   document.getElementById('btnCancelarRuta').addEventListener('click', () => {
     rutaCalculada = null;
@@ -772,6 +1003,20 @@ function renderRuta(){
     salirModoRutaEnMapa();
     cambiarTab('lista');
   });
+}
+
+// Quita una parada de la ruta ya calculada, sin tener que rehacerla desde
+// cero: se puede tocar la ✕ en la lista o el propio punto numerado en el mapa.
+function quitarParadaDeRuta(id){
+  if(!rutaCalculada) return;
+  const restantes = rutaCalculada.paradas.filter(p => p.id !== id);
+  seleccionRuta.delete(id);
+  rutaCalculada = restantes.length === 0
+    ? null
+    : { origen: rutaCalculada.origen, paradas: optimizarRuta(rutaCalculada.origen, restantes) };
+  renderMarcadores();
+  if(currentTab === 'ruta') renderRuta();
+  mostrarToast('Parada quitada de la ruta');
 }
 
 // Google Maps no tiene turn-by-turn "embebido" gratis, pero sí acepta un
@@ -1177,6 +1422,7 @@ function mostrarToast(msg){
 }
 
 /* ---------- Arranque ---------- */
+renderSheetTabs();
 renderMarcadores();
 actualizarHeader();
 renderLista();
