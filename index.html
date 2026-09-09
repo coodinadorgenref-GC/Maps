@@ -246,6 +246,13 @@
     <button class="cancel" id="btnRutaCancelar">Cancelar</button>
   </div>
 </div>
+<div id="zoneDrawBanner" class="route-banner">
+  <span class="txt">Arrastra en el mapa para marcar el área a descargar</span>
+  <div class="btns">
+    <button class="go" id="btnZonaDescargarArea">Descargar</button>
+    <button class="cancel" id="btnZonaCancelar">Cancelar</button>
+  </div>
+</div>
 
 <header>
   <div>
@@ -262,7 +269,7 @@
 
 <button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo">◎</button>
 <button class="fit-fab" id="btnFit" title="Ver todos los prospectos">⤢</button>
-<button class="zone-fab" id="btnZonaOffline" title="Guardar el mapa de esta zona para trabajar sin señal">⬇</button>
+<button class="zone-fab" id="btnZonaOffline" title="Mapas guardados para trabajar sin señal">⬇</button>
 <button class="route-fab" id="btnPlanRuta" title="Planear ruta: selecciona prospectos en el mapa">🧭</button>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
@@ -481,7 +488,10 @@ document.getElementById('btnFit').addEventListener('click', () => {
   ajustarVistaATodos();
 });
 
-document.getElementById('btnZonaOffline').addEventListener('click', descargarZonaSinSenal);
+document.getElementById('btnZonaOffline').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('zonas');
+});
 
 /* ---------- Selección de ruta directamente en el mapa ----------
    En vez de escoger de una lista larga y dispersa, el modo ruta resalta un
@@ -533,11 +543,15 @@ document.getElementById('btnRutaListo').addEventListener('click', () => {
 
 /* ---------- Guardar tiles del mapa para trabajar sin señal ----------
    En carretera/poblados sin cobertura, Leaflet no puede pedir tiles nuevos.
-   Este botón descarga por adelantado (mientras haya señal) los recuadros del
-   mapa de la zona visible, en un rango de zooms, y los deja en la misma caché
-   que usa el service worker (rutas-gc-tiles-v1) para que se sirvan solos
-   cuando no haya conexión. */
+   Esto descarga por adelantado (mientras haya señal) los recuadros del mapa
+   de un área — la vista actual o un área más grande dibujada a mano para
+   tramos largos de carretera — y los deja en la misma caché que usa el
+   service worker (rutas-gc-tiles-v1) para que se sirvan solos sin conexión.
+   Cada descarga queda registrada (fecha, área, cuántos recuadros) para poder
+   verla y eliminarla después si ya no se necesita. */
 const TILES_CACHE_NAME = 'rutas-gc-tiles-v1'; // debe coincidir con CACHE_TILES en sw.js
+const ZONAS_KEY = 'gc_zonas_descargadas_v1';
+const LIMITE_TILES_RECOMENDADO = 3000; // tope para que un área grande no tarde una eternidad
 
 function latLngATile(lat, lng, zoom){
   const n = Math.pow(2, zoom);
@@ -547,47 +561,57 @@ function latLngATile(lat, lng, zoom){
   return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
 }
 
-async function descargarZonaSinSenal(){
-  if(!('caches' in window)){ mostrarToast('Este navegador no permite guardar mapas sin conexión'); return; }
-  if(!navigator.onLine){ mostrarToast('Necesitas señal ahora para guardar el mapa de esta zona'); return; }
+function contarTiles(bounds, zooms){
+  let total = 0;
+  zooms.forEach(z => {
+    const nw = latLngATile(bounds.getNorth(), bounds.getWest(), z);
+    const se = latLngATile(bounds.getSouth(), bounds.getEast(), z);
+    total += (se.x - nw.x + 1) * (se.y - nw.y + 1);
+  });
+  return total;
+}
 
-  const confirmado = confirm(
-    'Esto guarda las imágenes del mapa (calles, no los prospectos) de la zona que ves ahora mismo, ' +
-    'para que el mapa siga viéndose cuando pierdas señal más adelante (los prospectos y sus datos ya ' +
-    'funcionan sin señal siempre, esto es solo para que el fondo del mapa no se quede en blanco).\n\n' +
-    'Acércate o aléjate hasta encuadrar la zona que quieres cubrir antes de continuar.\n\n' +
-    '¿Descargar el mapa de esta zona?'
-  );
-  if(!confirmado) return;
-
+// Entre más grande el área (un tramo largo de carretera), menos niveles de
+// zoom conviene guardar — si no, un área grande podría pedir decenas de
+// miles de recuadros. Se van quitando los zooms más pesados (los más
+// cercanos) hasta quedar dentro de un tope razonable.
+function elegirZoomsParaArea(bounds){
   const zoomBase = map.getZoom();
-  const zooms = [...new Set([
+  let candidatos = [...new Set([
     Math.max(zoomBase - 1, 10), zoomBase, Math.min(zoomBase + 1, 17), Math.min(zoomBase + 2, 17)
-  ])];
-  const bounds = map.getBounds();
-  const subdominios = ['a', 'b', 'c'];
+  ])].sort((a, b) => a - b);
 
-  mostrarToast('Descargando mapa de esta zona… puede tardar unos segundos');
+  while(candidatos.length > 1 && contarTiles(bounds, candidatos) > LIMITE_TILES_RECOMENDADO){
+    candidatos.pop();
+  }
+  return candidatos;
+}
+
+async function descargarTilesDeArea(bounds, zooms){
+  const subdominios = ['a', 'b', 'c'];
   const cache = await caches.open(TILES_CACHE_NAME);
   let total = 0, ok = 0;
   const tareas = [];
 
   zooms.forEach(z => {
-    const nwTile = latLngATile(bounds.getNorth(), bounds.getWest(), z);
-    const seTile = latLngATile(bounds.getSouth(), bounds.getEast(), z);
-    for(let x = nwTile.x; x <= seTile.x; x++){
-      for(let y = nwTile.y; y <= seTile.y; y++){
+    const nw = latLngATile(bounds.getNorth(), bounds.getWest(), z);
+    const se = latLngATile(bounds.getSouth(), bounds.getEast(), z);
+    for(let x = nw.x; x <= se.x; x++){
+      for(let y = nw.y; y <= se.y; y++){
         const s = subdominios[(x + y) % subdominios.length];
         const url = `https://${s}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
         total++;
-        tareas.push(
-          fetch(url, { mode: 'no-cors' }).then(r => { cache.put(url, r); ok++; }).catch(() => {})
-        );
+        tareas.push(fetch(url, { mode: 'no-cors' }).then(r => { cache.put(url, r); ok++; }).catch(() => {}));
       }
     }
   });
 
+  mostrarToast('Descargando mapa de la zona… puede tardar según el tamaño del área');
   await Promise.all(tareas);
+  return { total, ok };
+}
+
+function mostrarResultadoDescarga({ total, ok }){
   if(ok === 0){
     mostrarToast('No se pudo descargar el mapa: revisa tu señal e inténtalo de nuevo');
   } else {
@@ -595,6 +619,138 @@ async function descargarZonaSinSenal(){
     mostrarToast(`Zona guardada: ${ok} de ${total} recuadros (~${pesoAprox} MB) listos para sin señal`);
   }
 }
+
+function cargarZonasDescargadas(){
+  try{ return JSON.parse(localStorage.getItem(ZONAS_KEY)) || []; }
+  catch(e){ return []; }
+}
+function guardarZonasDescargadas(lista){
+  localStorage.setItem(ZONAS_KEY, JSON.stringify(lista));
+}
+function registrarZonaDescargada(bounds, zooms, totalTiles){
+  const zonas = cargarZonasDescargadas();
+  zonas.push({
+    id: 'z_' + Date.now(),
+    fecha: new Date().toISOString(),
+    bounds: { n: bounds.getNorth(), s: bounds.getSouth(), e: bounds.getEast(), o: bounds.getWest() },
+    zooms,
+    totalTiles
+  });
+  guardarZonasDescargadas(zonas);
+}
+
+async function procesarDescargaDeArea(bounds){
+  if(!('caches' in window)){ mostrarToast('Este navegador no permite guardar mapas sin conexión'); return; }
+  if(!navigator.onLine){ mostrarToast('Necesitas señal ahora para guardar el mapa de esta zona'); return; }
+
+  const zooms = elegirZoomsParaArea(bounds);
+  const totalEstimado = contarTiles(bounds, zooms);
+  const pesoAprox = ((totalEstimado * 15) / 1024).toFixed(1);
+  let mensaje = `Se descargarán ${totalEstimado} recuadros de mapa (~${pesoAprox} MB) en ${zooms.length} nivel(es) de zoom.\n\n` +
+    'Esto guarda solo las calles del mapa (los prospectos y sus datos ya funcionan sin señal siempre).';
+  if(totalEstimado > LIMITE_TILES_RECOMENDADO){
+    mensaje += '\n\nEs un área grande: puede tardar varios minutos y ocupar más espacio.';
+  }
+  mensaje += '\n\n¿Continuar?';
+  if(!confirm(mensaje)) return;
+
+  const resultado = await descargarTilesDeArea(bounds, zooms);
+  if(resultado.ok > 0) registrarZonaDescargada(bounds, zooms, resultado.ok);
+  mostrarResultadoDescarga(resultado);
+  if(currentTab === 'zonas') renderZonas();
+}
+
+function descargarZonaActual(){
+  return procesarDescargaDeArea(map.getBounds());
+}
+
+async function eliminarZonaDescargada(id){
+  const zonas = cargarZonasDescargadas();
+  const zona = zonas.find(z => z.id === id);
+  if(!zona) return;
+  if(!confirm('¿Eliminar este mapa guardado? Dejarás de ver esa zona sin señal (si otra zona guardada se traslapa con esta, esa parte seguirá disponible).')) return;
+
+  const cache = await caches.open(TILES_CACHE_NAME);
+  const bounds = L.latLngBounds([zona.bounds.s, zona.bounds.o], [zona.bounds.n, zona.bounds.e]);
+  const subdominios = ['a', 'b', 'c'];
+  const borrados = [];
+
+  zona.zooms.forEach(z => {
+    const nw = latLngATile(bounds.getNorth(), bounds.getWest(), z);
+    const se = latLngATile(bounds.getSouth(), bounds.getEast(), z);
+    for(let x = nw.x; x <= se.x; x++){
+      for(let y = nw.y; y <= se.y; y++){
+        const s = subdominios[(x + y) % subdominios.length];
+        borrados.push(cache.delete(`https://${s}.tile.openstreetmap.org/${z}/${x}/${y}.png`));
+      }
+    }
+  });
+
+  await Promise.all(borrados);
+  guardarZonasDescargadas(zonas.filter(z => z.id !== id));
+  mostrarToast('Zona eliminada');
+  renderZonas();
+}
+
+/* ---------- Dibujar un área más grande para descargar (tramos largos) ---------- */
+let modoDibujoZona = false;
+let dibujoInicio = null;
+let rectanguloDibujo = null;
+
+function activarDibujoZona(){
+  modoDibujoZona = true;
+  map.dragging.disable();
+  document.getElementById('zoneDrawBanner').style.display = 'flex';
+  cerrarSheet();
+}
+
+function salirDibujoZona(){
+  modoDibujoZona = false;
+  map.dragging.enable();
+  document.getElementById('zoneDrawBanner').style.display = 'none';
+  if(rectanguloDibujo){ map.removeLayer(rectanguloDibujo); rectanguloDibujo = null; }
+  dibujoInicio = null;
+}
+
+function obtenerLatLngDeEvento(e){
+  const punto = e.touches && e.touches.length ? e.touches[0] : e;
+  const rect = map.getContainer().getBoundingClientRect();
+  return map.containerPointToLatLng([punto.clientX - rect.left, punto.clientY - rect.top]);
+}
+
+function onDibujoStart(e){
+  if(!modoDibujoZona) return;
+  dibujoInicio = obtenerLatLngDeEvento(e);
+  if(rectanguloDibujo) map.removeLayer(rectanguloDibujo);
+  rectanguloDibujo = L.rectangle(L.latLngBounds(dibujoInicio, dibujoInicio), {
+    color: '#C4D600', weight: 2, fillOpacity: 0.12
+  }).addTo(map);
+}
+function onDibujoMove(e){
+  if(!modoDibujoZona || !dibujoInicio) return;
+  rectanguloDibujo.setBounds(L.latLngBounds(dibujoInicio, obtenerLatLngDeEvento(e)));
+}
+function onDibujoEnd(){ dibujoInicio = null; }
+
+const mapEl = map.getContainer();
+mapEl.addEventListener('mousedown', onDibujoStart);
+mapEl.addEventListener('mousemove', onDibujoMove);
+mapEl.addEventListener('mouseup', onDibujoEnd);
+mapEl.addEventListener('touchstart', onDibujoStart, { passive: true });
+mapEl.addEventListener('touchmove', onDibujoMove, { passive: true });
+mapEl.addEventListener('touchend', onDibujoEnd);
+
+document.getElementById('btnZonaCancelar').addEventListener('click', salirDibujoZona);
+document.getElementById('btnZonaDescargarArea').addEventListener('click', async () => {
+  if(!rectanguloDibujo){ mostrarToast('Primero arrastra sobre el mapa para dibujar el área'); return; }
+  const bounds = rectanguloDibujo.getBounds();
+  if(!bounds.isValid() || bounds.getNorth() === bounds.getSouth()){
+    mostrarToast('El área es muy pequeña, intenta de nuevo');
+    return;
+  }
+  salirDibujoZona();
+  await procesarDescargaDeArea(bounds);
+});
 
 function ajustarVistaATodos(){
   const visibles = prospectos.filter(pasaFiltro);
@@ -736,23 +892,75 @@ function cambiarTab(tab){
   if(tab === 'lista') renderLista();
   if(tab === 'alta') renderFormAlta();
   if(tab === 'ruta') renderRuta();
+  if(tab === 'zonas') renderZonas();
 }
 
-// "Agregar" y "Ruta" ya se activan desde sus propios botones en el mapa (+ y
-// 🧭), así que no necesitan ser pestañas fijas todo el tiempo: solo aparece
-// un "‹ Lista" para regresar, evitando el botón duplicado.
+// "Agregar", "Ruta" y "Zonas sin señal" ya se activan desde sus propios
+// botones en el mapa (+, 🧭, ⬇), así que no necesitan ser pestañas fijas
+// todo el tiempo: solo aparece un "‹ Lista" para regresar, evitando el
+// botón duplicado.
 function renderSheetTabs(){
   const tabsEl = document.getElementById('sheetTabs');
   if(currentTab === 'lista'){
     tabsEl.innerHTML = `<div class="tab-title">Lista de prospectos</div>`;
     return;
   }
-  const titulo = currentTab === 'alta' ? (editandoId ? 'Editar prospecto' : 'Agregar prospecto') : 'Ruta';
+  const titulos = {
+    alta: editandoId ? 'Editar prospecto' : 'Agregar prospecto',
+    ruta: 'Ruta',
+    zonas: 'Mapas sin señal'
+  };
   tabsEl.innerHTML = `
     <button class="tab-back" id="btnVolverLista">‹ Lista</button>
-    <div class="tab-title">${titulo}</div>
+    <div class="tab-title">${titulos[currentTab] || ''}</div>
   `;
   document.getElementById('btnVolverLista').addEventListener('click', () => cambiarTab('lista'));
+}
+
+/* ---------- Vista: Zonas guardadas sin señal ---------- */
+function formatearFechaZona(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) +
+    ' · ' + d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderZonas(){
+  const zonas = cargarZonasDescargadas();
+  sheetBody.innerHTML = `
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:14px;">
+      Guarda las calles del mapa de una zona para poder verlas sin señal más adelante. Los prospectos y sus datos ya funcionan sin señal siempre — esto es solo para que el fondo del mapa no se quede en blanco.
+    </div>
+    <div class="save-row" style="margin-bottom:10px;">
+      <button class="btn primary" id="btnDescargarVistaActual" style="flex:1">Descargar lo que veo ahora</button>
+    </div>
+    <div class="save-row" style="margin-bottom:18px;">
+      <button class="btn" id="btnDibujarArea" style="flex:1">Dibujar un área más grande…</button>
+    </div>
+    <div style="font-weight:700; font-size:14px; margin-bottom:8px;">Zonas guardadas (${zonas.length})</div>
+    ${zonas.length === 0
+      ? '<div class="empty">Aún no has guardado ninguna zona.</div>'
+      : zonas.slice().reverse().map(z => `
+        <div class="item">
+          <div class="info">
+            <div class="name">${formatearFechaZona(z.fecha)}</div>
+            <div class="meta">${z.totalTiles} recuadros · ~${((z.totalTiles * 15) / 1024).toFixed(1)} MB · zoom ${Math.min(...z.zooms)}–${Math.max(...z.zooms)}</div>
+          </div>
+          <button class="quitar-parada" data-id="${z.id}" title="Eliminar esta zona guardada">🗑</button>
+        </div>
+      `).join('')}
+  `;
+
+  document.getElementById('btnDescargarVistaActual').addEventListener('click', () => {
+    cerrarSheet();
+    descargarZonaActual();
+  });
+  document.getElementById('btnDibujarArea').addEventListener('click', activarDibujoZona);
+  sheetBody.querySelectorAll('.quitar-parada').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      eliminarZonaDescargada(btn.dataset.id);
+    });
+  });
 }
 
 /* ---------- Vista: Lista ---------- */
