@@ -136,6 +136,11 @@
     background:none; border:none; color:var(--danger);
     font-size:18px; line-height:1; padding:6px 6px; cursor:pointer;
   }
+  .fila-acciones{ display:flex; align-items:center; gap:2px; }
+  .borrar-def{
+    background:none; border:none; color:var(--text-dim);
+    font-size:15px; line-height:1; padding:6px 6px; cursor:pointer;
+  }
 
   .sheet{
     position:fixed; left:0; right:0; bottom:0; z-index:1300;
@@ -422,6 +427,24 @@ function salirModoUbicacion(){
   if(userMarker) userMarker.setIcon(iconoUbicacion(false));
 }
 
+// Desplaza un punto una distancia (en metros) en dirección "rumbo" — se usa
+// para centrar el mapa un poco ADELANTE de ti en vez de justo encima tuyo,
+// así se ve más camino por recorrer y menos de lo que ya dejaste atrás.
+function puntoDesplazadoPorRumbo(lat, lng, rumboDeg, distanciaMetros){
+  const R = 6371000;
+  const rumboRad = rumboDeg * Math.PI / 180;
+  const latRad = lat * Math.PI / 180;
+  const nuevaLatRad = Math.asin(
+    Math.sin(latRad) * Math.cos(distanciaMetros / R) +
+    Math.cos(latRad) * Math.sin(distanciaMetros / R) * Math.cos(rumboRad)
+  );
+  const nuevaLngRad = (lng * Math.PI / 180) + Math.atan2(
+    Math.sin(rumboRad) * Math.sin(distanciaMetros / R) * Math.cos(latRad),
+    Math.cos(distanciaMetros / R) - Math.sin(latRad) * Math.sin(nuevaLatRad)
+  );
+  return { lat: nuevaLatRad * 180 / Math.PI, lng: nuevaLngRad * 180 / Math.PI };
+}
+
 function activarSeguimientoConRumbo(){
   modoUbicacion = 'siguiendo';
   document.getElementById('btnLocate').classList.add('active');
@@ -429,7 +452,8 @@ function activarSeguimientoConRumbo(){
 
   watchIdUbicacion = navigator.geolocation.watchPosition(pos => {
     const { latitude, longitude } = pos.coords;
-    map.panTo([latitude, longitude], { animate: true });
+    const centro = puntoDesplazadoPorRumbo(latitude, longitude, ultimoRumbo, 120);
+    map.panTo([centro.lat, centro.lng], { animate: true });
     colocarMarcadorUbicacion(latitude, longitude, true);
   }, () => {}, { enableHighAccuracy: true });
 
@@ -1108,14 +1132,12 @@ function largoDeRuta(origen, orden){
   return total;
 }
 
-// El vecino más cercano por sí solo puede dejar un punto "colgado" que obliga
-// a regresar sobre lo ya recorrido cuando hay varios negocios muy juntos.
-// 2-opt revisa pares de tramos y, si invertir el segmento entre ellos acorta
-// la ruta, lo hace — así se destrancan esas vueltas exageradas.
-function optimizarRuta(origen, puntos){
-  let ruta = ordenarPorVecinoMasCercano(origen, puntos);
+// 2-opt: revisa pares de tramos y, si invertir el segmento entre ellos acorta
+// la ruta, lo hace — así se destrancan las vueltas cuando hay varios
+// negocios muy juntos y el vecino más cercano dejó uno "colgado".
+function mejorarDosOpt(origen, rutaInicial){
+  let ruta = rutaInicial;
   if(ruta.length < 3) return ruta;
-
   let mejorado = true;
   let vueltas = 0;
   while(mejorado && vueltas < 60){
@@ -1131,6 +1153,76 @@ function optimizarRuta(origen, puntos){
       }
     }
   }
+  return ruta;
+}
+
+// Or-opt: en vez de invertir un tramo (como 2-opt), prueba mover UN solo
+// punto a otro lugar de la fila. Esto arregla casos que 2-opt no ve, como un
+// negocio que quedó de pasada pero le conviene más visitarse justo después
+// del más cercano a él, aunque eso no implique invertir ningún tramo.
+function mejorarOrOpt(origen, rutaInicial){
+  let ruta = rutaInicial;
+  if(ruta.length < 3) return ruta;
+  let mejorDist = largoDeRuta(origen, ruta);
+  let mejorado = true;
+  let vueltas = 0;
+  while(mejorado && vueltas < 40){
+    mejorado = false;
+    vueltas++;
+    for(let i = 0; i < ruta.length; i++){
+      const nodo = ruta[i];
+      const sinNodo = ruta.slice(0, i).concat(ruta.slice(i + 1));
+      for(let j = 0; j <= sinNodo.length; j++){
+        if(j === i) continue;
+        const candidata = sinNodo.slice(0, j).concat([nodo], sinNodo.slice(j));
+        const d = largoDeRuta(origen, candidata);
+        if(d < mejorDist - 1e-9){
+          ruta = candidata;
+          mejorDist = d;
+          mejorado = true;
+        }
+      }
+    }
+  }
+  return ruta;
+}
+
+// Para selecciones chicas (hasta 9 paradas, que es el caso típico de una
+// gira del día) probar TODOS los órdenes posibles es rápido y garantiza la
+// ruta más corta real, no solo una buena aproximación.
+function permutaciones(arr){
+  if(arr.length <= 1) return [arr];
+  const resultado = [];
+  arr.forEach((item, i) => {
+    const resto = arr.slice(0, i).concat(arr.slice(i + 1));
+    permutaciones(resto).forEach(p => resultado.push([item, ...p]));
+  });
+  return resultado;
+}
+
+function optimizarRutaExacta(origen, puntos){
+  let mejor = puntos;
+  let mejorDist = Infinity;
+  permutaciones(puntos).forEach(orden => {
+    const d = largoDeRuta(origen, orden);
+    if(d < mejorDist){ mejorDist = d; mejor = orden; }
+  });
+  return mejor;
+}
+
+const LIMITE_FUERZA_BRUTA = 9; // 9! ≈ 363k combinaciones, sigue siendo instantáneo
+
+function optimizarRuta(origen, puntos){
+  if(puntos.length < 2) return [...puntos];
+  if(puntos.length <= LIMITE_FUERZA_BRUTA){
+    return optimizarRutaExacta(origen, puntos);
+  }
+  // Para selecciones más grandes: una buena ruta inicial + dos rondas de
+  // afinado (2-opt y or-opt) que se retroalimentan entre sí.
+  let ruta = ordenarPorVecinoMasCercano(origen, puntos);
+  ruta = mejorarDosOpt(origen, ruta);
+  ruta = mejorarOrOpt(origen, ruta);
+  ruta = mejorarDosOpt(origen, ruta);
   return ruta;
 }
 
@@ -1175,14 +1267,17 @@ function renderRuta(){
           <div class="name">${escapeHtml(p.nombre)}</div>
           <div class="meta">${i === 0 && !origen ? 'Punto de partida' : d.toFixed(1) + ' km desde la parada anterior'}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</div>
         </div>
-        <button class="quitar-parada" data-id="${p.id}" title="Quitar de la ruta">✕</button>
+        <div class="fila-acciones">
+          <button class="borrar-def" data-id="${p.id}" title="Eliminar definitivamente este prospecto">🗑</button>
+          <button class="quitar-parada" data-id="${p.id}" title="Quitar de la ruta">✕</button>
+        </div>
       </div>`;
   }).join('');
 
   sheetBody.innerHTML = `
     <div style="margin-bottom:12px;">
       <div style="font-weight:700; font-size:15px;">${paradas.length} paradas · ~${distTotal.toFixed(1)} km en línea recta</div>
-      <div style="font-size:12px; color:var(--text-dim);">Ruta optimizada${origen ? ' desde tu ubicación actual' : ''} para evitar vueltas y cruces cuando hay negocios muy juntos. Toca ✕ o el punto en el mapa para quitar una parada. La distancia es aproximada (línea recta, no por calles).</div>
+      <div style="font-size:12px; color:var(--text-dim);">Ruta optimizada${origen ? ' desde tu ubicación actual' : ''} para evitar vueltas y cruces cuando hay negocios muy juntos. ✕ la quita solo de esta ruta; 🗑 la elimina definitivamente. La distancia es aproximada (línea recta, no por calles).</div>
     </div>
     ${filas}
     <div class="save-row" style="margin-top:14px;">
@@ -1195,6 +1290,12 @@ function renderRuta(){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       quitarParadaDeRuta(btn.dataset.id);
+    });
+  });
+  sheetBody.querySelectorAll('.borrar-def').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if(eliminarProspectoPorId(btn.dataset.id)) quitarParadaDeRuta(btn.dataset.id);
     });
   });
   sheetBody.querySelectorAll('.item').forEach(it => {
@@ -1499,6 +1600,8 @@ function tituloCase(s){
 }
 
 function abrirDetalle(id){
+  const p = prospectos.find(x => x.id === id);
+  if(p) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 16));
   editandoId = id;
   cambiarTab('alta');
 }
@@ -1587,15 +1690,26 @@ function guardarDesdeForm(){
   cambiarTab('lista');
 }
 
-function eliminarActual(){
-  if(!confirm('¿Eliminar esta ubicación? Ya no aparecerá en el mapa ni en la lista.')) return;
-  prospectos = prospectos.filter(x => x.id !== editandoId);
+// Reutilizada por el formulario de edición y por "eliminar definitivamente"
+// desde la vista de Ruta, para no repetir la misma lógica dos veces.
+function eliminarProspectoPorId(id){
+  const p = prospectos.find(x => x.id === id);
+  const nombre = p ? p.nombre : 'esta ubicación';
+  if(!confirm(`¿Eliminar definitivamente "${nombre}"? Ya no aparecerá en el mapa ni en la lista.`)) return false;
+  prospectos = prospectos.filter(x => x.id !== id);
+  seleccionRuta.delete(id);
   guardarProspectos(prospectos);
   renderMarcadores();
   actualizarHeader();
-  editandoId = null;
   mostrarToast('Prospecto eliminado');
-  cambiarTab('lista');
+  return true;
+}
+
+function eliminarActual(){
+  if(eliminarProspectoPorId(editandoId)){
+    editandoId = null;
+    cambiarTab('lista');
+  }
 }
 
 /* ---------- Header / sincronización ---------- */
