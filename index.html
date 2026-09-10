@@ -50,7 +50,7 @@
   }
   .sync-dot.pend{background:var(--ochre);}
   .sync-dot.offline{background:var(--danger);}
-  .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim);}
+  .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim); cursor:pointer;}
 
   #map{ position:absolute; inset:0; }
   .leaflet-control-attribution{ font-size:9px; }
@@ -264,7 +264,7 @@
     <h1>Prospectos & Rutas</h1>
     <div class="sub" id="headerSub">0 registrados</div>
   </div>
-  <div class="sync-wrap">
+  <div class="sync-wrap" id="syncWrap">
     <span class="sync-dot" id="syncDot"></span>
     <span id="syncText">Local</span>
   </div>
@@ -292,8 +292,9 @@
 <script>
 /* ---------- Estado y almacenamiento local ---------- */
 const STORAGE_KEY = 'gc_prospectos_v1';
-// TODO: cuando esté listo el Apps Script del Sheet, poner aquí la URL del
-// Web App y activar syncPendientes(). Mientras tanto todo vive local.
+const ELIMINAR_KEY = 'gc_pendientes_eliminar_v1';
+// Pega aquí la URL del Web App de Apps Script una vez publicada (termina en
+// /exec). Mientras esté vacía, todo sigue viviendo solo local como antes.
 const SHEET_ENDPOINT = '';
 
 function cargarProspectos(){
@@ -304,6 +305,65 @@ function guardarProspectos(lista){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
 }
 let prospectos = cargarProspectos();
+
+function cargarPendientesEliminar(){
+  try{ return JSON.parse(localStorage.getItem(ELIMINAR_KEY)) || []; }
+  catch(e){ return []; }
+}
+function guardarPendientesEliminar(lista){
+  localStorage.setItem(ELIMINAR_KEY, JSON.stringify(lista));
+}
+
+// Empuja lo que cambió en este dispositivo (altas, ediciones, bajas) al
+// Sheet compartido, y luego trae lo más reciente de los demás dispositivos.
+// "Última edición gana" usando actualizadoEn; lo que sigue pendiente de subir
+// (pendienteSync) nunca se pisa con lo que venga del servidor todavía.
+let sincronizando = false;
+async function syncPendientes(){
+  if(!SHEET_ENDPOINT || !navigator.onLine || sincronizando) return;
+  sincronizando = true;
+  actualizarHeader();
+  try{
+    const pendientes = prospectos.filter(p => p.pendienteSync);
+    const eliminados = cargarPendientesEliminar();
+
+    if(pendientes.length > 0 || eliminados.length > 0){
+      // Sin headers personalizados a propósito: evita el preflight CORS que
+      // Apps Script no maneja bien. El body sigue siendo JSON válido.
+      await fetch(SHEET_ENDPOINT, {
+        method: 'POST',
+        body: JSON.stringify({ upserts: pendientes, deletes: eliminados })
+      });
+    }
+
+    const resp = await fetch(SHEET_ENDPOINT);
+    const remotos = await resp.json();
+
+    remotos.forEach(r => {
+      const i = prospectos.findIndex(p => p.id === r.id);
+      if(i === -1){
+        prospectos.push(r);
+      } else if(!prospectos[i].pendienteSync && (r.actualizadoEn || 0) >= (prospectos[i].actualizadoEn || 0)){
+        prospectos[i] = { ...prospectos[i], ...r, pendienteSync: false };
+      }
+    });
+
+    prospectos.forEach(p => {
+      if(pendientes.some(x => x.id === p.id)) p.pendienteSync = false;
+    });
+
+    guardarPendientesEliminar([]);
+    guardarProspectos(prospectos);
+    renderMarcadores();
+    if(currentTab === 'lista') renderLista();
+  } catch(err){
+    // Sin señal real o el Web App no respondió: se reintenta solo en el
+    // próximo evento "online" o el siguiente intervalo.
+  } finally {
+    sincronizando = false;
+    actualizarHeader();
+  }
+}
 
 const ESTATUS = ['Prospecto','Visitado','Cliente','Descartado'];
 const FRECUENCIA = ['Ocasional','Mensual','Semanal'];
@@ -1350,7 +1410,12 @@ function abrirEnGoogleMaps(){
   if(intermedias.length) params.set('waypoints', intermedias.map(p => `${p.lat},${p.lng}`).join('|'));
   params.set('travelmode', 'driving');
 
-  window.open(`https://www.google.com/maps/dir/?${params.toString()}`, '_blank');
+  // Antes usaba window.open(url, '_blank'): en un PWA instalado eso abre una
+  // pestaña nueva dentro de la propia app, y al volver de Google Maps se
+  // queda esa pestaña en blanco ("Buscar o ingresar sitio web"). Navegando
+  // directo (location.href) no se crea esa pestaña extra: iOS intercepta el
+  // enlace y abre la app de Google Maps sin dejar nada huérfano atrás.
+  location.href = `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 /* ---------- Importación: enrutador por tipo de archivo ---------- */
@@ -1668,7 +1733,7 @@ function guardarDesdeForm(){
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, estatus, frecuencia, notas, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true });
+    Object.assign(p, { nombre, estatus, frecuencia, notas, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
   } else {
     prospectos.push({
       id: 'p_' + Date.now(),
@@ -1676,7 +1741,8 @@ function guardarDesdeForm(){
       lat: tempCoord.lat, lng: tempCoord.lng,
       origen: 'Manual',
       fechaUltimaVisita: null,
-      pendienteSync: true
+      pendienteSync: true,
+      actualizadoEn: Date.now()
     });
   }
 
@@ -1688,6 +1754,7 @@ function guardarDesdeForm(){
   editandoId = null;
   mostrarToast('Guardado localmente');
   cambiarTab('lista');
+  syncPendientes();
 }
 
 // Reutilizada por el formulario de edición y por "eliminar definitivamente"
@@ -1698,10 +1765,14 @@ function eliminarProspectoPorId(id){
   if(!confirm(`¿Eliminar definitivamente "${nombre}"? Ya no aparecerá en el mapa ni en la lista.`)) return false;
   prospectos = prospectos.filter(x => x.id !== id);
   seleccionRuta.delete(id);
+  const eliminados = cargarPendientesEliminar();
+  eliminados.push(id);
+  guardarPendientesEliminar(eliminados);
   guardarProspectos(prospectos);
   renderMarcadores();
   actualizarHeader();
   mostrarToast('Prospecto eliminado');
+  syncPendientes();
   return true;
 }
 
@@ -1715,7 +1786,7 @@ function eliminarActual(){
 /* ---------- Header / sincronización ---------- */
 function actualizarHeader(){
   document.getElementById('headerSub').textContent = `${prospectos.length} registrados`;
-  const pendientes = prospectos.filter(p => p.pendienteSync).length;
+  const pendientes = prospectos.filter(p => p.pendienteSync).length + cargarPendientesEliminar().length;
   const dot = document.getElementById('syncDot');
   const txt = document.getElementById('syncText');
   if(!navigator.onLine){
@@ -1728,9 +1799,18 @@ function actualizarHeader(){
   if(!SHEET_ENDPOINT){
     dot.classList.toggle('pend', pendientes > 0);
     txt.textContent = pendientes > 0 ? `${pendientes} sin sincronizar` : 'Local';
+  } else {
+    dot.classList.toggle('pend', pendientes > 0 || sincronizando);
+    txt.textContent = sincronizando ? 'Sincronizando…' : (pendientes > 0 ? `${pendientes} por subir` : 'Sincronizado');
   }
 }
-window.addEventListener('online', actualizarHeader);
+window.addEventListener('online', () => { actualizarHeader(); syncPendientes(); });
+document.getElementById('syncWrap').addEventListener('click', () => {
+  if(!SHEET_ENDPOINT){ mostrarToast('Aún no hay Sheet compartido configurado (todo vive local en este dispositivo)'); return; }
+  if(!navigator.onLine){ mostrarToast('Sin señal ahora mismo'); return; }
+  mostrarToast('Buscando cambios de otros dispositivos…');
+  syncPendientes();
+});
 window.addEventListener('offline', actualizarHeader);
 
 /* ---------- Toast ---------- */
@@ -1750,6 +1830,8 @@ actualizarHeader();
 renderLista();
 if(prospectos.length > 0){ ajustarVistaATodos(); }
 cargarDenueCompartido();
+syncPendientes();
+setInterval(syncPendientes, 5 * 60 * 1000); // reintenta cada 5 min mientras la app siga abierta
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
