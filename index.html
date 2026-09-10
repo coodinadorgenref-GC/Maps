@@ -295,7 +295,7 @@ const STORAGE_KEY = 'gc_prospectos_v1';
 const ELIMINAR_KEY = 'gc_pendientes_eliminar_v1';
 // Pega aquí la URL del Web App de Apps Script una vez publicada (termina en
 // /exec). Mientras esté vacía, todo sigue viviendo solo local como antes.
-const SHEET_ENDPOINT = '';
+const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycby28N3lAhtsj9UeI7SvzUPE6KkDrMGq_2oc4K6EQE3eI6tPuFub3UQH6KwzNUNnx0xudg/exec';
 
 function cargarProspectos(){
   try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
