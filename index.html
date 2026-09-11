@@ -23,6 +23,17 @@
     --danger:#D65F5F;
     --radius:14px;
   }
+  html[data-theme="claro"]{
+    --bg:#F2F4F6;
+    --surface:#FFFFFF;
+    --surface-2:#E9ECEF;
+    --line:#D7DCE1;
+    --text:#1B2126;
+    --text-dim:#63707A;
+    --teal:#2F8F87;
+    --ochre:#DB7300;
+    --danger:#C0392B;
+  }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
   body{
@@ -51,6 +62,11 @@
   .sync-dot.pend{background:var(--ochre);}
   .sync-dot.offline{background:var(--danger);}
   .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim); cursor:pointer;}
+  .header-actions{ display:flex; align-items:center; gap:14px; }
+  .header-icon-btn{
+    background:none; border:none; color:var(--text-dim); font-size:18px;
+    padding:2px; line-height:1; cursor:pointer;
+  }
 
   #map{ position:absolute; inset:0; }
   .leaflet-control-attribution{ font-size:9px; }
@@ -125,18 +141,31 @@
   .route-banner .go{ background:#0E1518; color:#fff; }
   .route-banner .cancel{ background:transparent; color:#0E1518; border:1px solid #0E1518; }
 
-  .leaflet-tooltip.ruta-num-tooltip{
-    background:transparent; border:none; box-shadow:none;
-    color:#0E1518; font-size:11px; font-weight:800;
-    padding:0; pointer-events:none;
+  /* Pin minimalista tipo apps de mapas (Google Maps / apps de despacho):
+     gota con la punta hacia el punto exacto, ícono centrado y sin rotar. */
+  .map-pin-wrap{ position:relative; }
+  .map-pin-shape{
+    position:absolute; inset:0;
+    border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    border:2px solid rgba(255,255,255,.92);
+    box-shadow:0 2px 6px rgba(0,0,0,.45);
   }
-  .leaflet-tooltip.ruta-num-tooltip::before{ display:none; }
-
-  .leaflet-tooltip.prioridad-tooltip{
-    background:transparent; border:none; box-shadow:none;
-    font-size:14px; padding:0; pointer-events:none;
+  .map-pin-shape.prioridad{
+    border-color:#FF3B3B; border-width:3px;
+    box-shadow:0 0 0 2px rgba(255,59,59,.4), 0 2px 6px rgba(0,0,0,.45);
   }
-  .leaflet-tooltip.prioridad-tooltip::before{ display:none; }
+  .map-pin-shape.seleccionado{
+    border-color:#C4D600; border-width:3px;
+    box-shadow:0 0 0 2px rgba(196,214,0,.4), 0 2px 6px rgba(0,0,0,.45);
+  }
+  .map-pin-icon{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:11px; font-weight:800; line-height:1;
+    pointer-events:none;
+  }
+  .map-pin-icon .punto{ width:7px; height:7px; border-radius:50%; background:#fff; }
 
   .quitar-parada{
     background:none; border:none; color:var(--danger);
@@ -192,6 +221,16 @@
     font-family:inherit;
   }
   .field textarea{ min-height:64px; resize:vertical; }
+
+  .search-wrap{ position:relative; }
+  .search-wrap input[type=text]{ padding-right:34px; }
+  .search-wrap button{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    width:24px; height:24px; border-radius:50%; border:none;
+    background:var(--surface); color:var(--text-dim);
+    font-size:16px; line-height:1; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
 
   .loc-row{ display:flex; gap:8px; margin-bottom:14px; }
   .btn{
@@ -270,11 +309,16 @@
     <h1>Prospectos & Rutas</h1>
     <div class="sub" id="headerSub">0 registrados</div>
   </div>
-  <div class="sync-wrap" id="syncWrap">
-    <span class="sync-dot" id="syncDot"></span>
-    <span id="syncText">Local</span>
+  <div class="header-actions">
+    <button class="header-icon-btn" id="btnImportarHeader" title="Importar datos (CSV / JSON)">⭳</button>
+    <button class="header-icon-btn" id="btnAjustesHeader" title="Ajustes">⚙</button>
+    <div class="sync-wrap" id="syncWrap">
+      <span class="sync-dot" id="syncDot"></span>
+      <span id="syncText">Local</span>
+    </div>
   </div>
 </header>
+<input type="file" id="fileImportarGlobal" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
 
 <div id="map"></div>
 
@@ -296,6 +340,33 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+/* ---------- Tema: claro / oscuro / sistema ---------- */
+const TEMA_KEY = 'gc_tema_v1';
+function obtenerTemaGuardado(){
+  return localStorage.getItem(TEMA_KEY) || 'sistema';
+}
+function guardarTemaPreferido(pref){
+  localStorage.setItem(TEMA_KEY, pref);
+}
+function resolverTemaEfectivo(pref){
+  if(pref === 'claro' || pref === 'oscuro') return pref;
+  const prefiereClaro = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+  return prefiereClaro ? 'claro' : 'oscuro';
+}
+function aplicarTema(pref){
+  const efectivo = resolverTemaEfectivo(pref);
+  document.documentElement.setAttribute('data-theme', efectivo);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', efectivo === 'claro' ? '#F2F4F6' : '#14181C');
+}
+let temaPref = obtenerTemaGuardado();
+aplicarTema(temaPref);
+if(window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if(temaPref === 'sistema') aplicarTema(temaPref);
+  });
+}
+
 /* ---------- Estado y almacenamiento local ---------- */
 const STORAGE_KEY = 'gc_prospectos_v1';
 const ELIMINAR_KEY = 'gc_pendientes_eliminar_v1';
@@ -402,13 +473,58 @@ function pasaFiltro(p){
   const okLocalidad = estadoFiltro.localidad === 'Todas' || p.localidad === estadoFiltro.localidad;
   const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
   const okPrioridad = !estadoFiltro.soloPrioridad || !!p.prioridad;
-  const okBusqueda = !textoBusqueda || (p.nombre || '').toLowerCase().includes(textoBusqueda.toLowerCase());
+  const okBusqueda = !textoBusqueda || (
+    (p.nombre || '').toLowerCase().includes(textoBusqueda.toLowerCase()) ||
+    (p.notas || '').toLowerCase().includes(textoBusqueda.toLowerCase())
+  );
   return okEstatus && okEstado && okLocalidad && okFrecuencia && okPrioridad && okBusqueda;
 }
 
 function localidadesDisponibles(){
   const set = new Set(prospectos.filter(p => p.localidad).map(p => p.localidad));
   return [...set].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
+
+function crearIconoPinTemp(){
+  const size = 30;
+  const html = `
+    <div class="map-pin-wrap" style="width:${size}px; height:${size}px;">
+      <div class="map-pin-shape" style="background:#C4D600"></div>
+      <div class="map-pin-icon" style="font-size:13px; color:#0E1518;"><span>＋</span></div>
+    </div>`;
+  return L.divIcon({
+    className: '',
+    html,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -size]
+  });
+}
+
+function crearIconoPin(p, opciones){
+  const { esDenue, enRuta, idxRuta, seleccionado, esPrioridad } = opciones;
+  const size = esDenue ? 22 : 28;
+  const claseForma = ['map-pin-shape'];
+  if(seleccionado) claseForma.push('seleccionado');
+  else if(esPrioridad) claseForma.push('prioridad');
+
+  let icono = '<span class="punto"></span>';
+  if(enRuta) icono = `<span>${idxRuta + 1}</span>`;
+  else if(esPrioridad) icono = '<span>!</span>';
+
+  const html = `
+    <div class="map-pin-wrap" style="width:${size}px; height:${size}px;">
+      <div class="${claseForma.join(' ')}" style="background:${COLOR_ESTATUS[p.estatus] || '#9AA4AE'}"></div>
+      <div class="map-pin-icon" style="font-size:${esDenue ? 10 : 11}px;">${icono}</div>
+    </div>`;
+
+  return L.divIcon({
+    className: '',
+    html,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -size]
+  });
 }
 
 function renderMarcadores(){
@@ -421,18 +537,9 @@ function renderMarcadores(){
       const enRuta = idxRuta !== -1;
       const seleccionado = (modoRuta && seleccionRuta.has(p.id)) || enRuta;
       const esPrioridad = !!p.prioridad;
-      const m = L.circleMarker([p.lat, p.lng], {
-        radius: seleccionado ? (esDenue ? 10 : 12) : (esPrioridad ? 10 : (esDenue ? 7 : 9)),
-        color: seleccionado ? '#C4D600' : (esPrioridad ? '#FF3B3B' : '#FFFFFF'),
-        weight: seleccionado ? 3 : (esPrioridad ? 3 : (esDenue ? 1.5 : 2.5)),
-        fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
-        fillOpacity: esDenue ? 0.92 : 0.97
-      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
-      if(enRuta){
-        m.bindTooltip(String(idxRuta + 1), { permanent: true, direction: 'center', className: 'ruta-num-tooltip' });
-      } else if(esPrioridad){
-        m.bindTooltip('⚠️', { permanent: true, direction: 'top', offset: [0, -6], className: 'prioridad-tooltip' });
-      }
+      const opciones = { esDenue, enRuta, idxRuta, seleccionado, esPrioridad };
+      const m = L.marker([p.lat, p.lng], { icon: crearIconoPin(p, opciones) })
+        .bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
       m.on('click', () => {
         if(modoRuta){ toggleSeleccionRuta(p.id); return; }
         if(enRuta){ quitarParadaDeRuta(p.id); return; }
@@ -449,6 +556,7 @@ function escapeHtml(s){
 /* ---------- Selección de ubicación (GPS o toque en mapa) ---------- */
 let pickingLocation = false;
 let tempCoord = null;
+let tempLugar = null; // { municipio, localidad } detectado solo automáticamente
 let tempMarker = null;
 
 /* ---------- Ubicación en el mapa: un toque centra, otro sigue con rumbo ----------
@@ -491,8 +599,23 @@ function detenerSeguimientoUbicacion(){
   }
 }
 
+// Evita que la pantalla se apague sola mientras se está siguiendo la
+// ubicación en movimiento (como hacen las apps de navegación).
+let wakeLock = null;
+async function solicitarWakeLock(){
+  if(!('wakeLock' in navigator)) return;
+  try{
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch(e){ wakeLock = null; }
+}
+function liberarWakeLock(){
+  if(wakeLock){ wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+
 function salirModoUbicacion(){
   detenerSeguimientoUbicacion();
+  liberarWakeLock();
   modoUbicacion = 'apagado';
   document.getElementById('btnLocate').classList.remove('active');
   if(userMarker) userMarker.setIcon(iconoUbicacion(false));
@@ -520,6 +643,7 @@ function activarSeguimientoConRumbo(){
   modoUbicacion = 'siguiendo';
   document.getElementById('btnLocate').classList.add('active');
   mostrarToast('Siguiendo tu ubicación y hacia dónde apunta el teléfono');
+  solicitarWakeLock();
 
   watchIdUbicacion = navigator.geolocation.watchPosition(pos => {
     const { latitude, longitude } = pos.coords;
@@ -889,13 +1013,36 @@ map.on('click', (e) => {
 
 function fijarCoordTemporal(lat, lng){
   tempCoord = { lat, lng };
+  tempLugar = null;
   if(tempMarker) map.removeLayer(tempMarker);
-  tempMarker = L.marker([lat, lng]).addTo(map);
+  tempMarker = L.marker([lat, lng], { icon: crearIconoPinTemp() }).addTo(map);
   const pill = document.getElementById('coordPill');
   if(pill){
     pill.style.display = 'block';
     pill.textContent = `Ubicación lista: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   }
+  detectarLugarParaTemp(lat, lng);
+}
+
+// Identifica localidad/municipio solo (sin pedirle nada al usuario) usando el
+// mismo servicio del que ya vienen los tiles del mapa (OpenStreetMap /
+// Nominatim). Si no hay señal o el servicio no responde, se deja en blanco
+// y se puede llenar a mano — nunca bloquea el guardado.
+async function detectarLugarParaTemp(lat, lng){
+  if(!navigator.onLine) return;
+  try{
+    const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`);
+    const datos = await resp.json();
+    const dir = datos.address || {};
+    const municipio = dir.city || dir.town || dir.municipality || dir.county || '';
+    const localidad = dir.village || dir.suburb || dir.neighbourhood || dir.hamlet || municipio;
+    if(!municipio && !localidad) return;
+    // Si mientras tanto se cambió/canceló la ubicación temporal, se descarta.
+    if(!tempCoord || tempCoord.lat !== lat || tempCoord.lng !== lng) return;
+    tempLugar = { municipio, localidad };
+    const pill = document.getElementById('coordPill');
+    if(pill) pill.textContent = `Ubicación lista: ${lat.toFixed(5)}, ${lng.toFixed(5)}${localidad ? ' · ' + localidad : ''}`;
+  } catch(e){ /* sin señal o el servicio no respondió: queda en blanco */ }
 }
 
 /* ---------- Bottom sheet ---------- */
@@ -911,6 +1058,15 @@ let seleccionRuta = new Set();
 let rutaCalculada = null;
 
 habilitarArrastreSheet();
+document.getElementById('btnImportarHeader').addEventListener('click', () => {
+  document.getElementById('fileImportarGlobal').click();
+});
+document.getElementById('fileImportarGlobal').addEventListener('change', manejarArchivoImportado);
+document.getElementById('btnAjustesHeader').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('ajustes');
+});
+
 document.getElementById('btnAdd').addEventListener('click', () => {
   editandoId = null;
   tempCoord = null;
@@ -988,10 +1144,11 @@ function cambiarTab(tab){
   if(tab === 'alta') renderFormAlta();
   if(tab === 'ruta') renderRuta();
   if(tab === 'zonas') renderZonas();
+  if(tab === 'ajustes') renderAjustes();
 }
 
-// "Agregar", "Ruta" y "Zonas sin señal" ya se activan desde sus propios
-// botones en el mapa (+, 🧭, ⬇), así que no necesitan ser pestañas fijas
+// "Agregar", "Ruta", "Zonas sin señal" y "Ajustes" ya se activan desde sus
+// propios botones (+, 🧭, ⬇, ⚙), así que no necesitan ser pestañas fijas
 // todo el tiempo: solo aparece un "‹ Lista" para regresar, evitando el
 // botón duplicado.
 function renderSheetTabs(){
@@ -1003,13 +1160,40 @@ function renderSheetTabs(){
   const titulos = {
     alta: editandoId ? 'Editar prospecto' : 'Agregar prospecto',
     ruta: 'Ruta',
-    zonas: 'Mapas sin señal'
+    zonas: 'Mapas sin señal',
+    ajustes: 'Ajustes'
   };
   tabsEl.innerHTML = `
     <button class="tab-back" id="btnVolverLista">‹ Lista</button>
     <div class="tab-title">${titulos[currentTab] || ''}</div>
   `;
   document.getElementById('btnVolverLista').addEventListener('click', () => cambiarTab('lista'));
+}
+
+/* ---------- Vista: Ajustes (tema) ---------- */
+function renderAjustes(){
+  const opciones = [
+    { valor: 'claro', label: '☀️ Claro' },
+    { valor: 'oscuro', label: '🌙 Oscuro' },
+    { valor: 'sistema', label: '📱 Igual que el sistema' }
+  ];
+  sheetBody.innerHTML = `
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Tema</div>
+    <div class="chip-row" style="flex-wrap:wrap;">
+      ${opciones.map(o => `<button class="chip ${temaPref === o.valor ? 'active' : ''}" data-tema="${o.valor}">${o.label}</button>`).join('')}
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); margin-top:10px;">
+      El mapa de calles siempre se ve claro (es del proveedor de mapas); esto solo cambia el color de los menús y botones de la app.
+    </div>
+  `;
+  sheetBody.querySelectorAll('[data-tema]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      temaPref = btn.dataset.tema;
+      guardarTemaPreferido(temaPref);
+      aplicarTema(temaPref);
+      renderAjustes();
+    });
+  });
 }
 
 /* ---------- Vista: Zonas guardadas sin señal ---------- */
@@ -1060,15 +1244,6 @@ function renderZonas(){
 
 /* ---------- Vista: Lista ---------- */
 function renderLista(){
-  const chipsEstatus = ['Todos', ...ESTATUS].map(e =>
-    `<button class="chip ${estadoFiltro.estatus===e?'active':''}" data-tipo="estatus" data-valor="${e}">${e}</button>`
-  ).join('');
-  const chipsEstado = ['Todos', ...ESTADOS].map(e =>
-    `<button class="chip ${estadoFiltro.estado===e?'active':''}" data-tipo="estado" data-valor="${e}">${e}</button>`
-  ).join('');
-  const chipsFrecuencia = ['Todas', ...FRECUENCIA].map(f =>
-    `<button class="chip ${estadoFiltro.frecuencia===f?'active':''}" data-tipo="frecuencia" data-valor="${f}">${f}</button>`
-  ).join('');
   const localidades = localidadesDisponibles();
 
   const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia']
@@ -1095,16 +1270,36 @@ function renderLista(){
   sheetBody.innerHTML = `
     <div class="save-row" style="margin-bottom:10px">
       <button class="btn" id="btnToggleFiltros" style="flex:1">${filtrosAbiertos ? 'Ocultar filtros ▴' : `Filtros${filtrosActivos ? ' · ' + filtrosActivos : ''} ▾`}</button>
-      <button class="btn primary" id="btnImportar" style="flex:1">Importar otra lista (CSV / JSON)</button>
     </div>
     ${filtrosAbiertos ? `
       <div class="field">
-        <label>Buscar por nombre</label>
-        <input type="text" id="inputBusqueda" placeholder="Escribe un nombre…" value="${escapeHtml(textoBusqueda)}">
+        <label>Buscar por nombre o notas</label>
+        <div class="search-wrap">
+          <input type="text" id="inputBusqueda" placeholder="Escribe un nombre…" value="${escapeHtml(textoBusqueda)}">
+          <button type="button" id="btnLimpiarBusqueda" title="Borrar búsqueda" style="display:${textoBusqueda ? 'flex' : 'none'}">×</button>
+        </div>
       </div>
-      <div class="chip-row">${chipsEstatus}</div>
-      <div class="chip-row">${chipsEstado}</div>
-      <div class="chip-row">${chipsFrecuencia}</div>
+      <div class="field">
+        <label>Estatus</label>
+        <select id="selEstatus">
+          <option value="Todos">Todos</option>
+          ${ESTATUS.map(e => `<option value="${e}" ${estadoFiltro.estatus===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Estado</label>
+        <select id="selEstado">
+          <option value="Todos">Todos</option>
+          ${ESTADOS.map(e => `<option value="${e}" ${estadoFiltro.estado===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Frecuencia de visita</label>
+        <select id="selFrecuencia">
+          <option value="Todas">Todas</option>
+          ${FRECUENCIA.map(f => `<option value="${f}" ${estadoFiltro.frecuencia===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+      </div>
       <div class="field">
         <label>Localidad (A-Z)</label>
         <select id="selLocalidad">
@@ -1120,16 +1315,32 @@ function renderLista(){
       </div>
     ` : ''}
     ${modoRuta ? `<div style="font-size:12px; color:var(--teal); margin-bottom:10px;">Modo ruta activo: toca ＋ aquí o los puntos en el mapa (${seleccionRuta.size} seleccionados).</div>` : ''}
-    <input type="file" id="fileImportar" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
     ${items || '<div class="empty">Nada que mostrar con estos filtros.</div>'}
   `;
 
-  sheetBody.querySelectorAll('.chip').forEach(c => {
-    c.addEventListener('click', () => {
-      estadoFiltro[c.dataset.tipo] = c.dataset.valor;
-      renderLista();
-      renderMarcadores();
-    });
+  const selEstatus = document.getElementById('selEstatus');
+  if(selEstatus) selEstatus.addEventListener('change', () => {
+    estadoFiltro.estatus = selEstatus.value;
+    renderLista();
+    renderMarcadores();
+  });
+  const selEstado = document.getElementById('selEstado');
+  if(selEstado) selEstado.addEventListener('change', () => {
+    estadoFiltro.estado = selEstado.value;
+    renderLista();
+    renderMarcadores();
+  });
+  const selFrecuencia = document.getElementById('selFrecuencia');
+  if(selFrecuencia) selFrecuencia.addEventListener('change', () => {
+    estadoFiltro.frecuencia = selFrecuencia.value;
+    renderLista();
+    renderMarcadores();
+  });
+  const selLocalidad = document.getElementById('selLocalidad');
+  if(selLocalidad) selLocalidad.addEventListener('change', () => {
+    estadoFiltro.localidad = selLocalidad.value;
+    renderLista();
+    renderMarcadores();
   });
 
   const chkSoloPrioridad = document.getElementById('chkSoloPrioridad');
@@ -1145,13 +1356,6 @@ function renderLista(){
     renderLista();
   });
 
-  const selLocalidad = document.getElementById('selLocalidad');
-  if(selLocalidad) selLocalidad.addEventListener('change', () => {
-    estadoFiltro.localidad = selLocalidad.value;
-    renderLista();
-    renderMarcadores();
-  });
-
   const inputBusqueda = document.getElementById('inputBusqueda');
   if(inputBusqueda) inputBusqueda.addEventListener('input', () => {
     textoBusqueda = inputBusqueda.value;
@@ -1162,6 +1366,12 @@ function renderLista(){
     const el = document.getElementById('inputBusqueda');
     if(el){ el.focus(); const v = el.value; el.value = ''; el.value = v; }
   });
+  const btnLimpiarBusqueda = document.getElementById('btnLimpiarBusqueda');
+  if(btnLimpiarBusqueda) btnLimpiarBusqueda.addEventListener('click', () => {
+    textoBusqueda = '';
+    renderLista();
+    renderMarcadores();
+  });
 
   sheetBody.querySelectorAll('.item').forEach(it => {
     it.addEventListener('click', () => {
@@ -1169,10 +1379,6 @@ function renderLista(){
       else abrirDetalle(it.dataset.id);
     });
   });
-
-  const fileInput = document.getElementById('fileImportar');
-  document.getElementById('btnImportar').addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', manejarArchivoImportado);
 }
 
 /* ---------- Vista: Ruta (selección de prospectos + orden sugerido) ---------- */
@@ -1366,7 +1572,7 @@ function renderRuta(){
     </div>
     ${filas}
     <div class="save-row" style="margin-top:14px;">
-      <button class="btn primary" id="btnAbrirGoogleMaps" style="flex:2">Abrir ruta en Google Maps</button>
+      <button class="btn primary" id="btnAbrirGoogleMaps" style="flex:2">📍 Abrir GPS (Google Maps)</button>
       <button class="btn danger" id="btnCancelarRuta">Cancelar</button>
     </div>
   `;
@@ -1766,11 +1972,14 @@ function guardarDesdeForm(){
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
     Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    if(tempLugar){ p.municipio = tempLugar.municipio; p.localidad = tempLugar.localidad; }
   } else {
     prospectos.push({
       id: 'p_' + Date.now(),
       nombre, estatus, frecuencia, notas, prioridad,
       lat: tempCoord.lat, lng: tempCoord.lng,
+      municipio: tempLugar ? tempLugar.municipio : '',
+      localidad: tempLugar ? tempLugar.localidad : '',
       origen: 'Manual',
       fechaUltimaVisita: null,
       pendienteSync: true,
@@ -1783,6 +1992,7 @@ function guardarDesdeForm(){
   actualizarHeader();
   if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
   tempCoord = null;
+  tempLugar = null;
   editandoId = null;
   mostrarToast('Guardado localmente');
   cambiarTab('lista');
