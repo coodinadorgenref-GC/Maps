@@ -132,6 +132,12 @@
   }
   .leaflet-tooltip.ruta-num-tooltip::before{ display:none; }
 
+  .leaflet-tooltip.prioridad-tooltip{
+    background:transparent; border:none; box-shadow:none;
+    font-size:14px; padding:0; pointer-events:none;
+  }
+  .leaflet-tooltip.prioridad-tooltip::before{ display:none; }
+
   .quitar-parada{
     background:none; border:none; color:var(--danger);
     font-size:18px; line-height:1; padding:6px 6px; cursor:pointer;
@@ -365,12 +371,13 @@ async function syncPendientes(){
   }
 }
 
-const ESTATUS = ['Prospecto','Visitado','Cliente','Descartado'];
-const FRECUENCIA = ['Ocasional','Mensual','Semanal'];
+const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Descartado'];
+const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
 const COLOR_ESTATUS = {
   'Prospecto': '#FF8A1E',
   'Visitado':  '#2FA89D',
   'Cliente':   '#C4D600',
+  'Competencia': '#9B5DE5',
   'Descartado':'#8A94A0'
 };
 const ESTADOS = ['Yucatán','Quintana Roo'];
@@ -394,8 +401,9 @@ function pasaFiltro(p){
   const okEstado = estadoFiltro.estado === 'Todos' || !p.estado || p.estado === estadoFiltro.estado;
   const okLocalidad = estadoFiltro.localidad === 'Todas' || p.localidad === estadoFiltro.localidad;
   const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
+  const okPrioridad = !estadoFiltro.soloPrioridad || !!p.prioridad;
   const okBusqueda = !textoBusqueda || (p.nombre || '').toLowerCase().includes(textoBusqueda.toLowerCase());
-  return okEstatus && okEstado && okLocalidad && okFrecuencia && okBusqueda;
+  return okEstatus && okEstado && okLocalidad && okFrecuencia && okPrioridad && okBusqueda;
 }
 
 function localidadesDisponibles(){
@@ -412,15 +420,18 @@ function renderMarcadores(){
       const idxRuta = rutaCalculada ? rutaCalculada.paradas.findIndex(x => x.id === p.id) : -1;
       const enRuta = idxRuta !== -1;
       const seleccionado = (modoRuta && seleccionRuta.has(p.id)) || enRuta;
+      const esPrioridad = !!p.prioridad;
       const m = L.circleMarker([p.lat, p.lng], {
-        radius: seleccionado ? (esDenue ? 10 : 12) : (esDenue ? 7 : 9),
-        color: seleccionado ? '#C4D600' : '#FFFFFF',
-        weight: seleccionado ? 3 : (esDenue ? 1.5 : 2.5),
+        radius: seleccionado ? (esDenue ? 10 : 12) : (esPrioridad ? 10 : (esDenue ? 7 : 9)),
+        color: seleccionado ? '#C4D600' : (esPrioridad ? '#FF3B3B' : '#FFFFFF'),
+        weight: seleccionado ? 3 : (esPrioridad ? 3 : (esDenue ? 1.5 : 2.5)),
         fillColor: COLOR_ESTATUS[p.estatus] || '#9AA4AE',
         fillOpacity: esDenue ? 0.92 : 0.97
-      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b><br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
+      }).bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
       if(enRuta){
         m.bindTooltip(String(idxRuta + 1), { permanent: true, direction: 'center', className: 'ruta-num-tooltip' });
+      } else if(esPrioridad){
+        m.bindTooltip('⚠️', { permanent: true, direction: 'top', offset: [0, -6], className: 'prioridad-tooltip' });
       }
       m.on('click', () => {
         if(modoRuta){ toggleSeleccionRuta(p.id); return; }
@@ -891,7 +902,7 @@ function fijarCoordTemporal(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false };
 let filtrosAbiertos = false;
 let textoBusqueda = '';
 let editandoId = null;
@@ -1062,7 +1073,8 @@ function renderLista(){
 
   const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia']
     .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length
-    + (textoBusqueda ? 1 : 0);
+    + (textoBusqueda ? 1 : 0)
+    + (estadoFiltro.soloPrioridad ? 1 : 0);
 
   const items = prospectos
     .filter(pasaFiltro)
@@ -1073,7 +1085,7 @@ function renderLista(){
       <div class="item" data-id="${p.id}">
         <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}${seleccionado ? '; box-shadow:0 0 0 3px #C4D600' : ''}"></span>
         <div class="info">
-          <div class="name">${escapeHtml(p.nombre)}</div>
+          <div class="name">${p.prioridad ? '⚠️ ' : ''}${escapeHtml(p.nombre)}</div>
           <div class="meta">${p.estatus} · ${p.frecuencia}${lugar ? ' · ' + escapeHtml(lugar) : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
         </div>
         ${modoRuta ? `<span class="go" style="color:${seleccionado ? '#C4D600' : 'var(--text-dim)'}">${seleccionado ? '✓' : '＋'}</span>` : '<span class="go">›</span>'}
@@ -1100,6 +1112,12 @@ function renderLista(){
           ${localidades.map(l => `<option value="${escapeHtml(l)}" ${estadoFiltro.localidad===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
         </select>
       </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="chkSoloPrioridad" ${estadoFiltro.soloPrioridad ? 'checked' : ''} style="width:16px; height:16px;">
+          ⚠️ Solo con prioridad (cotizaciones pendientes, etc.)
+        </label>
+      </div>
     ` : ''}
     ${modoRuta ? `<div style="font-size:12px; color:var(--teal); margin-bottom:10px;">Modo ruta activo: toca ＋ aquí o los puntos en el mapa (${seleccionRuta.size} seleccionados).</div>` : ''}
     <input type="file" id="fileImportar" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
@@ -1112,6 +1130,13 @@ function renderLista(){
       renderLista();
       renderMarcadores();
     });
+  });
+
+  const chkSoloPrioridad = document.getElementById('chkSoloPrioridad');
+  if(chkSoloPrioridad) chkSoloPrioridad.addEventListener('change', () => {
+    estadoFiltro.soloPrioridad = chkSoloPrioridad.checked;
+    renderLista();
+    renderMarcadores();
   });
 
   const btnToggleFiltros = document.getElementById('btnToggleFiltros');
@@ -1703,6 +1728,12 @@ function renderFormAlta(){
       <label>Notas</label>
       <textarea id="fNotas" placeholder="Referencias, contacto, horario…">${p ? escapeHtml(p.notas||'') : ''}</textarea>
     </div>
+    <div class="field">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="fPrioridad" ${p && p.prioridad ? 'checked' : ''} style="width:16px; height:16px;">
+        ⚠️ Marcar como prioridad (ej. cotización pendiente, algo que no se debe olvidar)
+      </label>
+    </div>
 
     <div class="save-row">
       <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
@@ -1727,17 +1758,18 @@ function guardarDesdeForm(){
   const estatus = document.getElementById('fEstatus').value;
   const frecuencia = document.getElementById('fFrecuencia').value;
   const notas = document.getElementById('fNotas').value.trim();
+  const prioridad = document.getElementById('fPrioridad').checked;
 
   if(!nombre){ mostrarToast('Falta el nombre del negocio'); return; }
   if(!tempCoord){ mostrarToast('Falta la ubicación: usa GPS o marca en el mapa'); return; }
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, estatus, frecuencia, notas, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
   } else {
     prospectos.push({
       id: 'p_' + Date.now(),
-      nombre, estatus, frecuencia, notas,
+      nombre, estatus, frecuencia, notas, prioridad,
       lat: tempCoord.lat, lng: tempCoord.lng,
       origen: 'Manual',
       fechaUltimaVisita: null,
