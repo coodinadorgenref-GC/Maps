@@ -522,21 +522,39 @@ function crearIconoCluster(cluster){
   });
 }
 
+const MODO_MAPA_KEY = 'gc_modo_mapa_v1';
+function obtenerModoMapaGuardado(){
+  return localStorage.getItem(MODO_MAPA_KEY) || 'agrupado';
+}
+function guardarModoMapaPreferido(valor){
+  localStorage.setItem(MODO_MAPA_KEY, valor);
+}
+let modoMapa = obtenerModoMapaGuardado();
+
 // Clustering: agrupa en una burbuja los prospectos muy juntos o exactamente
 // sobrepuestos (imposibles de separar solo haciendo zoom) y reduce a la vez
 // cuántos pines reales hay que dibujar en pantalla con miles de registros —
 // esto se queda activo SIEMPRE, incluso planeando ruta, porque es lo que
 // hace que abrir el modo de selección sea instantáneo. Por debajo de zoom 16
 // (calle/manzana) se desagrupa todo para tocar cada negocio con precisión.
+// En "Individual" (Ajustes) se apaga por completo: útil para revisar todo
+// sin agrupar, a costa de ir más lento con muchos registros a la vez.
 const markersLayer = L.markerClusterGroup({
   iconCreateFunction: crearIconoCluster,
   showCoverageOnHover: false,
   spiderfyOnMaxZoom: true,
-  disableClusteringAtZoom: 16,
+  disableClusteringAtZoom: modoMapa === 'individual' ? 1 : 16,
   chunkedLoading: true,
   maxClusterRadius: 50
 }).addTo(map);
 let userMarker = null;
+
+function aplicarModoMapa(valor){
+  modoMapa = valor;
+  guardarModoMapaPreferido(valor);
+  markersLayer.options.disableClusteringAtZoom = valor === 'individual' ? 1 : 16;
+  renderMarcadores();
+}
 
 // Id de prospecto -> su marcador real en el mapa. Sirve para actualizar SOLO
 // el pin que cambió (por ejemplo al seleccionarlo para una ruta) en vez de
@@ -579,7 +597,7 @@ function crearIconoPinTemp(){
 }
 
 function crearIconoPin(p, opciones){
-  const { esDenue, enRuta, idxRuta, seleccionado, esPrioridad } = opciones;
+  const { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion } = opciones;
   const size = esDenue ? 22 : 28;
   const claseForma = ['map-pin-shape'];
   if(seleccionado) claseForma.push('seleccionado');
@@ -587,6 +605,7 @@ function crearIconoPin(p, opciones){
 
   let icono = '<span class="punto"></span>';
   if(enRuta) icono = `<span>${idxRuta + 1}</span>`;
+  else if(numeroSeleccion) icono = `<span>${numeroSeleccion}</span>`;
   else if(esPrioridad) icono = '<span>!</span>';
 
   const html = `
@@ -604,6 +623,13 @@ function crearIconoPin(p, opciones){
   });
 }
 
+// Posición (1, 2, 3…) en la que se seleccionó este id para la ruta, en el
+// orden real en que se fue tocando — no el orden ya optimizado.
+function numeroDeSeleccion(id){
+  if(!seleccionRuta.has(id)) return null;
+  return [...seleccionRuta].indexOf(id) + 1;
+}
+
 function renderMarcadores(){
   markersLayer.clearLayers();
   marcadoresPorId.clear();
@@ -614,9 +640,10 @@ function renderMarcadores(){
       const esDenue = p.origen === 'DENUE';
       const idxRuta = rutaCalculada ? rutaCalculada.paradas.findIndex(x => x.id === p.id) : -1;
       const enRuta = idxRuta !== -1;
+      const numeroSeleccion = (modoRuta && !enRuta) ? numeroDeSeleccion(p.id) : null;
       const seleccionado = (modoRuta && seleccionRuta.has(p.id)) || enRuta;
       const esPrioridad = !!p.prioridad;
-      const opciones = { esDenue, enRuta, idxRuta, seleccionado, esPrioridad };
+      const opciones = { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion };
       const m = L.marker([p.lat, p.lng], { icon: crearIconoPin(p, opciones) })
         .bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
 
@@ -672,9 +699,10 @@ function actualizarIconoIndividual(id){
   const esDenue = p.origen === 'DENUE';
   const idxRuta = rutaCalculada ? rutaCalculada.paradas.findIndex(x => x.id === id) : -1;
   const enRuta = idxRuta !== -1;
+  const numeroSeleccion = (modoRuta && !enRuta) ? numeroDeSeleccion(id) : null;
   const seleccionado = (modoRuta && seleccionRuta.has(id)) || enRuta;
   const esPrioridad = !!p.prioridad;
-  m.setIcon(crearIconoPin(p, { esDenue, enRuta, idxRuta, seleccionado, esPrioridad }));
+  m.setIcon(crearIconoPin(p, { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion }));
   if(typeof markersLayer.refreshClusters === 'function') markersLayer.refreshClusters(m);
 }
 
@@ -862,9 +890,16 @@ function actualizarRouteBanner(){
 }
 
 function toggleSeleccionRuta(id){
-  if(seleccionRuta.has(id)) seleccionRuta.delete(id); else seleccionRuta.add(id);
-  actualizarRouteBanner();
-  actualizarIconoIndividual(id);
+  if(seleccionRuta.has(id)){
+    seleccionRuta.delete(id);
+    actualizarRouteBanner();
+    actualizarIconoIndividual(id); // le quita el número
+    seleccionRuta.forEach(otroId => actualizarIconoIndividual(otroId)); // renumera lo que queda
+  } else {
+    seleccionRuta.add(id);
+    actualizarRouteBanner();
+    actualizarIconoIndividual(id); // le pone su número (el último)
+  }
   if(currentTab === 'lista') renderLista();
 }
 
@@ -1241,6 +1276,12 @@ function habilitarArrastreSheet(){
   const handle = document.getElementById('sheetHandle');
   let startY = null;
   let startHeight = 0;
+  // Blindaje: en los primeros instantes tras cargar la página, un toque
+  // residual (por ejemplo el mismo con el que se abrió la app) puede caer
+  // sobre la manija y, con un delta casi nulo, "alternar" la hoja a abierta
+  // sin que el usuario lo haya pedido. Se ignoran gestos muy al inicio.
+  let listo = false;
+  setTimeout(() => { listo = true; }, 700);
 
   const onMove = (e) => {
     if(startY === null) return;
@@ -1264,14 +1305,16 @@ function habilitarArrastreSheet(){
     sheet.style.transition = '';
     sheet.style.transform = '';
 
-    if(Math.abs(delta) < 8){
-      sheet.classList.toggle('open', !isOpenBefore);
-    } else if(delta < -threshold){
-      sheet.classList.add('open');
-    } else if(delta > threshold){
-      sheet.classList.remove('open');
-    } else {
-      sheet.classList.toggle('open', isOpenBefore);
+    if(listo){
+      if(Math.abs(delta) < 8){
+        sheet.classList.toggle('open', !isOpenBefore);
+      } else if(delta < -threshold){
+        sheet.classList.add('open');
+      } else if(delta > threshold){
+        sheet.classList.remove('open');
+      } else {
+        sheet.classList.toggle('open', isOpenBefore);
+      }
     }
 
     startY = null;
@@ -1335,13 +1378,30 @@ function renderAjustes(){
     { valor: 'oscuro', label: '🌙 Oscuro' },
     { valor: 'sistema', label: '📱 Igual que el sistema' }
   ];
+  const opcionesMapa = [
+    { valor: 'agrupado', label: '🔗 Agrupación' },
+    { valor: 'individual', label: '📍 Individual' }
+  ];
   sheetBody.innerHTML = `
-    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Tema</div>
-    <div class="chip-row" style="flex-wrap:wrap;">
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Aspecto</div>
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
       ${opciones.map(o => `<button class="chip ${temaPref === o.valor ? 'active' : ''}" data-tema="${o.valor}">${o.label}</button>`).join('')}
     </div>
-    <div style="font-size:12px; color:var(--text-dim); margin-top:10px;">
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
       El mapa de calles siempre se ve claro (es del proveedor de mapas); esto solo cambia el color de los menús y botones de la app.
+    </div>
+
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Modo de mapa</div>
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
+      ${opcionesMapa.map(o => `<button class="chip ${modoMapa === o.valor ? 'active' : ''}" data-modo-mapa="${o.valor}">${o.label}</button>`).join('')}
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
+      "Agrupación" junta los prospectos muy cercanos en una burbuja con número (recomendado, más fluido). "Individual" los muestra todos sueltos, sin agrupar — útil para revisar todo de un vistazo, pero puede sentirse más lento con muchos registros a la vez.
+    </div>
+
+    <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Importar datos</div>
+    <div style="font-size:12px; color:var(--text-dim);">
+      El botón ⭳ para importar CSV / JSON está en la parte superior del encabezado, junto a este engrane.
     </div>
   `;
   sheetBody.querySelectorAll('[data-tema]').forEach(btn => {
@@ -1349,6 +1409,12 @@ function renderAjustes(){
       temaPref = btn.dataset.tema;
       guardarTemaPreferido(temaPref);
       aplicarTema(temaPref);
+      renderAjustes();
+    });
+  });
+  sheetBody.querySelectorAll('[data-modo-mapa]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      aplicarModoMapa(btn.dataset.modoMapa);
       renderAjustes();
     });
   });
@@ -2245,6 +2311,7 @@ function mostrarToast(msg){
 }
 
 /* ---------- Arranque ---------- */
+cerrarSheet(); // estado conocido: nunca debe arrancar abierta de por sí
 renderSheetTabs();
 renderMarcadores();
 actualizarHeader();
