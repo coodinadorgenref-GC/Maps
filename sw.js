@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v2';
+const CACHE_SHELL = 'rutas-gc-shell-v3';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -14,7 +14,10 @@ const SHELL_ASSETS = [
   './icon-512.png',
   './denue-import.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css',
+  'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css',
+  'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js'
 ];
 
 self.addEventListener('install', (event) => {
