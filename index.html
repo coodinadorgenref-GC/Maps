@@ -8,6 +8,8 @@
 <meta name="theme-color" content="#14181C">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 <style>
   :root{
     --bg:#14181C;
@@ -167,6 +169,18 @@
   }
   .map-pin-icon .punto{ width:7px; height:7px; border-radius:50%; background:#fff; }
 
+  /* Clusters: mismo look que los pines, pero como burbuja redonda con conteo. */
+  .cluster-burbuja{
+    display:flex; align-items:center; justify-content:center;
+    border-radius:50%; color:#fff; font-weight:800;
+    border:2px solid rgba(255,255,255,.92);
+    box-shadow:0 2px 6px rgba(0,0,0,.45);
+  }
+  .marker-cluster-small div, .marker-cluster-small{ background:transparent !important; }
+  .marker-cluster-medium div, .marker-cluster-medium{ background:transparent !important; }
+  .marker-cluster-large div, .marker-cluster-large{ background:transparent !important; }
+  .marker-cluster{ background:transparent !important; }
+
   .quitar-parada{
     background:none; border:none; color:var(--danger);
     font-size:18px; line-height:1; padding:6px 6px; cursor:pointer;
@@ -221,6 +235,21 @@
     font-family:inherit;
   }
   .field textarea{ min-height:64px; resize:vertical; }
+
+  .filtros-fila{
+    display:flex; gap:7px; margin-bottom:12px;
+    overflow-x:auto; -webkit-overflow-scrolling:touch;
+  }
+  .filtro-compacto-item{ flex:1 1 0; min-width:76px; }
+  .filtro-compacto-item label{
+    display:block; font-size:10.5px; color:var(--text-dim);
+    margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .filtro-compacto-item select{
+    width:100%; background:var(--surface-2); border:1px solid var(--line);
+    color:var(--text); border-radius:9px; padding:8px 4px; font-size:12px;
+    font-family:inherit;
+  }
 
   .search-wrap{ position:relative; }
   .search-wrap input[type=text]{ padding-right:34px; }
@@ -339,6 +368,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 /* ---------- Tema: claro / oscuro / sistema ---------- */
 const TEMA_KEY = 'gc_tema_v1';
@@ -370,6 +400,11 @@ if(window.matchMedia){
 /* ---------- Estado y almacenamiento local ---------- */
 const STORAGE_KEY = 'gc_prospectos_v1';
 const ELIMINAR_KEY = 'gc_pendientes_eliminar_v1';
+// Lista aparte y PERMANENTE (nunca se vacía) de ids del catálogo DENUE que se
+// eliminaron a propósito: sin esto, cargarDenueCompartido() los vuelve a
+// meter cada vez que descarga denue-import.json, porque ese archivo no sabe
+// que ya los borraste en este dispositivo.
+const DENUE_EXCLUIDOS_KEY = 'gc_denue_excluidos_v1';
 // Pega aquí la URL del Web App de Apps Script una vez publicada (termina en
 // /exec). Mientras esté vacía, todo sigue viviendo solo local como antes.
 const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycby28N3lAhtsj9UeI7SvzUPE6KkDrMGq_2oc4K6EQE3eI6tPuFub3UQH6KwzNUNnx0xudg/exec';
@@ -389,6 +424,18 @@ function cargarPendientesEliminar(){
 }
 function guardarPendientesEliminar(lista){
   localStorage.setItem(ELIMINAR_KEY, JSON.stringify(lista));
+}
+
+function cargarDenueExcluidos(){
+  try{ return JSON.parse(localStorage.getItem(DENUE_EXCLUIDOS_KEY)) || []; }
+  catch(e){ return []; }
+}
+function agregarDenueExcluido(id){
+  const lista = cargarDenueExcluidos();
+  if(!lista.includes(id)){
+    lista.push(id);
+    localStorage.setItem(DENUE_EXCLUIDOS_KEY, JSON.stringify(lista));
+  }
 }
 
 // Empuja lo que cambió en este dispositivo (altas, ediciones, bajas) al
@@ -464,8 +511,46 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 L.control.zoom({ position:'bottomleft' }).addTo(map);
 
-const markersLayer = L.layerGroup().addTo(map);
+function crearIconoCluster(cluster){
+  const n = cluster.getChildCount();
+  const size = n < 10 ? 34 : (n < 50 ? 42 : 50);
+  const color = n < 10 ? '#2FA89D' : (n < 50 ? '#FF8A1E' : '#D65F5F');
+  return L.divIcon({
+    html: `<div class="cluster-burbuja" style="width:${size}px;height:${size}px;background:${color};font-size:${n<50?13:14}px;">${n}</div>`,
+    className: '',
+    iconSize: [size, size]
+  });
+}
+
+// Clustering: agrupa en una burbuja los prospectos muy juntos o exactamente
+// sobrepuestos (imposibles de separar solo haciendo zoom) y reduce a la vez
+// cuántos pines reales hay que dibujar en pantalla con miles de registros.
+// Por debajo de zoom 16 (calle/manzana) se desagrupa todo para poder tocar
+// cada negocio con precisión al planear una ruta.
+const clusterLayer = L.markerClusterGroup({
+  iconCreateFunction: crearIconoCluster,
+  showCoverageOnHover: false,
+  spiderfyOnMaxZoom: true,
+  disableClusteringAtZoom: 16,
+  chunkedLoading: true,
+  maxClusterRadius: 50
+});
+// Mientras se está seleccionando o revisando una ruta, cada parada debe
+// poder tocarse exacta sin importar el zoom: se usa una capa sin agrupar.
+const flatLayer = L.layerGroup();
+let markersLayer = clusterLayer;
+map.addLayer(markersLayer);
 let userMarker = null;
+
+function actualizarCapaDeMarcadores(){
+  const necesitaCapaPlana = modoRuta || (rutaCalculada && rutaCalculada.paradas.length > 0);
+  const deseada = necesitaCapaPlana ? flatLayer : clusterLayer;
+  if(markersLayer !== deseada){
+    map.removeLayer(markersLayer);
+    markersLayer = deseada;
+    map.addLayer(markersLayer);
+  }
+}
 
 function pasaFiltro(p){
   const okEstatus = estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus;
@@ -528,7 +613,9 @@ function crearIconoPin(p, opciones){
 }
 
 function renderMarcadores(){
+  actualizarCapaDeMarcadores();
   markersLayer.clearLayers();
+  const nuevosMarcadores = [];
   prospectos
     .filter(pasaFiltro)
     .forEach(p => {
@@ -540,13 +627,42 @@ function renderMarcadores(){
       const opciones = { esDenue, enRuta, idxRuta, seleccionado, esPrioridad };
       const m = L.marker([p.lat, p.lng], { icon: crearIconoPin(p, opciones) })
         .bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
+
+      // Mantener presionado ~3s muestra la etiqueta (popup) sin entrar a
+      // editar; si se disparó, el "click" al soltar el dedo se ignora una
+      // sola vez para no saltar de inmediato a la ficha de edición.
+      let temporizadorPress = null;
+      let etiquetaMostrada = false;
+      m.on('add', () => {
+        const el = m.getElement();
+        if(!el) return;
+        const iniciarPress = () => {
+          etiquetaMostrada = false;
+          temporizadorPress = setTimeout(() => { etiquetaMostrada = true; m.openPopup(); }, 3000);
+        };
+        const cancelarPress = () => { if(temporizadorPress){ clearTimeout(temporizadorPress); temporizadorPress = null; } };
+        el.addEventListener('touchstart', iniciarPress, { passive: true });
+        el.addEventListener('touchend', cancelarPress);
+        el.addEventListener('touchmove', cancelarPress);
+        el.addEventListener('touchcancel', cancelarPress);
+        el.addEventListener('mousedown', iniciarPress);
+        el.addEventListener('mouseup', cancelarPress);
+        el.addEventListener('mouseleave', cancelarPress);
+      });
+
       m.on('click', () => {
+        if(etiquetaMostrada){ etiquetaMostrada = false; return; }
         if(modoRuta){ toggleSeleccionRuta(p.id); return; }
         if(enRuta){ quitarParadaDeRuta(p.id); return; }
         abrirDetalle(p.id);
       });
-      markersLayer.addLayer(m);
+      nuevosMarcadores.push(m);
     });
+  if(typeof markersLayer.addLayers === 'function'){
+    markersLayer.addLayers(nuevosMarcadores);
+  } else {
+    nuevosMarcadores.forEach(m => markersLayer.addLayer(m));
+  }
 }
 
 function escapeHtml(s){
@@ -1279,33 +1395,35 @@ function renderLista(){
           <button type="button" id="btnLimpiarBusqueda" title="Borrar búsqueda" style="display:${textoBusqueda ? 'flex' : 'none'}">×</button>
         </div>
       </div>
-      <div class="field">
-        <label>Estatus</label>
-        <select id="selEstatus">
-          <option value="Todos">Todos</option>
-          ${ESTATUS.map(e => `<option value="${e}" ${estadoFiltro.estatus===e?'selected':''}>${e}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field">
-        <label>Estado</label>
-        <select id="selEstado">
-          <option value="Todos">Todos</option>
-          ${ESTADOS.map(e => `<option value="${e}" ${estadoFiltro.estado===e?'selected':''}>${e}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field">
-        <label>Frecuencia de visita</label>
-        <select id="selFrecuencia">
-          <option value="Todas">Todas</option>
-          ${FRECUENCIA.map(f => `<option value="${f}" ${estadoFiltro.frecuencia===f?'selected':''}>${f}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field">
-        <label>Localidad (A-Z)</label>
-        <select id="selLocalidad">
-          <option value="Todas">Todas</option>
-          ${localidades.map(l => `<option value="${escapeHtml(l)}" ${estadoFiltro.localidad===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
-        </select>
+      <div class="filtros-fila">
+        <div class="filtro-compacto-item">
+          <label>Estatus</label>
+          <select id="selEstatus">
+            <option value="Todos">Todos</option>
+            ${ESTATUS.map(e => `<option value="${e}" ${estadoFiltro.estatus===e?'selected':''}>${e}</option>`).join('')}
+          </select>
+        </div>
+        <div class="filtro-compacto-item">
+          <label>Frecuencia</label>
+          <select id="selFrecuencia">
+            <option value="Todas">Todas</option>
+            ${FRECUENCIA.map(f => `<option value="${f}" ${estadoFiltro.frecuencia===f?'selected':''}>${f}</option>`).join('')}
+          </select>
+        </div>
+        <div class="filtro-compacto-item">
+          <label>Estado</label>
+          <select id="selEstado">
+            <option value="Todos">Todos</option>
+            ${ESTADOS.map(e => `<option value="${e}" ${estadoFiltro.estado===e?'selected':''}>${e}</option>`).join('')}
+          </select>
+        </div>
+        <div class="filtro-compacto-item">
+          <label>Localidad</label>
+          <select id="selLocalidad">
+            <option value="Todas">Todas</option>
+            ${localidades.map(l => `<option value="${escapeHtml(l)}" ${estadoFiltro.localidad===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
+          </select>
+        </div>
       </div>
       <div class="field">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
@@ -1672,9 +1790,11 @@ function manejarArchivoImportado(ev){
 function fusionarImportados(datos, opts = {}){
   const silencioso = !!opts.silencioso;
   const existentes = new Set(prospectos.map(p => p.id));
+  const excluidos = new Set(cargarDenueExcluidos());
   let nuevos = 0, actualizados = 0;
   datos.forEach(d => {
     if(!d.id || d.lat == null || d.lng == null || isNaN(d.lat) || isNaN(d.lng)) return;
+    if(excluidos.has(d.id)) return; // se eliminó a propósito en este dispositivo: no se reintroduce
     if(existentes.has(d.id)){
       const i = prospectos.findIndex(p => p.id === d.id);
       // No se pisa el trabajo ya hecho en campo: solo se actualiza si sigue como estaba desde la importación
@@ -2005,6 +2125,7 @@ function eliminarProspectoPorId(id){
   const p = prospectos.find(x => x.id === id);
   const nombre = p ? p.nombre : 'esta ubicación';
   if(!confirm(`¿Eliminar definitivamente "${nombre}"? Ya no aparecerá en el mapa ni en la lista.`)) return false;
+  if(p && p.origen === 'DENUE') agregarDenueExcluido(id);
   prospectos = prospectos.filter(x => x.id !== id);
   seleccionRuta.delete(id);
   const eliminados = cargarPendientesEliminar();
