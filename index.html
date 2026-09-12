@@ -524,33 +524,25 @@ function crearIconoCluster(cluster){
 
 // Clustering: agrupa en una burbuja los prospectos muy juntos o exactamente
 // sobrepuestos (imposibles de separar solo haciendo zoom) y reduce a la vez
-// cuántos pines reales hay que dibujar en pantalla con miles de registros.
-// Por debajo de zoom 16 (calle/manzana) se desagrupa todo para poder tocar
-// cada negocio con precisión al planear una ruta.
-const clusterLayer = L.markerClusterGroup({
+// cuántos pines reales hay que dibujar en pantalla con miles de registros —
+// esto se queda activo SIEMPRE, incluso planeando ruta, porque es lo que
+// hace que abrir el modo de selección sea instantáneo. Por debajo de zoom 16
+// (calle/manzana) se desagrupa todo para tocar cada negocio con precisión.
+const markersLayer = L.markerClusterGroup({
   iconCreateFunction: crearIconoCluster,
   showCoverageOnHover: false,
   spiderfyOnMaxZoom: true,
   disableClusteringAtZoom: 16,
   chunkedLoading: true,
   maxClusterRadius: 50
-});
-// Mientras se está seleccionando o revisando una ruta, cada parada debe
-// poder tocarse exacta sin importar el zoom: se usa una capa sin agrupar.
-const flatLayer = L.layerGroup();
-let markersLayer = clusterLayer;
-map.addLayer(markersLayer);
+}).addTo(map);
 let userMarker = null;
 
-function actualizarCapaDeMarcadores(){
-  const necesitaCapaPlana = modoRuta || (rutaCalculada && rutaCalculada.paradas.length > 0);
-  const deseada = necesitaCapaPlana ? flatLayer : clusterLayer;
-  if(markersLayer !== deseada){
-    map.removeLayer(markersLayer);
-    markersLayer = deseada;
-    map.addLayer(markersLayer);
-  }
-}
+// Id de prospecto -> su marcador real en el mapa. Sirve para actualizar SOLO
+// el pin que cambió (por ejemplo al seleccionarlo para una ruta) en vez de
+// reconstruir los cientos de pines visibles cada vez — eso es lo que hacía
+// que seleccionar/deseleccionar se sintiera lento.
+const marcadoresPorId = new Map();
 
 function pasaFiltro(p){
   const okEstatus = estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus;
@@ -613,8 +605,8 @@ function crearIconoPin(p, opciones){
 }
 
 function renderMarcadores(){
-  actualizarCapaDeMarcadores();
   markersLayer.clearLayers();
+  marcadoresPorId.clear();
   const nuevosMarcadores = [];
   prospectos
     .filter(pasaFiltro)
@@ -656,6 +648,7 @@ function renderMarcadores(){
         if(enRuta){ quitarParadaDeRuta(p.id); return; }
         abrirDetalle(p.id);
       });
+      marcadoresPorId.set(p.id, m);
       nuevosMarcadores.push(m);
     });
   if(typeof markersLayer.addLayers === 'function'){
@@ -667,6 +660,22 @@ function renderMarcadores(){
 
 function escapeHtml(s){
   return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// Recalcula y aplica solo el ícono de UN pin (sin tocar los demás). Esto es
+// lo que hace que seleccionar/deseleccionar en modo ruta se sienta al
+// instante, en vez de reconstruir todos los pines visibles en cada toque.
+function actualizarIconoIndividual(id){
+  const m = marcadoresPorId.get(id);
+  const p = prospectos.find(x => x.id === id);
+  if(!m || !p) return;
+  const esDenue = p.origen === 'DENUE';
+  const idxRuta = rutaCalculada ? rutaCalculada.paradas.findIndex(x => x.id === id) : -1;
+  const enRuta = idxRuta !== -1;
+  const seleccionado = (modoRuta && seleccionRuta.has(id)) || enRuta;
+  const esPrioridad = !!p.prioridad;
+  m.setIcon(crearIconoPin(p, { esDenue, enRuta, idxRuta, seleccionado, esPrioridad }));
+  if(typeof markersLayer.refreshClusters === 'function') markersLayer.refreshClusters(m);
 }
 
 /* ---------- Selección de ubicación (GPS o toque en mapa) ---------- */
@@ -855,7 +864,7 @@ function actualizarRouteBanner(){
 function toggleSeleccionRuta(id){
   if(seleccionRuta.has(id)) seleccionRuta.delete(id); else seleccionRuta.add(id);
   actualizarRouteBanner();
-  renderMarcadores();
+  actualizarIconoIndividual(id);
   if(currentTab === 'lista') renderLista();
 }
 
@@ -1165,7 +1174,40 @@ async function detectarLugarParaTemp(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false, radioKm: 'Sin límite' };
+let radioCentro = null; // {lat,lng} desde donde se mide "Distancia a la redonda" en la lista
+
+// El filtro de distancia solo agrupa/oculta en la LISTA de prospectos; el
+// mapa sigue mostrando todo como siempre para poder seleccionar a mano algo
+// más lejano si hace falta salirse de esos km.
+function activarFiltroRadio(valor){
+  estadoFiltro.radioKm = valor;
+  if(valor === 'Sin límite'){
+    radioCentro = null;
+    renderLista();
+    return;
+  }
+  if(!navigator.geolocation){
+    mostrarToast('Este dispositivo no soporta GPS');
+    estadoFiltro.radioKm = 'Sin límite';
+    renderLista();
+    return;
+  }
+  mostrarToast('Obteniendo tu ubicación para filtrar por distancia…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    radioCentro = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    renderLista();
+  }, () => {
+    mostrarToast('No se pudo obtener tu ubicación');
+    estadoFiltro.radioKm = 'Sin límite';
+    renderLista();
+  }, { enableHighAccuracy: true, timeout: 8000 });
+}
+
+function pasaRadio(p){
+  if(estadoFiltro.radioKm === 'Sin límite' || !radioCentro) return true;
+  return distanciaKm(radioCentro, p) <= parseFloat(estadoFiltro.radioKm);
+}
 let filtrosAbiertos = false;
 let textoBusqueda = '';
 let editandoId = null;
@@ -1365,19 +1407,22 @@ function renderLista(){
   const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia']
     .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length
     + (textoBusqueda ? 1 : 0)
-    + (estadoFiltro.soloPrioridad ? 1 : 0);
+    + (estadoFiltro.soloPrioridad ? 1 : 0)
+    + (estadoFiltro.radioKm !== 'Sin límite' ? 1 : 0);
 
   const items = prospectos
     .filter(pasaFiltro)
+    .filter(pasaRadio)
     .map(p => {
       const seleccionado = modoRuta && seleccionRuta.has(p.id);
       const lugar = p.localidad || p.municipio;
+      const dist = radioCentro ? `${distanciaKm(radioCentro, p).toFixed(1)} km` : '';
       return `
       <div class="item" data-id="${p.id}">
         <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}${seleccionado ? '; box-shadow:0 0 0 3px #C4D600' : ''}"></span>
         <div class="info">
           <div class="name">${p.prioridad ? '⚠️ ' : ''}${escapeHtml(p.nombre)}</div>
-          <div class="meta">${p.estatus} · ${p.frecuencia}${lugar ? ' · ' + escapeHtml(lugar) : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
+          <div class="meta">${p.estatus} · ${p.frecuencia}${lugar ? ' · ' + escapeHtml(lugar) : ''}${dist ? ' · ' + dist : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
         </div>
         ${modoRuta ? `<span class="go" style="color:${seleccionado ? '#C4D600' : 'var(--text-dim)'}">${seleccionado ? '✓' : '＋'}</span>` : '<span class="go">›</span>'}
       </div>`;
@@ -1424,6 +1469,15 @@ function renderLista(){
             ${localidades.map(l => `<option value="${escapeHtml(l)}" ${estadoFiltro.localidad===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
           </select>
         </div>
+        <div class="filtro-compacto-item">
+          <label>Distancia</label>
+          <select id="selRadio">
+            ${['Sin límite','10','25','50','100'].map(v => `<option value="${v}" ${estadoFiltro.radioKm===v?'selected':''}>${v === 'Sin límite' ? 'Sin límite' : v + ' km'}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="font-size:11px; color:var(--text-dim); margin:-6px 0 12px;">
+        "Distancia" solo filtra esta lista, usando tu ubicación actual. En el mapa puedes seguir tocando cualquier prospecto, aunque esté más lejos.
       </div>
       <div class="field">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
@@ -1459,6 +1513,10 @@ function renderLista(){
     estadoFiltro.localidad = selLocalidad.value;
     renderLista();
     renderMarcadores();
+  });
+  const selRadio = document.getElementById('selRadio');
+  if(selRadio) selRadio.addEventListener('change', () => {
+    activarFiltroRadio(selRadio.value); // solo afecta la lista, no el mapa
   });
 
   const chkSoloPrioridad = document.getElementById('chkSoloPrioridad');
