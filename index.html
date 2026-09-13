@@ -339,7 +339,6 @@
     <div class="sub" id="headerSub">0 registrados</div>
   </div>
   <div class="header-actions">
-    <button class="header-icon-btn" id="btnImportarHeader" title="Importar datos (CSV / JSON)">⭳</button>
     <button class="header-icon-btn" id="btnAjustesHeader" title="Ajustes">⚙</button>
     <div class="sync-wrap" id="syncWrap">
       <span class="sync-dot" id="syncDot"></span>
@@ -512,9 +511,21 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 L.control.zoom({ position:'bottomleft' }).addTo(map);
 
 function crearIconoCluster(cluster){
-  const n = cluster.getChildCount();
+  const hijos = cluster.getAllChildMarkers();
+  const n = hijos.length;
   const size = n < 10 ? 34 : (n < 50 ? 42 : 50);
-  const color = n < 10 ? '#2FA89D' : (n < 50 ? '#FF8A1E' : '#D65F5F');
+
+  let cliente = 0, visitado = 0, prospecto = 0;
+  hijos.forEach(m => {
+    if(m.prospectoEstatus === 'Cliente') cliente++;
+    else if(m.prospectoEstatus === 'Visitado') visitado++;
+    else if(m.prospectoEstatus === 'Prospecto') prospecto++;
+  });
+
+  let color = COLOR_ESTATUS['Prospecto'];
+  if(cliente > 0) color = COLOR_ESTATUS['Cliente'];
+  else if(visitado > prospecto) color = COLOR_ESTATUS['Visitado'];
+
   return L.divIcon({
     html: `<div class="cluster-burbuja" style="width:${size}px;height:${size}px;background:${color};font-size:${n<50?13:14}px;">${n}</div>`,
     className: '',
@@ -646,6 +657,7 @@ function renderMarcadores(){
       const opciones = { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion };
       const m = L.marker([p.lat, p.lng], { icon: crearIconoPin(p, opciones) })
         .bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
+      m.prospectoEstatus = p.estatus;
 
       // Mantener presionado ~3s muestra la etiqueta (popup) sin entrar a
       // editar; si se disparó, el "click" al soltar el dedo se ignora una
@@ -1251,9 +1263,6 @@ let seleccionRuta = new Set();
 let rutaCalculada = null;
 
 habilitarArrastreSheet();
-document.getElementById('btnImportarHeader').addEventListener('click', () => {
-  document.getElementById('fileImportarGlobal').click();
-});
 document.getElementById('fileImportarGlobal').addEventListener('change', manejarArchivoImportado);
 document.getElementById('btnAjustesHeader').addEventListener('click', () => {
   abrirSheet();
@@ -1400,8 +1409,11 @@ function renderAjustes(){
     </div>
 
     <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Importar datos</div>
-    <div style="font-size:12px; color:var(--text-dim);">
-      El botón ⭳ para importar CSV / JSON está en la parte superior del encabezado, junto a este engrane.
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">
+      Agrega otra lista de prospectos desde un archivo CSV o JSON.
+    </div>
+    <div class="save-row">
+      <button class="btn primary" id="btnImportarAjustes" style="flex:1">⭳ Importar CSV / JSON</button>
     </div>
   `;
   sheetBody.querySelectorAll('[data-tema]').forEach(btn => {
@@ -1417,6 +1429,9 @@ function renderAjustes(){
       aplicarModoMapa(btn.dataset.modoMapa);
       renderAjustes();
     });
+  });
+  document.getElementById('btnImportarAjustes').addEventListener('click', () => {
+    document.getElementById('fileImportarGlobal').click();
   });
 }
 
