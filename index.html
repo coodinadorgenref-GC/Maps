@@ -755,11 +755,9 @@ let modoUbicacion = 'apagado'; // 'apagado' | 'centrado' | 'siguiendo'
 let watchIdUbicacion = null;
 let listenerRumbo = null;
 let ultimoRumbo = 0;
-let mapaOrientado = false; // true mientras el mapa mismo está rotado con el rumbo
 
 function iconoUbicacion(conRumbo){
-  const rumboIcono = mapaOrientado ? 0 : ultimoRumbo; // si el mapa ya gira, el cono se queda "hacia arriba"
-  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${rumboIcono}deg)"></div>` : '';
+  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${ultimoRumbo}deg)"></div>` : '';
   return L.divIcon({
     className: 'ubi-divicon',
     html: `${cono}<div class="ubi-punto"></div>`,
@@ -805,11 +803,6 @@ function salirModoUbicacion(){
   detenerSeguimientoUbicacion();
   liberarWakeLock();
   modoUbicacion = 'apagado';
-  if(mapaOrientado){
-    mapaOrientado = false;
-    document.getElementById('map').style.transform = '';
-    map.dragging.enable();
-  }
   document.getElementById('btnLocate').classList.remove('active');
   if(userMarker) userMarker.setIcon(iconoUbicacion(false));
 }
@@ -835,17 +828,8 @@ function puntoDesplazadoPorRumbo(lat, lng, rumboDeg, distanciaMetros){
 function activarSeguimientoConRumbo(){
   modoUbicacion = 'siguiendo';
   document.getElementById('btnLocate').classList.add('active');
-  mostrarToast('Siguiendo tu ubicación y girando el mapa hacia donde apuntas');
+  mostrarToast('Siguiendo tu ubicación y hacia dónde apunta el teléfono');
   solicitarWakeLock();
-
-  // El mapa gira como en Google Maps al caminar/manejar: "adelante" queda
-  // arriba de la pantalla. Mientras gira, se desactiva arrastrar con el dedo
-  // (el cálculo de arrastre de Leaflet no entiende que el mapa está rotado
-  // visualmente) — para salir, se toca ◎ de nuevo.
-  mapaOrientado = true;
-  const mapEl = document.getElementById('map');
-  mapEl.style.transition = 'transform 0.25s linear';
-  map.dragging.disable();
 
   watchIdUbicacion = navigator.geolocation.watchPosition(pos => {
     const { latitude, longitude } = pos.coords;
@@ -861,7 +845,6 @@ function activarSeguimientoConRumbo(){
     else if(e.alpha != null) rumbo = 360 - e.alpha;
     if(rumbo == null) return;
     ultimoRumbo = rumbo;
-    mapEl.style.transform = `rotate(${-rumbo}deg)`;
     if(userMarker) userMarker.setIcon(iconoUbicacion(true));
   };
 
@@ -1259,13 +1242,14 @@ async function detectarLugarParaTemp(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false, radioKm: 'Sin límite' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false, radioKm: '100' };
 let radioCentro = null; // {lat,lng} desde donde se mide "Distancia a la redonda" en la lista
 
 // El filtro de distancia solo agrupa/oculta en la LISTA de prospectos; el
 // mapa sigue mostrando todo como siempre para poder seleccionar a mano algo
 // más lejano si hace falta salirse de esos km.
-function activarFiltroRadio(valor){
+function activarFiltroRadio(valor, opts = {}){
+  const silencioso = !!opts.silencioso;
   estadoFiltro.radioKm = valor;
   if(valor === 'Sin límite'){
     radioCentro = null;
@@ -1273,17 +1257,17 @@ function activarFiltroRadio(valor){
     return;
   }
   if(!navigator.geolocation){
-    mostrarToast('Este dispositivo no soporta GPS');
+    if(!silencioso) mostrarToast('Este dispositivo no soporta GPS');
     estadoFiltro.radioKm = 'Sin límite';
     renderLista();
     return;
   }
-  mostrarToast('Obteniendo tu ubicación para filtrar por distancia…');
+  if(!silencioso) mostrarToast('Obteniendo tu ubicación para filtrar por distancia…');
   obtenerUbicacionReciente(120000, ({ lat, lng }) => {
     radioCentro = { lat, lng };
     renderLista();
   }, () => {
-    mostrarToast('No se pudo obtener tu ubicación');
+    if(!silencioso) mostrarToast('No se pudo obtener tu ubicación');
     estadoFiltro.radioKm = 'Sin límite';
     renderLista();
   });
@@ -2385,6 +2369,7 @@ if(prospectos.length > 0){ ajustarVistaATodos(); }
 cargarDenueCompartido();
 syncPendientes();
 setInterval(syncPendientes, 5 * 60 * 1000); // reintenta cada 5 min mientras la app siga abierta
+activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando solo lo cercano (100 km); el mapa sigue mostrando todo
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
