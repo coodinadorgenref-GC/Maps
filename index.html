@@ -724,6 +724,27 @@ let tempCoord = null;
 let tempLugar = null; // { municipio, localidad } detectado solo automáticamente
 let tempMarker = null;
 
+/* ---------- Ubicación compartida (evita pedir el GPS una y otra vez) ----------
+   Varias funciones necesitan "dónde estoy ahora" (el botón ◎, el filtro de
+   distancia, el origen de una ruta). Antes cada una llamaba a
+   getCurrentPosition por su cuenta, lo que hacía que el teléfono pidiera
+   permiso/activara el GPS repetidas veces en pocos minutos. Ahora comparten
+   una sola lectura reciente cuando es razonable reutilizarla. */
+let ultimaUbicacionConocida = null; // { lat, lng, ts }
+
+function obtenerUbicacionReciente(maxEdadMs, onExito, onError){
+  if(!navigator.geolocation){ if(onError) onError(); return; }
+  const ahora = Date.now();
+  if(ultimaUbicacionConocida && (ahora - ultimaUbicacionConocida.ts) < maxEdadMs){
+    onExito({ lat: ultimaUbicacionConocida.lat, lng: ultimaUbicacionConocida.lng });
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    ultimaUbicacionConocida = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+    onExito({ lat: ultimaUbicacionConocida.lat, lng: ultimaUbicacionConocida.lng });
+  }, () => { if(onError) onError(); }, { enableHighAccuracy: true, timeout: 8000 });
+}
+
 /* ---------- Ubicación en el mapa: un toque centra, otro sigue con rumbo ----------
    Imita el botón de "mi ubicación" de Google Maps: 1er toque = centra y
    muestra un punto; 2do toque = modo "siguiendo", el punto se convierte en
@@ -734,9 +755,11 @@ let modoUbicacion = 'apagado'; // 'apagado' | 'centrado' | 'siguiendo'
 let watchIdUbicacion = null;
 let listenerRumbo = null;
 let ultimoRumbo = 0;
+let mapaOrientado = false; // true mientras el mapa mismo está rotado con el rumbo
 
 function iconoUbicacion(conRumbo){
-  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${ultimoRumbo}deg)"></div>` : '';
+  const rumboIcono = mapaOrientado ? 0 : ultimoRumbo; // si el mapa ya gira, el cono se queda "hacia arriba"
+  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${rumboIcono}deg)"></div>` : '';
   return L.divIcon({
     className: 'ubi-divicon',
     html: `${cono}<div class="ubi-punto"></div>`,
@@ -782,6 +805,11 @@ function salirModoUbicacion(){
   detenerSeguimientoUbicacion();
   liberarWakeLock();
   modoUbicacion = 'apagado';
+  if(mapaOrientado){
+    mapaOrientado = false;
+    document.getElementById('map').style.transform = '';
+    map.dragging.enable();
+  }
   document.getElementById('btnLocate').classList.remove('active');
   if(userMarker) userMarker.setIcon(iconoUbicacion(false));
 }
@@ -807,11 +835,21 @@ function puntoDesplazadoPorRumbo(lat, lng, rumboDeg, distanciaMetros){
 function activarSeguimientoConRumbo(){
   modoUbicacion = 'siguiendo';
   document.getElementById('btnLocate').classList.add('active');
-  mostrarToast('Siguiendo tu ubicación y hacia dónde apunta el teléfono');
+  mostrarToast('Siguiendo tu ubicación y girando el mapa hacia donde apuntas');
   solicitarWakeLock();
+
+  // El mapa gira como en Google Maps al caminar/manejar: "adelante" queda
+  // arriba de la pantalla. Mientras gira, se desactiva arrastrar con el dedo
+  // (el cálculo de arrastre de Leaflet no entiende que el mapa está rotado
+  // visualmente) — para salir, se toca ◎ de nuevo.
+  mapaOrientado = true;
+  const mapEl = document.getElementById('map');
+  mapEl.style.transition = 'transform 0.25s linear';
+  map.dragging.disable();
 
   watchIdUbicacion = navigator.geolocation.watchPosition(pos => {
     const { latitude, longitude } = pos.coords;
+    ultimaUbicacionConocida = { lat: latitude, lng: longitude, ts: Date.now() };
     const centro = puntoDesplazadoPorRumbo(latitude, longitude, ultimoRumbo, 120);
     map.panTo([centro.lat, centro.lng], { animate: true });
     colocarMarcadorUbicacion(latitude, longitude, true);
@@ -823,6 +861,7 @@ function activarSeguimientoConRumbo(){
     else if(e.alpha != null) rumbo = 360 - e.alpha;
     if(rumbo == null) return;
     ultimoRumbo = rumbo;
+    mapEl.style.transform = `rotate(${-rumbo}deg)`;
     if(userMarker) userMarker.setIcon(iconoUbicacion(true));
   };
 
@@ -843,13 +882,12 @@ document.getElementById('btnLocate').addEventListener('click', () => {
 
   if(modoUbicacion === 'apagado'){
     mostrarToast('Buscando tu ubicación…');
-    navigator.geolocation.getCurrentPosition(pos => {
-      const { latitude, longitude } = pos.coords;
-      map.setView([latitude, longitude], Math.max(map.getZoom(), 15));
-      colocarMarcadorUbicacion(latitude, longitude, false);
+    obtenerUbicacionReciente(60000, ({ lat, lng }) => {
+      map.setView([lat, lng], Math.max(map.getZoom(), 15));
+      colocarMarcadorUbicacion(lat, lng, false);
       modoUbicacion = 'centrado';
       document.getElementById('btnLocate').classList.add('active');
-    }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy: true, timeout: 8000 });
+    }, () => mostrarToast('No se pudo obtener tu ubicación'));
   } else if(modoUbicacion === 'centrado'){
     activarSeguimientoConRumbo();
   } else {
@@ -1241,14 +1279,14 @@ function activarFiltroRadio(valor){
     return;
   }
   mostrarToast('Obteniendo tu ubicación para filtrar por distancia…');
-  navigator.geolocation.getCurrentPosition(pos => {
-    radioCentro = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  obtenerUbicacionReciente(120000, ({ lat, lng }) => {
+    radioCentro = { lat, lng };
     renderLista();
   }, () => {
     mostrarToast('No se pudo obtener tu ubicación');
     estadoFiltro.radioKm = 'Sin límite';
     renderLista();
-  }, { enableHighAccuracy: true, timeout: 8000 });
+  });
 }
 
 function pasaRadio(p){
@@ -1261,6 +1299,23 @@ let editandoId = null;
 let modoRuta = false;
 let seleccionRuta = new Set();
 let rutaCalculada = null;
+let lineaRutaLayer = null;
+
+// Dibuja en el propio mapa la línea que conecta las paradas en el orden
+// calculado (como la línea azul de Google Maps), para ver de un vistazo el
+// trazo antes de abrir Google Maps a navegar de verdad.
+function dibujarLineaRuta(){
+  if(lineaRutaLayer){ map.removeLayer(lineaRutaLayer); lineaRutaLayer = null; }
+  if(!rutaCalculada || rutaCalculada.paradas.length === 0) return;
+  const puntos = [];
+  if(rutaCalculada.origen) puntos.push([rutaCalculada.origen.lat, rutaCalculada.origen.lng]);
+  rutaCalculada.paradas.forEach(p => puntos.push([p.lat, p.lng]));
+  if(puntos.length < 2) return;
+  lineaRutaLayer = L.polyline(puntos, {
+    color: '#C4D600', weight: 4, opacity: 0.85, dashArray: '1 10', lineCap: 'round'
+  }).addTo(map);
+  lineaRutaLayer.bringToBack();
+}
 
 habilitarArrastreSheet();
 document.getElementById('fileImportarGlobal').addEventListener('change', manejarArchivoImportado);
@@ -1780,20 +1835,13 @@ function calcularYMostrarRuta(){
 
   const construir = (origen) => {
     rutaCalculada = { origen, paradas: optimizarRuta(origen, seleccionados) };
+    dibujarLineaRuta();
     salirModoRutaEnMapa();
     cambiarTab('ruta');
   };
 
-  if(navigator.geolocation){
-    mostrarToast('Calculando la mejor ruta desde tu ubicación…');
-    navigator.geolocation.getCurrentPosition(
-      pos => construir({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => construir(null),
-      { enableHighAccuracy: true, timeout: 6000 }
-    );
-  } else {
-    construir(null);
-  }
+  mostrarToast('Calculando la mejor ruta desde tu ubicación…');
+  obtenerUbicacionReciente(120000, construir, () => construir(null));
 }
 
 function renderRuta(){
@@ -1856,6 +1904,7 @@ function renderRuta(){
   document.getElementById('btnAbrirGoogleMaps').addEventListener('click', abrirEnGoogleMaps);
   document.getElementById('btnCancelarRuta').addEventListener('click', () => {
     rutaCalculada = null;
+    dibujarLineaRuta();
     seleccionRuta.clear();
     salirModoRutaEnMapa();
     cambiarTab('lista');
@@ -1871,6 +1920,7 @@ function quitarParadaDeRuta(id){
   rutaCalculada = restantes.length === 0
     ? null
     : { origen: rutaCalculada.origen, paradas: optimizarRuta(rutaCalculada.origen, restantes) };
+  dibujarLineaRuta();
   renderMarcadores();
   if(currentTab === 'ruta') renderRuta();
   mostrarToast('Parada quitada de la ruta');
