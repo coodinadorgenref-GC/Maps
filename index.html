@@ -1288,17 +1288,61 @@ let lineaRutaLayer = null;
 // Dibuja en el propio mapa la línea que conecta las paradas en el orden
 // calculado (como la línea azul de Google Maps), para ver de un vistazo el
 // trazo antes de abrir Google Maps a navegar de verdad.
-function dibujarLineaRuta(){
+// OSRM: servicio público y gratuito de rutas por calles (sin llave). Es un
+// servidor de demostración compartido, así que puede tardar o fallar bajo
+// carga alta o sin señal — por eso siempre queda la línea recta como respaldo
+// funcional, nunca se deja al usuario sin nada que ver.
+async function obtenerRutaPorCalles(puntos){
+  if(puntos.length < 2) return null;
+  const coords = puntos.map(p => `${p.lng},${p.lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error('OSRM no respondió');
+  const datos = await resp.json();
+  if(!datos.routes || !datos.routes[0]) throw new Error('Sin ruta');
+  return {
+    coordenadas: datos.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+    distanciaKm: datos.routes[0].distance / 1000,
+    duracionMin: datos.routes[0].duration / 60
+  };
+}
+
+let idPeticionRuta = 0; // evita que una respuesta vieja pise una ruta más nueva
+
+async function dibujarLineaRuta(){
   if(lineaRutaLayer){ map.removeLayer(lineaRutaLayer); lineaRutaLayer = null; }
+  if(rutaCalculada){ rutaCalculada.distanciaRealKm = null; rutaCalculada.duracionRealMin = null; }
   if(!rutaCalculada || rutaCalculada.paradas.length === 0) return;
+
   const puntos = [];
-  if(rutaCalculada.origen) puntos.push([rutaCalculada.origen.lat, rutaCalculada.origen.lng]);
-  rutaCalculada.paradas.forEach(p => puntos.push([p.lat, p.lng]));
+  if(rutaCalculada.origen) puntos.push(rutaCalculada.origen);
+  rutaCalculada.paradas.forEach(p => puntos.push({ lat: p.lat, lng: p.lng }));
   if(puntos.length < 2) return;
-  lineaRutaLayer = L.polyline(puntos, {
+
+  // Línea recta primero: se ve al instante y funciona sin señal.
+  lineaRutaLayer = L.polyline(puntos.map(p => [p.lat, p.lng]), {
     color: '#C4D600', weight: 4, opacity: 0.85, dashArray: '1 10', lineCap: 'round'
   }).addTo(map);
   lineaRutaLayer.bringToBack();
+
+  if(!navigator.onLine) return;
+  const miPeticion = ++idPeticionRuta;
+  try{
+    const real = await obtenerRutaPorCalles(puntos);
+    if(miPeticion !== idPeticionRuta || !real) return; // la ruta ya cambió mientras esperábamos
+    if(lineaRutaLayer) map.removeLayer(lineaRutaLayer);
+    lineaRutaLayer = L.polyline(real.coordenadas, {
+      color: '#3B82F6', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round'
+    }).addTo(map);
+    lineaRutaLayer.bringToBack();
+    if(rutaCalculada){
+      rutaCalculada.distanciaRealKm = real.distanciaKm;
+      rutaCalculada.duracionRealMin = real.duracionMin;
+      if(currentTab === 'ruta') renderRuta();
+    }
+  } catch(e){
+    // Sin señal o el servicio no respondió: se queda la línea recta de respaldo.
+  }
 }
 
 habilitarArrastreSheet();
@@ -1854,10 +1898,14 @@ function renderRuta(){
       </div>`;
   }).join('');
 
+  const resumenDistancia = rutaCalculada.distanciaRealKm != null
+    ? `~${rutaCalculada.distanciaRealKm.toFixed(1)} km por calles · ~${Math.round(rutaCalculada.duracionRealMin)} min`
+    : `~${distTotal.toFixed(1)} km en línea recta`;
+
   sheetBody.innerHTML = `
     <div style="margin-bottom:12px;">
-      <div style="font-weight:700; font-size:15px;">${paradas.length} paradas · ~${distTotal.toFixed(1)} km en línea recta</div>
-      <div style="font-size:12px; color:var(--text-dim);">Ruta optimizada${origen ? ' desde tu ubicación actual' : ''} para evitar vueltas y cruces cuando hay negocios muy juntos. ✕ la quita solo de esta ruta; 🗑 la elimina definitivamente. La distancia es aproximada (línea recta, no por calles).</div>
+      <div style="font-weight:700; font-size:15px;">${paradas.length} paradas · ${resumenDistancia}</div>
+      <div style="font-size:12px; color:var(--text-dim);">Ruta optimizada${origen ? ' desde tu ubicación actual' : ''} para evitar vueltas y cruces cuando hay negocios muy juntos. ✕ la quita solo de esta ruta; 🗑 la elimina definitivamente.${rutaCalculada.distanciaRealKm == null ? ' La distancia es aproximada (línea recta); si hay señal, se ajusta sola a la ruta real por calles.' : ''}</div>
     </div>
     ${filas}
     <div class="save-row" style="margin-top:14px;">
