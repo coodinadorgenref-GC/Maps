@@ -499,6 +499,32 @@ const COLOR_ESTATUS = {
 };
 const ESTADOS = ['Yucatán','Quintana Roo'];
 
+// Cada cuántos días toca volver a visitar, según la frecuencia elegida.
+// "Ocasional" no tiene calendario fijo: nunca se marca como vencido.
+const DIAS_POR_FRECUENCIA = { 'Semanal': 7, 'Quincenal': 15, 'Mensual': 30 };
+
+function diasParaVisita(p){
+  const intervalo = DIAS_POR_FRECUENCIA[p.frecuencia];
+  if(!intervalo || !p.fechaUltimaVisita) return null;
+  const proxima = p.fechaUltimaVisita + intervalo * 86400000;
+  return Math.round((proxima - Date.now()) / 86400000);
+}
+
+// Texto corto para mostrar en la lista/ficha: null si no aplica (Ocasional o
+// sin fecha de visita registrada todavía).
+function textoEstadoVisita(p){
+  const dias = diasParaVisita(p);
+  if(dias === null) return null;
+  if(dias < 0) return `Vencido hace ${Math.abs(dias)} día${Math.abs(dias) === 1 ? '' : 's'}`;
+  if(dias === 0) return 'Toca visitar hoy';
+  return `Próxima visita en ${dias} día${dias === 1 ? '' : 's'}`;
+}
+
+function estaVencido(p){
+  const dias = diasParaVisita(p);
+  return dias !== null && dias <= 0;
+}
+
 /* ---------- Mapa ---------- */
 const map = L.map('map', { zoomControl:false, attributionControl:true })
   .setView([20.70, -89.10], 9); // centrado aprox. en Yucatán
@@ -579,11 +605,12 @@ function pasaFiltro(p){
   const okLocalidad = estadoFiltro.localidad === 'Todas' || p.localidad === estadoFiltro.localidad;
   const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
   const okPrioridad = !estadoFiltro.soloPrioridad || !!p.prioridad;
+  const okVencidos = !estadoFiltro.soloVencidos || estaVencido(p);
   const okBusqueda = !textoBusqueda || (
     (p.nombre || '').toLowerCase().includes(textoBusqueda.toLowerCase()) ||
     (p.notas || '').toLowerCase().includes(textoBusqueda.toLowerCase())
   );
-  return okEstatus && okEstado && okLocalidad && okFrecuencia && okPrioridad && okBusqueda;
+  return okEstatus && okEstado && okLocalidad && okFrecuencia && okPrioridad && okVencidos && okBusqueda;
 }
 
 function localidadesDisponibles(){
@@ -1181,10 +1208,12 @@ function usarGPSparaAlta(){
     fijarCoordTemporal(pos.coords.latitude, pos.coords.longitude);
     map.setView([pos.coords.latitude, pos.coords.longitude], 16);
     if(editandoId){
-      // Estar parado frente al negocio ya es una visita: se sugiere el estatus,
-      // pero se puede cambiar manualmente si no aplica.
+      // Estar parado frente al negocio ya es una visita: se sugiere el estatus
+      // y la fecha de hoy, pero ambos se pueden cambiar manualmente si no aplica.
       const sel = document.getElementById('fEstatus');
       if(sel && sel.value === 'Prospecto') sel.value = 'Visitado';
+      const fecha = document.getElementById('fFechaVisita');
+      if(fecha) fecha.value = new Date().toISOString().slice(0, 10);
     }
   }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy:true, timeout:8000 });
 }
@@ -1242,7 +1271,7 @@ async function detectarLugarParaTemp(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false, radioKm: '100' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false, soloVencidos: false, radioKm: '100' };
 let radioCentro = null; // {lat,lng} desde donde se mide "Distancia a la redonda" en la lista
 
 // El filtro de distancia solo agrupa/oculta en la LISTA de prospectos; el
@@ -1572,6 +1601,7 @@ function renderLista(){
     .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length
     + (textoBusqueda ? 1 : 0)
     + (estadoFiltro.soloPrioridad ? 1 : 0)
+    + (estadoFiltro.soloVencidos ? 1 : 0)
     + (estadoFiltro.radioKm !== 'Sin límite' ? 1 : 0);
 
   const items = prospectos
@@ -1581,12 +1611,14 @@ function renderLista(){
       const seleccionado = modoRuta && seleccionRuta.has(p.id);
       const lugar = p.localidad || p.municipio;
       const dist = radioCentro ? `${distanciaKm(radioCentro, p).toFixed(1)} km` : '';
+      const visita = textoEstadoVisita(p);
+      const visitaHtml = visita ? ` · <span style="color:${estaVencido(p) ? 'var(--danger)' : 'inherit'}">${visita}</span>` : '';
       return `
       <div class="item" data-id="${p.id}">
         <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}${seleccionado ? '; box-shadow:0 0 0 3px #C4D600' : ''}"></span>
         <div class="info">
           <div class="name">${p.prioridad ? '⚠️ ' : ''}${escapeHtml(p.nombre)}</div>
-          <div class="meta">${p.estatus} · ${p.frecuencia}${lugar ? ' · ' + escapeHtml(lugar) : ''}${dist ? ' · ' + dist : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}</div>
+          <div class="meta">${p.estatus} · ${p.frecuencia}${lugar ? ' · ' + escapeHtml(lugar) : ''}${dist ? ' · ' + dist : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}${visitaHtml}</div>
         </div>
         ${modoRuta ? `<span class="go" style="color:${seleccionado ? '#C4D600' : 'var(--text-dim)'}">${seleccionado ? '✓' : '＋'}</span>` : '<span class="go">›</span>'}
       </div>`;
@@ -1649,8 +1681,19 @@ function renderLista(){
           ⚠️ Solo con prioridad (cotizaciones pendientes, etc.)
         </label>
       </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="chkSoloVencidos" ${estadoFiltro.soloVencidos ? 'checked' : ''} style="width:16px; height:16px;">
+          🗓 Solo vencidos por visitar (según su frecuencia)
+        </label>
+      </div>
     ` : ''}
-    ${modoRuta ? `<div style="font-size:12px; color:var(--teal); margin-bottom:10px;">Modo ruta activo: toca ＋ aquí o los puntos en el mapa (${seleccionRuta.size} seleccionados).</div>` : ''}
+    ${modoRuta ? `
+      <div class="save-row" style="margin-bottom:10px">
+        <button class="btn" id="btnSeleccionarVisibles" style="flex:1">Seleccionar los ${prospectos.filter(pasaFiltro).filter(pasaRadio).length} de esta lista</button>
+      </div>
+      <div style="font-size:12px; color:var(--teal); margin-bottom:10px;">Modo ruta activo: toca ＋ aquí o los puntos en el mapa (${seleccionRuta.size} seleccionados).</div>
+    ` : ''}
     ${items || '<div class="empty">Nada que mostrar con estos filtros.</div>'}
   `;
 
@@ -1688,6 +1731,19 @@ function renderLista(){
     estadoFiltro.soloPrioridad = chkSoloPrioridad.checked;
     renderLista();
     renderMarcadores();
+  });
+  const chkSoloVencidos = document.getElementById('chkSoloVencidos');
+  if(chkSoloVencidos) chkSoloVencidos.addEventListener('change', () => {
+    estadoFiltro.soloVencidos = chkSoloVencidos.checked;
+    renderLista();
+    renderMarcadores();
+  });
+  const btnSeleccionarVisibles = document.getElementById('btnSeleccionarVisibles');
+  if(btnSeleccionarVisibles) btnSeleccionarVisibles.addEventListener('click', () => {
+    prospectos.filter(pasaFiltro).filter(pasaRadio).forEach(p => seleccionRuta.add(p.id));
+    actualizarRouteBanner();
+    renderMarcadores();
+    renderLista();
   });
 
   const btnToggleFiltros = document.getElementById('btnToggleFiltros');
@@ -2256,6 +2312,17 @@ function renderFormAlta(){
     <div class="coord-pill" id="coordPill">${tempCoord ? `Ubicación lista: ${tempCoord.lat.toFixed(5)}, ${tempCoord.lng.toFixed(5)}` : ''}</div>
 
     <div class="field">
+      <label>O pega un enlace de Google Maps</label>
+      <div class="loc-row" style="margin-bottom:0;">
+        <input type="text" id="fEnlaceMaps" placeholder="https://maps.google.com/... o lat, lng" style="flex:2; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;">
+        <button class="btn" type="button" id="btnUsarEnlaceMaps">Usar</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">
+        Funciona con enlaces largos (con @lat,lng) o coordenadas sueltas. Los enlaces cortos (maps.app.goo.gl) hay que abrirlos una vez en el navegador y pegar la URL completa que quede.
+      </div>
+    </div>
+
+    <div class="field">
       <label>Nombre del negocio</label>
       <input type="text" id="fNombre" placeholder="Ej. Refaccionaria Los 3 Hermanos" value="${p ? escapeHtml(p.nombre) : ''}">
     </div>
@@ -2272,6 +2339,14 @@ function renderFormAlta(){
       </select>
     </div>
     <div class="field">
+      <label>Fecha de última visita</label>
+      <div class="loc-row" style="margin-bottom:0;">
+        <input type="date" id="fFechaVisita" style="flex:2; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
+        <button class="btn" type="button" id="btnVisitaHoy">Hoy</button>
+      </div>
+      ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin-top:6px;">${textoEstadoVisita(p)}</div>` : ''}
+    </div>
+    <div class="field">
       <label>Notas</label>
       <textarea id="fNotas" placeholder="Referencias, contacto, horario…">${p ? escapeHtml(p.notas||'') : ''}</textarea>
     </div>
@@ -2282,6 +2357,11 @@ function renderFormAlta(){
       </label>
     </div>
 
+    ${p ? `
+    <div class="save-row">
+      <button class="btn" id="btnCompartirUbicacion" style="flex:1">📤 Compartir ubicación</button>
+    </div>
+    ` : ''}
     <div class="save-row">
       <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
       ${p ? '<button class="btn danger" id="btnEliminar">Eliminar</button>' : ''}
@@ -2295,9 +2375,61 @@ function renderFormAlta(){
 
   document.getElementById('btnGPS').addEventListener('click', usarGPSparaAlta);
   document.getElementById('btnMapPick').addEventListener('click', activarSeleccionEnMapa);
+  document.getElementById('btnUsarEnlaceMaps').addEventListener('click', () => {
+    const texto = document.getElementById('fEnlaceMaps').value.trim();
+    if(!texto){ mostrarToast('Pega un enlace o unas coordenadas primero'); return; }
+    const coords = extraerCoordsDeGoogleMaps(texto);
+    if(!coords){
+      mostrarToast('No encontré coordenadas ahí — si es un enlace corto (maps.app.goo.gl), ábrelo una vez y pega la URL larga que quede');
+      return;
+    }
+    fijarCoordTemporal(coords.lat, coords.lng);
+    map.setView([coords.lat, coords.lng], 16);
+    mostrarToast('Ubicación tomada del enlace');
+  });
+  document.getElementById('btnVisitaHoy').addEventListener('click', () => {
+    document.getElementById('fFechaVisita').value = new Date().toISOString().slice(0, 10);
+  });
+  const btnCompartir = document.getElementById('btnCompartirUbicacion');
+  if(btnCompartir) btnCompartir.addEventListener('click', () => compartirUbicacion(p));
   document.getElementById('btnGuardar').addEventListener('click', guardarDesdeForm);
   const btnEliminar = document.getElementById('btnEliminar');
   if(btnEliminar) btnEliminar.addEventListener('click', eliminarActual);
+}
+
+// Saca lat/lng de un enlace de Google Maps (varios formatos posibles) o de
+// coordenadas sueltas pegadas directamente. Los enlaces cortos
+// (maps.app.goo.gl) no se pueden abrir desde aquí por seguridad del
+// navegador — hay que expandirlos una vez y pegar la URL larga resultante.
+function extraerCoordsDeGoogleMaps(texto){
+  let m = texto.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if(m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = texto.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if(m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = texto.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if(m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = texto.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
+  if(m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return null;
+}
+
+// Comparte la ubicación de un prospecto como enlace de Google Maps — usa el
+// panel nativo para compartir (WhatsApp, mensajes, etc.) cuando el teléfono
+// lo permite; si no, lo copia al portapapeles.
+async function compartirUbicacion(p){
+  const url = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+  if(navigator.share){
+    try{
+      await navigator.share({ title: p.nombre, text: p.nombre, url });
+      return;
+    } catch(e){ /* el usuario canceló el panel de compartir: no hacer nada más */ return; }
+  }
+  try{
+    await navigator.clipboard.writeText(url);
+    mostrarToast('Enlace copiado — pégalo donde quieras enviarlo');
+  } catch(e){
+    mostrarToast(url);
+  }
 }
 
 function guardarDesdeForm(){
@@ -2306,13 +2438,15 @@ function guardarDesdeForm(){
   const frecuencia = document.getElementById('fFrecuencia').value;
   const notas = document.getElementById('fNotas').value.trim();
   const prioridad = document.getElementById('fPrioridad').checked;
+  const fechaVisitaTexto = document.getElementById('fFechaVisita').value;
+  const fechaUltimaVisita = fechaVisitaTexto ? new Date(fechaVisitaTexto + 'T12:00:00').getTime() : null;
 
   if(!nombre){ mostrarToast('Falta el nombre del negocio'); return; }
   if(!tempCoord){ mostrarToast('Falta la ubicación: usa GPS o marca en el mapa'); return; }
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, fechaUltimaVisita, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
     if(tempLugar){ p.municipio = tempLugar.municipio; p.localidad = tempLugar.localidad; }
   } else {
     prospectos.push({
@@ -2322,7 +2456,7 @@ function guardarDesdeForm(){
       municipio: tempLugar ? tempLugar.municipio : '',
       localidad: tempLugar ? tempLugar.localidad : '',
       origen: 'Manual',
-      fechaUltimaVisita: null,
+      fechaUltimaVisita,
       pendienteSync: true,
       actualizadoEn: Date.now()
     });
