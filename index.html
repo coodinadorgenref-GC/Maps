@@ -2325,8 +2325,9 @@ function renderFormAlta(){
 
     <div class="field">
       <div class="loc-row" style="margin-bottom:0;">
-        <button class="btn" type="button" id="btnMostrarEnlaceMaps" style="flex:1;">🔗 Pegar enlace</button>
-        ${p ? '<button class="btn" type="button" id="btnCompartirUbicacion" style="flex:1;">📤 Compartir</button>' : ''}
+        <button class="btn" type="button" id="btnMostrarEnlaceMaps" style="flex:1;">🔗 Enlace</button>
+        <button class="btn" type="button" id="btnCompartirUbicacion" style="flex:1;">📤 Compartir</button>
+        <button class="btn" type="button" id="btnMostrarContacto" style="flex:1;">💬 Contacto</button>
       </div>
       <div id="bloqueEnlaceMaps" style="display:none; margin-top:10px;">
         <label>Enlace o coordenadas</label>
@@ -2336,6 +2337,24 @@ function renderFormAlta(){
         </div>
         <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">
           Funciona con enlaces largos (con @lat,lng) o coordenadas sueltas. Los enlaces cortos (maps.app.goo.gl) hay que abrirlos una vez en el navegador y pegar la URL completa que quede.
+        </div>
+      </div>
+      <div id="bloqueContacto" style="display:none; margin-top:10px;">
+        <div class="fila-2col">
+          <div class="field" style="margin-bottom:0;">
+            <label>Nombre del contacto</label>
+            <input type="text" id="fContactoNombre" placeholder="Ej. Don Miguel" value="${p ? escapeHtml(p.contactoNombre||'') : ''}">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>Teléfono (WhatsApp)</label>
+            <input type="text" id="fContactoTel" placeholder="Ej. 9851234567" value="${p ? escapeHtml(p.contactoTel||'') : ''}">
+          </div>
+        </div>
+        <div class="loc-row" style="margin-top:10px; margin-bottom:0;">
+          <button class="btn" type="button" id="btnWhatsApp" style="flex:1;">💬 Enviar WhatsApp</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">
+          Guarda primero para conservar el contacto. El mensaje se abre listo en WhatsApp para que lo revises antes de enviarlo.
         </div>
       </div>
     </div>
@@ -2358,14 +2377,17 @@ function renderFormAlta(){
         </select>
       </div>
     </div>
-    <div class="field">
-      <label>Fecha de última visita</label>
-      <div class="loc-row" style="margin-bottom:0;">
-        <input type="date" id="fFechaVisita" style="flex:2; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
-        <button class="btn" type="button" id="btnVisitaHoy">Hoy</button>
+    <div class="fila-2col">
+      <div class="field">
+        <label>Fecha de última visita</label>
+        <input type="date" id="fFechaVisita" style="width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
       </div>
-      ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin-top:6px;">${textoEstadoVisita(p)}</div>` : ''}
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn" type="button" id="btnVisitaHoy" style="width:100%;">Marcar visitado hoy</button>
+      </div>
     </div>
+    ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin:-6px 0 12px;">${textoEstadoVisita(p)}</div>` : ''}
     <div class="field">
       <label>Notas</label>
       <textarea id="fNotas" placeholder="Referencias, contacto, horario…">${p ? escapeHtml(p.notas||'') : ''}</textarea>
@@ -2409,11 +2431,44 @@ function renderFormAlta(){
   document.getElementById('btnVisitaHoy').addEventListener('click', () => {
     document.getElementById('fFechaVisita').value = new Date().toISOString().slice(0, 10);
   });
-  const btnCompartir = document.getElementById('btnCompartirUbicacion');
-  if(btnCompartir) btnCompartir.addEventListener('click', () => compartirUbicacion(p));
+  document.getElementById('btnMostrarContacto').addEventListener('click', () => {
+    const bloque = document.getElementById('bloqueContacto');
+    bloque.style.display = bloque.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('btnWhatsApp').addEventListener('click', () => {
+    enviarWhatsApp(
+      document.getElementById('fContactoTel').value.trim(),
+      document.getElementById('fContactoNombre').value.trim(),
+      document.getElementById('fNombre').value.trim()
+    );
+  });
+  document.getElementById('btnCompartirUbicacion').addEventListener('click', () => {
+    if(!tempCoord){ mostrarToast('Primero define la ubicación (GPS, mapa o enlace)'); return; }
+    compartirUbicacion({
+      nombre: document.getElementById('fNombre').value.trim() || 'Ubicación',
+      lat: tempCoord.lat,
+      lng: tempCoord.lng
+    });
+  });
   document.getElementById('btnGuardar').addEventListener('click', guardarDesdeForm);
   const btnEliminar = document.getElementById('btnEliminar');
   if(btnEliminar) btnEliminar.addEventListener('click', eliminarActual);
+}
+
+// Abre WhatsApp con el mensaje ya escrito (no lo envía solo: se revisa antes
+// de mandarlo). El número se normaliza a formato internacional; si trae 10
+// dígitos se asume México (+52).
+function enviarWhatsApp(telefono, nombreContacto, nombreNegocio){
+  const digitos = (telefono || '').replace(/\D/g, '');
+  if(!digitos){ mostrarToast('Escribe primero el teléfono del contacto'); return; }
+  let numero = digitos;
+  if(digitos.length === 10) numero = '52' + digitos;
+
+  const saludo = nombreContacto ? ` ${nombreContacto}` : '';
+  const negocio = nombreNegocio || 'su negocio';
+  const mensaje = `Hola buen día${saludo}, soy Henry de Valladolid, pasé a ${negocio} para hacerle refacciones para motocicletas`;
+
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, '_blank');
 }
 
 // Saca lat/lng de un enlace de Google Maps (varios formatos posibles) o de
@@ -2459,18 +2514,21 @@ function guardarDesdeForm(){
   const prioridad = document.getElementById('fPrioridad').checked;
   const fechaVisitaTexto = document.getElementById('fFechaVisita').value;
   const fechaUltimaVisita = fechaVisitaTexto ? new Date(fechaVisitaTexto + 'T12:00:00').getTime() : null;
+  const contactoNombre = document.getElementById('fContactoNombre').value.trim();
+  const contactoTel = document.getElementById('fContactoTel').value.trim();
 
   if(!nombre){ mostrarToast('Falta el nombre del negocio'); return; }
   if(!tempCoord){ mostrarToast('Falta la ubicación: usa GPS o marca en el mapa'); return; }
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, fechaUltimaVisita, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, fechaUltimaVisita, contactoNombre, contactoTel, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
     if(tempLugar){ p.municipio = tempLugar.municipio; p.localidad = tempLugar.localidad; }
   } else {
     prospectos.push({
       id: 'p_' + Date.now(),
       nombre, estatus, frecuencia, notas, prioridad,
+      contactoNombre, contactoTel,
       lat: tempCoord.lat, lng: tempCoord.lng,
       municipio: tempLugar ? tempLugar.municipio : '',
       localidad: tempLugar ? tempLugar.localidad : '',
