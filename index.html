@@ -540,21 +540,29 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 L.control.zoom({ position:'bottomleft' }).addTo(map);
 
+// Orden de importancia para colorear una burbuja cuando adentro hay
+// prospectos de varios estatus. Si solo hay de un tipo, gana ese por
+// cantidad; si hay mezcla, gana el de mayor prioridad de esta lista.
+const PRIORIDAD_ESTATUS_CLUSTER = ['Cliente','Visitado','Prospecto','Unidad de negocio','Competencia'];
+
 function crearIconoCluster(cluster){
   const hijos = cluster.getAllChildMarkers();
   const n = hijos.length;
   const size = n < 10 ? 34 : (n < 50 ? 42 : 50);
 
-  let cliente = 0, visitado = 0, prospecto = 0;
+  const conteo = {};
   hijos.forEach(m => {
-    if(m.prospectoEstatus === 'Cliente') cliente++;
-    else if(m.prospectoEstatus === 'Visitado') visitado++;
-    else if(m.prospectoEstatus === 'Prospecto') prospecto++;
+    const e = m.prospectoEstatus;
+    if(e) conteo[e] = (conteo[e] || 0) + 1;
   });
 
+  const presentes = PRIORIDAD_ESTATUS_CLUSTER.filter(e => conteo[e] > 0);
   let color = COLOR_ESTATUS['Prospecto'];
-  if(cliente > 0) color = COLOR_ESTATUS['Cliente'];
-  else if(visitado > prospecto) color = COLOR_ESTATUS['Visitado'];
+  if(presentes.length === 1){
+    color = COLOR_ESTATUS[presentes[0]];
+  } else if(presentes.length > 1){
+    color = COLOR_ESTATUS[presentes[0]]; // el primero de la lista es el de mayor prioridad
+  }
 
   return L.divIcon({
     html: `<div class="cluster-burbuja" style="width:${size}px;height:${size}px;background:${color};font-size:${n<50?13:14}px;">${n}</div>`,
@@ -2316,7 +2324,10 @@ function renderFormAlta(){
     <div class="coord-pill" id="coordPill">${tempCoord ? `Ubicación lista: ${tempCoord.lat.toFixed(5)}, ${tempCoord.lng.toFixed(5)}` : ''}</div>
 
     <div class="field">
-      <button class="btn" type="button" id="btnMostrarEnlaceMaps" style="width:100%;">🔗 Pegar enlace de Google Maps</button>
+      <div class="loc-row" style="margin-bottom:0;">
+        <button class="btn" type="button" id="btnMostrarEnlaceMaps" style="flex:1;">🔗 Pegar enlace</button>
+        ${p ? '<button class="btn" type="button" id="btnCompartirUbicacion" style="flex:1;">📤 Compartir</button>' : ''}
+      </div>
       <div id="bloqueEnlaceMaps" style="display:none; margin-top:10px;">
         <label>Enlace o coordenadas</label>
         <div class="loc-row" style="margin-bottom:0;">
@@ -2366,11 +2377,6 @@ function renderFormAlta(){
       </label>
     </div>
 
-    ${p ? `
-    <div class="save-row">
-      <button class="btn" id="btnCompartirUbicacion" style="flex:1">📤 Compartir ubicación</button>
-    </div>
-    ` : ''}
     <div class="save-row">
       <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
       ${p ? '<button class="btn danger" id="btnEliminar">Eliminar</button>' : ''}
