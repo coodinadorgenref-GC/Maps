@@ -2361,7 +2361,7 @@ function renderFormAlta(){
           </div>
           <div class="field" style="margin-bottom:0;">
             <label>Teléfono (WhatsApp)</label>
-            <input type="text" id="fContactoTel" placeholder="Ej. 9851234567" value="${p ? escapeHtml(p.contactoTel||'') : ''}">
+            <input type="tel" inputmode="numeric" pattern="[0-9]*" id="fContactoTel" placeholder="Ej. 9851234567" value="${p ? escapeHtml(p.contactoTel||'') : ''}">
           </div>
         </div>
         <div class="loc-row" style="margin-top:10px; margin-bottom:0;">
@@ -2394,7 +2394,7 @@ function renderFormAlta(){
     <div class="fila-2col">
       <div class="field">
         <label>Fecha de última visita</label>
-        <input type="date" id="fFechaVisita" style="width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
+        <input type="date" id="fFechaVisita" style="width:100%; min-width:0; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
       </div>
       <div class="field">
         <label>&nbsp;</label>
@@ -2448,6 +2448,10 @@ function renderFormAlta(){
   document.getElementById('btnMostrarContacto').addEventListener('click', () => {
     const bloque = document.getElementById('bloqueContacto');
     bloque.style.display = bloque.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('fContactoTel').addEventListener('input', (e) => {
+    const limpio = e.target.value.replace(/\D/g, '');
+    if(limpio !== e.target.value) e.target.value = limpio;
   });
   document.getElementById('btnWhatsApp').addEventListener('click', () => {
     enviarWhatsApp(
