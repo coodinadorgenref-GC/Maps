@@ -236,6 +236,9 @@
   }
   .field textarea{ min-height:64px; resize:vertical; }
 
+  .fila-2col{ display:flex; gap:10px; }
+  .fila-2col .field{ flex:1; min-width:0; }
+
   .filtros-fila{
     display:flex; gap:7px; margin-bottom:12px;
     overflow-x:auto; -webkit-overflow-scrolling:touch;
@@ -488,13 +491,14 @@ async function syncPendientes(){
   }
 }
 
-const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Descartado'];
+const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
 const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
 const COLOR_ESTATUS = {
   'Prospecto': '#FF8A1E',
   'Visitado':  '#2FA89D',
   'Cliente':   '#C4D600',
   'Competencia': '#9B5DE5',
+  'Unidad de negocio': '#2F6FED',
   'Descartado':'#8A94A0'
 };
 const ESTADOS = ['Yucatán','Quintana Roo'];
@@ -2312,13 +2316,16 @@ function renderFormAlta(){
     <div class="coord-pill" id="coordPill">${tempCoord ? `Ubicación lista: ${tempCoord.lat.toFixed(5)}, ${tempCoord.lng.toFixed(5)}` : ''}</div>
 
     <div class="field">
-      <label>O pega un enlace de Google Maps</label>
-      <div class="loc-row" style="margin-bottom:0;">
-        <input type="text" id="fEnlaceMaps" placeholder="https://maps.google.com/... o lat, lng" style="flex:2; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;">
-        <button class="btn" type="button" id="btnUsarEnlaceMaps">Usar</button>
-      </div>
-      <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">
-        Funciona con enlaces largos (con @lat,lng) o coordenadas sueltas. Los enlaces cortos (maps.app.goo.gl) hay que abrirlos una vez en el navegador y pegar la URL completa que quede.
+      <button class="btn" type="button" id="btnMostrarEnlaceMaps" style="width:100%;">🔗 Pegar enlace de Google Maps</button>
+      <div id="bloqueEnlaceMaps" style="display:none; margin-top:10px;">
+        <label>Enlace o coordenadas</label>
+        <div class="loc-row" style="margin-bottom:0;">
+          <input type="text" id="fEnlaceMaps" placeholder="https://maps.google.com/... o lat, lng" style="flex:2; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;">
+          <button class="btn" type="button" id="btnUsarEnlaceMaps">Usar</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">
+          Funciona con enlaces largos (con @lat,lng) o coordenadas sueltas. Los enlaces cortos (maps.app.goo.gl) hay que abrirlos una vez en el navegador y pegar la URL completa que quede.
+        </div>
       </div>
     </div>
 
@@ -2326,17 +2333,19 @@ function renderFormAlta(){
       <label>Nombre del negocio</label>
       <input type="text" id="fNombre" placeholder="Ej. Refaccionaria Los 3 Hermanos" value="${p ? escapeHtml(p.nombre) : ''}">
     </div>
-    <div class="field">
-      <label>Estatus</label>
-      <select id="fEstatus">
-        ${ESTATUS.map(e => `<option ${p && p.estatus===e ? 'selected':''}>${e}</option>`).join('')}
-      </select>
-    </div>
-    <div class="field">
-      <label>Frecuencia de visita</label>
-      <select id="fFrecuencia">
-        ${FRECUENCIA.map(f => `<option ${p && p.frecuencia===f ? 'selected':''}>${f}</option>`).join('')}
-      </select>
+    <div class="fila-2col">
+      <div class="field">
+        <label>Estatus</label>
+        <select id="fEstatus">
+          ${ESTATUS.map(e => `<option ${p && p.estatus===e ? 'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Frecuencia de visita</label>
+        <select id="fFrecuencia">
+          ${FRECUENCIA.map(f => `<option ${p && p.frecuencia===f ? 'selected':''}>${f}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="field">
       <label>Fecha de última visita</label>
@@ -2375,6 +2384,10 @@ function renderFormAlta(){
 
   document.getElementById('btnGPS').addEventListener('click', usarGPSparaAlta);
   document.getElementById('btnMapPick').addEventListener('click', activarSeleccionEnMapa);
+  document.getElementById('btnMostrarEnlaceMaps').addEventListener('click', () => {
+    const bloque = document.getElementById('bloqueEnlaceMaps');
+    bloque.style.display = bloque.style.display === 'none' ? 'block' : 'none';
+  });
   document.getElementById('btnUsarEnlaceMaps').addEventListener('click', () => {
     const texto = document.getElementById('fEnlaceMaps').value.trim();
     if(!texto){ mostrarToast('Pega un enlace o unas coordenadas primero'); return; }
