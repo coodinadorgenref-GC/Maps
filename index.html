@@ -618,10 +618,21 @@ function pasaFiltro(p){
   const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
   const okPrioridad = !estadoFiltro.soloPrioridad || !!p.prioridad;
   const okVencidos = !estadoFiltro.soloVencidos || estaVencido(p);
-  const okBusqueda = !textoBusqueda || (
-    (p.nombre || '').toLowerCase().includes(textoBusqueda.toLowerCase()) ||
-    (p.notas || '').toLowerCase().includes(textoBusqueda.toLowerCase())
-  );
+  const okBusqueda = (() => {
+    if(!textoBusqueda) return true;
+    const q = textoBusqueda.toLowerCase().trim();
+    if((p.nombre || '').toLowerCase().includes(q)) return true;
+    if((p.notas || '').toLowerCase().includes(q)) return true;
+    if((p.contactoNombre || '').toLowerCase().includes(q)) return true;
+    // Teléfono: se comparan solo dígitos, así da igual si se escribe con
+    // espacios, guiones o con/sin el 52 del inicio.
+    const digitosQuery = q.replace(/\D/g, '');
+    if(digitosQuery){
+      const digitosTel = (p.contactoTel || '').replace(/\D/g, '');
+      if(digitosTel && digitosTel.includes(digitosQuery)) return true;
+    }
+    return false;
+  })();
   return okEstatus && okEstado && okLocalidad && okFrecuencia && okPrioridad && okVencidos && okBusqueda;
 }
 
@@ -1625,12 +1636,15 @@ function renderLista(){
       const dist = radioCentro ? `${distanciaKm(radioCentro, p).toFixed(1)} km` : '';
       const visita = textoEstadoVisita(p);
       const visitaHtml = visita ? ` · <span style="color:${estaVencido(p) ? 'var(--danger)' : 'inherit'}">${visita}</span>` : '';
+      const contacto = [p.contactoNombre, p.contactoTel].filter(Boolean).join(' · ');
+      const contactoHtml = contacto ? `<div class="meta">💬 ${escapeHtml(contacto)}</div>` : '';
       return `
       <div class="item" data-id="${p.id}">
         <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}${seleccionado ? '; box-shadow:0 0 0 3px #C4D600' : ''}"></span>
         <div class="info">
           <div class="name">${p.prioridad ? '⚠️ ' : ''}${escapeHtml(p.nombre)}</div>
           <div class="meta">${p.estatus} · ${p.frecuencia}${lugar ? ' · ' + escapeHtml(lugar) : ''}${dist ? ' · ' + dist : ''}${p.pendienteSync ? ' · sin sincronizar' : ''}${visitaHtml}</div>
+          ${contactoHtml}
         </div>
         ${modoRuta ? `<span class="go" style="color:${seleccionado ? '#C4D600' : 'var(--text-dim)'}">${seleccionado ? '✓' : '＋'}</span>` : '<span class="go">›</span>'}
       </div>`;
@@ -1642,9 +1656,9 @@ function renderLista(){
     </div>
     ${filtrosAbiertos ? `
       <div class="field">
-        <label>Buscar por nombre o notas</label>
+        <label>Buscar por nombre, notas o contacto</label>
         <div class="search-wrap">
-          <input type="text" id="inputBusqueda" placeholder="Escribe un nombre…" value="${escapeHtml(textoBusqueda)}">
+          <input type="text" id="inputBusqueda" placeholder="Nombre, contacto o teléfono…" value="${escapeHtml(textoBusqueda)}">
           <button type="button" id="btnLimpiarBusqueda" title="Borrar búsqueda" style="display:${textoBusqueda ? 'flex' : 'none'}">×</button>
         </div>
       </div>
@@ -2339,7 +2353,7 @@ function renderFormAlta(){
           Funciona con enlaces largos (con @lat,lng) o coordenadas sueltas. Los enlaces cortos (maps.app.goo.gl) hay que abrirlos una vez en el navegador y pegar la URL completa que quede.
         </div>
       </div>
-      <div id="bloqueContacto" style="display:none; margin-top:10px;">
+      <div id="bloqueContacto" style="display:${p && (p.contactoNombre || p.contactoTel) ? 'block' : 'none'}; margin-top:10px;">
         <div class="fila-2col">
           <div class="field" style="margin-bottom:0;">
             <label>Nombre del contacto</label>
