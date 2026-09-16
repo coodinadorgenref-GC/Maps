@@ -2650,7 +2650,23 @@ activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando s
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      reg.update(); // revisa ahora mismo si hay sw.js nuevo, sin esperar al chequeo periódico del navegador
+      reg.addEventListener('updatefound', () => {
+        const nuevoSW = reg.installing;
+        if(!nuevoSW) return;
+        nuevoSW.addEventListener('statechange', () => {
+          // Si ya había un service worker controlando la página (no es la
+          // primera instalación) y este nuevo terminó de instalarse, ya hay
+          // contenido nuevo listo: se recarga sola para mostrarlo de una vez,
+          // en vez de dejar a la persona esperando minutos u obligarla a
+          // borrar datos de navegación.
+          if(nuevoSW.state === 'installed' && navigator.serviceWorker.controller){
+            location.reload();
+          }
+        });
+      });
+    }).catch(() => {});
   });
 }
 </script>
