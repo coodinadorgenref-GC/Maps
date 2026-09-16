@@ -1481,6 +1481,16 @@ function habilitarArrastreSheet(){
   handle.addEventListener('touchstart', onStart, { passive:true });
 }
 
+// Después de guardar, eliminar o cancelar algo, se regresa a ver el mapa en
+// vez de que se abra la hoja de Lista encima — así se ve de una vez el
+// resultado del cambio sobre el mapa, sin un paso extra para cerrarla.
+function volverAlMapa(){
+  currentTab = 'lista';
+  renderSheetTabs();
+  renderLista();
+  cerrarSheet();
+}
+
 function cambiarTab(tab){
   currentTab = tab;
   renderSheetTabs();
@@ -2021,7 +2031,7 @@ function renderRuta(){
     dibujarLineaRuta();
     seleccionRuta.clear();
     salirModoRutaEnMapa();
-    cambiarTab('lista');
+    volverAlMapa();
   });
 }
 
@@ -2119,6 +2129,7 @@ function fusionarImportados(datos, opts = {}){
   if(!silencioso){
     mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
     if(nuevos > 0 || actualizados > 0){ ajustarVistaATodos(); }
+    volverAlMapa();
   } else if(nuevos > 0){
     // Primera vez que este dispositivo recibe el catálogo compartido: encuadra la vista.
     ajustarVistaATodos();
@@ -2257,7 +2268,7 @@ function renderWizardCSV(){
   });
   document.getElementById('btnCancelarWizard').addEventListener('click', () => {
     importCSVState = null;
-    cambiarTab('lista');
+    volverAlMapa();
   });
   document.getElementById('btnContinuarWizard').addEventListener('click', finalizarImportacionCSV);
 }
@@ -2565,7 +2576,7 @@ function guardarDesdeForm(){
   tempLugar = null;
   editandoId = null;
   mostrarToast('Guardado localmente');
-  cambiarTab('lista');
+  volverAlMapa();
   syncPendientes();
 }
 
@@ -2592,7 +2603,7 @@ function eliminarProspectoPorId(id){
 function eliminarActual(){
   if(eliminarProspectoPorId(editandoId)){
     editandoId = null;
-    cambiarTab('lista');
+    volverAlMapa();
   }
 }
 
