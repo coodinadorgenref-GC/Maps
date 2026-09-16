@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v3';
+const CACHE_SHELL = 'rutas-gc-shell-v4';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -73,10 +73,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Shell y librerías: cache-first con actualización en segundo plano
+  // Shell y librerías: cache-first con actualización en segundo plano.
+  // cache:'reload' obliga a saltarse la caché HTTP del navegador/CDN para
+  // esta petición puntual — sin esto, el "fetch de red" de aquí podía
+  // recibir una respuesta vieja igual, y la app tardaba mucho más de lo
+  // esperado en reflejar cambios nuevos.
   event.respondWith(
     caches.match(request).then((cached) => {
-      const network = fetch(request)
+      const network = fetch(request, { cache: 'reload' })
         .then((response) => {
           if (response && response.status === 200) {
             caches.open(CACHE_SHELL).then((cache) => cache.put(request, response.clone()));
