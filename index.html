@@ -2124,7 +2124,7 @@ function fusionarImportados(datos, opts = {}){
   guardarProspectos(prospectos);
   renderMarcadores();
   actualizarHeader();
-  renderLista();
+  if(currentTab === 'lista') renderLista();
 
   if(!silencioso){
     mostrarToast(`Importado: ${nuevos} nuevos, ${actualizados} actualizados`);
