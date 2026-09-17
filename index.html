@@ -236,8 +236,9 @@
   }
   .field textarea{ min-height:64px; resize:vertical; }
 
-  .fila-2col{ display:flex; gap:10px; }
-  .fila-2col .field{ flex:1; min-width:0; }
+  .fila-2col{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .fila-2col .field{ min-width:0; }
+  .fila-2col .field input, .fila-2col .field select, .fila-2col .field button{ width:100%; box-sizing:border-box; }
 
   .filtros-fila{
     display:flex; gap:7px; margin-bottom:12px;
@@ -1640,6 +1641,7 @@ function renderLista(){
   const items = prospectos
     .filter(pasaFiltro)
     .filter(pasaRadio)
+    .sort((a, b) => radioCentro ? distanciaKm(radioCentro, a) - distanciaKm(radioCentro, b) : 0)
     .map(p => {
       const seleccionado = modoRuta && seleccionRuta.has(p.id);
       const lugar = p.localidad || p.municipio;
