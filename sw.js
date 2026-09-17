@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v4';
+const CACHE_SHELL = 'rutas-gc-shell-v5';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -47,27 +47,39 @@ function isTileRequest(url) {
   return /tile\.openstreetmap\.org|tile\.osm\.org|\{s\}\.tile/.test(url);
 }
 
+// Respuesta de reserva cuando no hay caché ni red disponible, para nunca
+// resolver el fetch event con `undefined` (eso el navegador lo trata como
+// un error de red "misterioso", en vez de un 504 explicable).
+function offlineFallbackResponse() {
+  return new Response('', { status: 504, statusText: 'Offline y sin caché' });
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
   const url = request.url;
 
+  // favicon.ico no forma parte de los assets del proyecto: no lo
+  // interceptamos, se deja pasar directo a la red del navegador.
+  if (url.endsWith('/favicon.ico')) return;
+
   if (isTileRequest(url)) {
     // Tiles: cache-first, y se van guardando conforme el usuario navega el mapa
     // con señal, para poder verlos después sin conexión.
     event.respondWith(
       caches.open(CACHE_TILES).then((cache) =>
-        cache.match(request).then(
-          (cached) =>
-            cached ||
-            fetch(request)
-              .then((response) => {
-                cache.put(request, response.clone());
-                return response;
-              })
-              .catch(() => cached)
-        )
+        cache.match(request).then((cached) => {
+          if (cached) return cached;
+          return fetch(request)
+            .then((response) => {
+              if (response && response.status === 200) {
+                cache.put(request, response.clone()).catch(() => {});
+              }
+              return response;
+            })
+            .catch(() => cached || offlineFallbackResponse());
+        })
       )
     );
     return;
@@ -82,12 +94,16 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((cached) => {
       const network = fetch(request, { cache: 'reload' })
         .then((response) => {
+          // Clonamos de inmediato, antes de que nadie más pueda leer el
+          // cuerpo de la respuesta — evita el error "Response body is
+          // already used" si esta misma respuesta llega a tocarse dos veces.
           if (response && response.status === 200) {
-            caches.open(CACHE_SHELL).then((cache) => cache.put(request, response.clone()));
+            const copy = response.clone();
+            caches.open(CACHE_SHELL).then((cache) => cache.put(request, copy)).catch(() => {});
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => cached || offlineFallbackResponse());
       return cached || network;
     })
   );
