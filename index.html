@@ -2665,17 +2665,19 @@ if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then(reg => {
       reg.update(); // revisa ahora mismo si hay sw.js nuevo, sin esperar al chequeo periódico del navegador
+      let yaAvisado = false;
       reg.addEventListener('updatefound', () => {
         const nuevoSW = reg.installing;
         if(!nuevoSW) return;
         nuevoSW.addEventListener('statechange', () => {
-          // Si ya había un service worker controlando la página (no es la
-          // primera instalación) y este nuevo terminó de instalarse, ya hay
-          // contenido nuevo listo: se recarga sola para mostrarlo de una vez,
-          // en vez de dejar a la persona esperando minutos u obligarla a
-          // borrar datos de navegación.
-          if(nuevoSW.state === 'installed' && navigator.serviceWorker.controller){
-            location.reload();
+          // Aviso, no recarga sola: forzar location.reload() aquí puede
+          // encadenarse en un ciclo de recargas infinito si el chequeo
+          // vuelve a dispararse (se vería como una página que nunca
+          // termina de cargar) — mejor que la persona la reabra cuando
+          // le convenga.
+          if(nuevoSW.state === 'installed' && navigator.serviceWorker.controller && !yaAvisado){
+            yaAvisado = true;
+            mostrarToast('Hay una actualización lista — cierra y vuelve a abrir la app para verla');
           }
         });
       });
