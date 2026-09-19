@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v7';
+const CACHE_SHELL = 'rutas-gc-shell-v9';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -63,6 +63,12 @@ self.addEventListener('fetch', (event) => {
   // favicon.ico no forma parte de los assets del proyecto: no lo
   // interceptamos, se deja pasar directo a la red del navegador.
   if (url.endsWith('/favicon.ico')) return;
+
+  // Datos "en vivo" (lista de cuadros del radar, clima y satélite): siempre directo a la
+  // red. Antes caían en cache-first y devolvían la respuesta de la vez
+  // anterior, por lo que el radar/pronóstico podían mostrarse desfasados.
+  // Sin señal simplemente fallan y la app ya avisa.
+  if (/api\.rainviewer\.com|api\.open-meteo\.com|gibs\.earthdata\.nasa\.gov/.test(url)) return;
 
   if (isTileRequest(url)) {
     // Tiles: cache-first, y se van guardando conforme el usuario navega el mapa
