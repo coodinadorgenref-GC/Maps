@@ -524,8 +524,20 @@ const DENUE_EXCLUIDOS_KEY = 'gc_denue_excluidos_v1';
 // /exec). Mientras esté vacía, todo sigue viviendo solo local como antes.
 const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycby28N3lAhtsj9UeI7SvzUPE6KkDrMGq_2oc4K6EQE3eI6tPuFub3UQH6KwzNUNnx0xudg/exec';
 
+// Lo que regresa del Sheet compartido puede traer números donde la app espera
+// texto (un teléfono sin formato vuelve como número) y eso hacía tronar la ficha
+// ("replace is not a function"): abrir "Editar prospecto" dejaba a la vista la
+// lista. Se normaliza en cada entrada de datos (al cargar, sincronizar e importar).
+const CAMPOS_TEXTO = ['nombre','notas','contactoNombre','contactoTel','localidad','municipio','estado','estatus','frecuencia'];
+function normalizarProspecto(p){
+  if(!p || typeof p !== 'object') return p;
+  CAMPOS_TEXTO.forEach(k => { if(p[k] != null && typeof p[k] !== 'string') p[k] = String(p[k]); });
+  ['lat','lng'].forEach(k => { if(typeof p[k] === 'string' && p[k].trim() !== '' && isFinite(p[k])) p[k] = Number(p[k]); });
+  return p;
+}
+
 function cargarProspectos(){
-  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  try{ return (JSON.parse(localStorage.getItem(STORAGE_KEY)) || []).map(p => normalizarProspecto(p)); }
   catch(e){ return []; }
 }
 function guardarProspectos(lista){
@@ -579,6 +591,7 @@ async function syncPendientes(){
     const remotos = await resp.json();
 
     remotos.forEach(r => {
+      normalizarProspecto(r);
       const i = prospectos.findIndex(p => p.id === r.id);
       if(i === -1){
         prospectos.push(r);
@@ -940,7 +953,8 @@ function renderMarcadores(){
 }
 
 function escapeHtml(s){
-  return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // Acepta cualquier valor (un teléfono que el Sheet devuelve como número, por ejemplo).
+  return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
 
 // Recalcula y aplica solo el ícono de UN pin (sin tocar los demás). Esto es
@@ -1725,13 +1739,20 @@ function cambiarTab(tab, origen){
   currentTab = tab;
   renderSheetTabs();
   abrirSheet();
-  if(tab === 'lista') renderLista();
-  if(tab === 'alta') renderFormAlta();
-  if(tab === 'ruta') renderRuta();
-  if(tab === 'zonas') renderZonas();
-  if(tab === 'ajustes') renderAjustes();
-  if(tab === 'clima') renderClima();
-  if(tab === 'agenda') renderAgenda();
+  try{
+    if(tab === 'lista') renderLista();
+    if(tab === 'alta') renderFormAlta();
+    if(tab === 'ruta') renderRuta();
+    if(tab === 'zonas') renderZonas();
+    if(tab === 'ajustes') renderAjustes();
+    if(tab === 'clima') renderClima();
+    if(tab === 'agenda') renderAgenda();
+  } catch(err){
+    // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
+    // bajo el título nuevo (justo lo que parecía "me sale la lista").
+    console.error(err);
+    sheetBody.innerHTML = `<div class="empty">No se pudo abrir esta pantalla (${escapeHtml(err && err.message)}). Toca "‹" para regresar.</div>`;
+  }
 }
 
 // Regresa a la pantalla de origen (Lista o Próximas rutas, en el mismo punto
@@ -2759,6 +2780,7 @@ function fusionarImportados(datos, opts = {}){
   const excluidos = new Set(cargarDenueExcluidos());
   let nuevos = 0, actualizados = 0;
   datos.forEach(d => {
+    normalizarProspecto(d);
     if(!d.id || d.lat == null || d.lng == null || isNaN(d.lat) || isNaN(d.lng)) return;
     if(excluidos.has(d.id)) return; // se eliminó a propósito en este dispositivo: no se reintroduce
     if(existentes.has(d.id)){
