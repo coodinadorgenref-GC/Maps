@@ -1470,11 +1470,14 @@ function activarFiltroRadio(valor, opts = {}){
   if(!silencioso) mostrarToast('Obteniendo tu ubicación para filtrar por distancia…');
   obtenerUbicacionReciente(120000, ({ lat, lng }) => {
     radioCentro = { lat, lng };
-    renderLista();
+    // La ubicación puede tardar y llegar después de que el usuario ya se
+    // movió a otra pestaña (por ejemplo, a editar un prospecto). Si eso pasó,
+    // no hay que pintarle la Lista encima de lo que esté viendo ahora.
+    if(currentTab === 'lista') renderLista();
   }, () => {
     if(!silencioso) mostrarToast('No se pudo obtener tu ubicación');
     estadoFiltro.radioKm = 'Sin límite';
-    renderLista();
+    if(currentTab === 'lista') renderLista();
   });
 }
 
