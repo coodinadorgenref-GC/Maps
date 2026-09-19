@@ -135,6 +135,30 @@
     border:1px solid var(--line); font-size:17px;
     box-shadow:0 6px 14px rgba(0,0,0,.35);
   }
+  .radar-fab{
+    position:fixed; right:16px; bottom:424px; z-index:1200;
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--line); font-size:17px;
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+  }
+  .radar-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
+
+  .radar-legend{
+    position:fixed; left:12px; bottom:calc(14px + env(safe-area-inset-bottom));
+    z-index:1150; display:none;
+    background:rgba(20,24,28,.82); backdrop-filter: blur(6px);
+    border:1px solid rgba(255,255,255,.08); border-radius:12px;
+    padding:8px 10px; max-width:220px;
+  }
+  html[data-theme="claro"] .radar-legend{ background:rgba(255,255,255,.88); border-color:var(--line); }
+  .radar-legend.visible{ display:block; }
+  .radar-legend .titulo{ font-size:10.5px; font-weight:700; color:var(--text-dim); letter-spacing:.3px; margin-bottom:5px; text-transform:uppercase; }
+  .radar-legend .barra{
+    height:7px; border-radius:4px; margin-bottom:4px;
+    background: linear-gradient(90deg, #3B82F6, #22C55E, #EAB308, #F97316, #EF4444, #EC4899, #F3E8FF);
+  }
+  .radar-legend .rotulos{ display:flex; justify-content:space-between; font-size:8.5px; color:var(--text-dim); }
 
   .clima-hora{
     flex-shrink:0; text-align:center; min-width:52px;
@@ -371,6 +395,12 @@
 <button class="zone-fab" id="btnZonaOffline" title="Mapas guardados para trabajar sin señal">⬇</button>
 <button class="route-fab" id="btnPlanRuta" title="Planear ruta: selecciona prospectos en el mapa">🧭</button>
 <button class="weather-fab" id="btnClima" title="Pronóstico del clima">🌤</button>
+<button class="radar-fab" id="btnRadar" title="Radar de lluvia en vivo">🌧</button>
+<div class="radar-legend" id="radarLegend">
+  <div class="titulo">Radar de lluvia · en vivo</div>
+  <div class="barra"></div>
+  <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span><span>Nieve</span></div>
+</div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
 <div class="sheet" id="sheet">
@@ -553,6 +583,77 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 L.control.zoom({ position:'bottomleft' }).addTo(map);
+
+/* ---------- Radar de lluvia en vivo (RainViewer, gratis, sin llave) ---------- */
+// Mismo principio que zoom.earth/maps/radar: manchas de reflectividad de radar
+// meteorológico sobre el mapa. Va en el mismo "tilePane" que el mapa de calles,
+// así que Leaflet la dibuja debajo de los pines de prospectos (markerPane)
+// automáticamente — nunca tapa una ubicación, solo el fondo del mapa.
+let capaRadar = null;
+let radarVisible = false;
+let radarIntervalId = null;
+let radarInfoCache = null;
+const RADAR_INFO_CACHE_MS = 5 * 60 * 1000;
+
+async function obtenerInfoRadar(){
+  if(radarInfoCache && (Date.now() - radarInfoCache.ts) < RADAR_INFO_CACHE_MS) return radarInfoCache.datos;
+  const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+  if(!resp.ok) throw new Error('RainViewer no respondió');
+  const datos = await resp.json();
+  radarInfoCache = { ts: Date.now(), datos };
+  return datos;
+}
+
+function urlFrameRadar(info, frame){
+  // Esquema de color 3 (tipo "TITAN"): degradado azul→verde→amarillo→rojo→
+  // rosa, muy similar al de la captura de zoom.earth. 1_1 = suavizado + nieve.
+  return `${info.host}${frame.path}/256/{z}/{x}/{y}/3/1_1.png`;
+}
+
+async function actualizarFrameRadar(){
+  try{
+    const info = await obtenerInfoRadar();
+    const frames = info.radar && info.radar.past ? info.radar.past : [];
+    if(frames.length === 0) return;
+    const ultimo = frames[frames.length - 1];
+    const url = urlFrameRadar(info, ultimo);
+    if(capaRadar) capaRadar.setUrl(url);
+  } catch(e){ /* si falla, se queda el último cuadro visible hasta el próximo intento */ }
+}
+
+async function activarRadar(){
+  try{
+    const info = await obtenerInfoRadar();
+    const frames = info.radar && info.radar.past ? info.radar.past : [];
+    if(frames.length === 0){ mostrarToast('El radar de lluvia no tiene datos disponibles ahora'); return; }
+    const ultimo = frames[frames.length - 1];
+    if(capaRadar){ map.removeLayer(capaRadar); }
+    // Opacidad a la mitad: se ve bien la lluvia sin volver ilegible el mapa
+    // de abajo, y los pines de prospectos siempre quedan encima de todos modos.
+    capaRadar = L.tileLayer(urlFrameRadar(info, ultimo), { opacity:0.55, maxZoom:18, zIndex:5 }).addTo(map);
+    radarVisible = true;
+    document.getElementById('btnRadar').classList.add('active');
+    document.getElementById('radarLegend').classList.add('visible');
+    if(radarIntervalId) clearInterval(radarIntervalId);
+    radarIntervalId = setInterval(actualizarFrameRadar, RADAR_INFO_CACHE_MS);
+  } catch(e){
+    mostrarToast('No se pudo cargar el radar de lluvia (revisa tu señal)');
+  }
+}
+
+function desactivarRadar(){
+  if(capaRadar){ map.removeLayer(capaRadar); capaRadar = null; }
+  radarVisible = false;
+  document.getElementById('btnRadar').classList.remove('active');
+  document.getElementById('radarLegend').classList.remove('visible');
+  if(radarIntervalId){ clearInterval(radarIntervalId); radarIntervalId = null; }
+}
+
+document.getElementById('btnRadar').addEventListener('click', () => {
+  if(!navigator.onLine){ mostrarToast('Sin señal: el radar necesita conexión a internet'); return; }
+  if(radarVisible) desactivarRadar(); else activarRadar();
+});
+
 
 // Orden de importancia para colorear una burbuja cuando adentro hay
 // prospectos de varios estatus. Si solo hay de un tipo, gana ese por
@@ -1576,7 +1677,7 @@ async function obtenerClima(lat, lng){
     + `&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m`
     + `&hourly=temperature_2m,precipitation_probability,weather_code`
     + `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max`
-    + `&timezone=auto&forecast_days=7`;
+    + `&timezone=auto&forecast_days=16`;
   const resp = await fetch(url);
   if(!resp.ok) throw new Error('Open-Meteo no respondió');
   return await resp.json();
@@ -1625,7 +1726,7 @@ function construirHtmlClima(datos, nombreLugar){
     max: datos.daily.temperature_2m_max[i],
     min: datos.daily.temperature_2m_min[i],
     prob: datos.daily.precipitation_probability_max[i]
-  }));
+  })).slice(0, 7); // en esta vista se muestra la semana; el resto (hasta 16 días) se usa en "Mis próximas visitas"
 
   const filasHoras = proximasHoras.map(h => {
     const [ic] = climaInfo(h.code);
@@ -1683,6 +1784,7 @@ async function renderClima(){
     <div class="chip-row">
       <button class="chip ${climaFuente === 'mapa' ? 'active' : ''}" data-clima-fuente="mapa">🗺️ Aquí en el mapa</button>
       <button class="chip ${climaFuente === 'gps' ? 'active' : ''}" data-clima-fuente="gps">📍 Mi ubicación</button>
+      <button class="chip ${climaFuente === 'rutas' ? 'active' : ''}" data-clima-fuente="rutas">🗓️ Mis próximas visitas</button>
     </div>
     <div id="climaContenido"><div class="empty">Obteniendo pronóstico…</div></div>
   `;
@@ -1697,6 +1799,11 @@ async function renderClima(){
   if(!navigator.onLine){
     const cont = document.getElementById('climaContenido');
     if(cont) cont.innerHTML = `<div class="empty">Sin señal: el pronóstico necesita conexión a internet.</div>`;
+    return;
+  }
+
+  if(climaFuente === 'rutas'){
+    await renderClimaRutas(miPeticion);
     return;
   }
 
@@ -1730,6 +1837,76 @@ async function renderClima(){
     const cont = document.getElementById('climaContenido');
     if(cont) cont.innerHTML = `<div class="empty">No se pudo obtener el pronóstico. Intenta de nuevo en un momento.</div>`;
   }
+}
+
+const HORIZONTE_PRONOSTICO_DIAS = 16; // más allá de esto, Open-Meteo ya no da un pronóstico diario confiable
+
+// Junta los prospectos que ya tienen frecuencia (Semanal/Quincenal/Mensual) y
+// fecha de última visita registrada, y calcula cuándo les toca la próxima —
+// "Ocasional" o sin fecha registrada no entra aquí porque no tiene calendario.
+function obtenerProximasVisitasProgramadas(limite = 25){
+  return prospectos
+    .map(p => ({ p, dias: diasParaVisita(p) }))
+    .filter(x => x.dias !== null && x.dias <= 35)
+    .sort((a, b) => a.dias - b.dias)
+    .slice(0, limite);
+}
+
+async function renderClimaRutas(miPeticion){
+  const cont = document.getElementById('climaContenido');
+  const visitas = obtenerProximasVisitasProgramadas();
+  if(visitas.length === 0){
+    if(cont) cont.innerHTML = `<div class="empty">Ningún prospecto tiene todavía frecuencia (Semanal/Quincenal/Mensual) + fecha de última visita registrada, así que no hay próximas visitas que calcular. Se llena al editar cada prospecto.</div>`;
+    return;
+  }
+  if(cont) cont.innerHTML = `<div class="empty">Consultando el pronóstico de ${visitas.length} próxima${visitas.length === 1 ? '' : 's'} visita${visitas.length === 1 ? '' : 's'}…</div>`;
+
+  const resultados = await Promise.all(visitas.map(async ({ p, dias }) => {
+    const diasEfectivos = Math.max(dias, 0); // si ya está vencido, se consulta como si fuera hoy
+    if(diasEfectivos > HORIZONTE_PRONOSTICO_DIAS) return { p, dias, fueraDeRango: true };
+    try{
+      const datos = await obtenerClimaCache(p.lat, p.lng);
+      const fechaObjetivo = new Date(Date.now() + diasEfectivos * 86400000).toISOString().slice(0, 10);
+      const idx = datos.daily.time.indexOf(fechaObjetivo);
+      if(idx < 0) return { p, dias, sinDato: true };
+      const [icono, desc] = climaInfo(datos.daily.weather_code[idx]);
+      return { p, dias, icono, desc, max: datos.daily.temperature_2m_max[idx], min: datos.daily.temperature_2m_min[idx], prob: datos.daily.precipitation_probability_max[idx] };
+    } catch(e){
+      return { p, dias, error: true };
+    }
+  }));
+
+  if(miPeticion !== idPeticionClima || currentTab !== 'clima' || climaFuente !== 'rutas') return;
+  const contenedor = document.getElementById('climaContenido');
+  if(!contenedor) return;
+
+  const filas = resultados.map(r => {
+    const etiquetaDias = r.dias <= 0 ? 'Vencido, visitar pronto' : (r.dias === 1 ? 'Mañana' : `En ${r.dias} días`);
+    let derecha;
+    if(r.fueraDeRango){
+      derecha = `<span style="font-size:11px; color:var(--text-dim); text-align:right;">Aún sin pronóstico<br>(falta más de ${HORIZONTE_PRONOSTICO_DIAS} días)</span>`;
+    } else if(r.sinDato || r.error){
+      derecha = `<span style="font-size:11px; color:var(--text-dim);">Sin dato disponible</span>`;
+    } else {
+      const colorProb = r.prob >= 50 ? 'var(--ochre)' : 'var(--text-dim)';
+      derecha = `<div style="text-align:right;"><span style="font-size:18px;">${r.icono}</span> <span style="font-size:12.5px; font-weight:600;">${Math.round(r.min)}°/${Math.round(r.max)}°</span><div style="font-size:11px; color:${colorProb};">${r.prob}% lluvia</div></div>`;
+    }
+    return `
+      <div class="item">
+        <div class="info">
+          <div class="name">${escapeHtml(r.p.nombre)}</div>
+          <div class="meta">${r.p.frecuencia} · ${etiquetaDias}${r.p.municipio ? ' · ' + escapeHtml(r.p.municipio) : ''}</div>
+        </div>
+        <div style="flex-shrink:0;">${derecha}</div>
+      </div>`;
+  }).join('');
+
+  contenedor.innerHTML = `
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">
+      Pronóstico cruzado con la frecuencia de cada prospecto (Semanal, Quincenal, Mensual) según su fecha de última visita. Los pronósticos diarios solo son confiables hasta ~${HORIZONTE_PRONOSTICO_DIAS} días adelante — lo que caiga después se muestra sin datos hasta que se acerque la fecha.
+    </div>
+    ${filas}
+  `;
 }
 
 // Aviso corto de clima para la última parada de la ruta del día: no calcula
