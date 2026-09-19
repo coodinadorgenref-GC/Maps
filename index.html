@@ -44,19 +44,6 @@
     color:var(--text);
     overflow:hidden;
   }
-  header{
-    position:fixed; top:0; left:0; right:0; z-index:1200;
-    display:flex; align-items:center; justify-content:space-between;
-    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
-    background:linear-gradient(180deg, rgba(20,24,28,.95), rgba(20,24,28,.75));
-    backdrop-filter: blur(6px);
-  }
-  header h1{
-    font-size:16px; font-weight:700; letter-spacing:-0.2px; margin:0;
-  }
-  header .sub{
-    font-size:11.5px; color:var(--text-dim); margin-top:1px;
-  }
   .sync-dot{
     width:9px; height:9px; border-radius:50%; background:var(--text-dim);
     box-shadow:0 0 0 3px rgba(255,255,255,.04);
@@ -64,17 +51,101 @@
   .sync-dot.pend{background:var(--ochre);}
   .sync-dot.offline{background:var(--danger);}
   .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim); cursor:pointer;}
-  .header-actions{ display:flex; align-items:center; gap:14px; }
-  .header-icon-btn{
-    background:none; border:none; color:var(--text-dim); font-size:18px;
-    padding:2px; line-height:1; cursor:pointer;
+
+  /* ---------- Pantalla principal minimalista (referencia: Google Maps) ----------
+     Arriba a la izquierda: menú ☰ + buscador + "cómo llegar". A la derecha: GPS
+     y agregar. Todo lo demás vive en el menú lateral. */
+  .topbar{
+    position:fixed; z-index:1200;
+    top:calc(10px + env(safe-area-inset-top)); left:10px;
+    width:calc(100% - 20px); max-width:420px; height:48px;
+    display:flex; align-items:center; gap:2px; padding:0 4px;
+    background:var(--surface); color:var(--text);
+    border-radius:24px; box-shadow:0 2px 10px rgba(0,0,0,.35);
   }
+  .tb-btn{
+    position:relative; flex-shrink:0; width:40px; height:40px; padding:0;
+    border:none; border-radius:50%; background:transparent; color:var(--text-dim);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .tb-btn:active{ background:var(--surface-2); }
+  .tb-btn svg, .drawer-item svg, .locate-fab svg{ width:22px; height:22px; fill:currentColor; }
+  .tb-dir{ color:var(--teal); }
+  .tb-clear{ display:none; }
+  .topbar.con-texto .tb-clear{ display:flex; }
+  .tb-input{
+    flex:1; min-width:0; height:40px; padding:0 4px;
+    border:none; outline:none; background:transparent; color:var(--text);
+    font-size:15px; font-family:inherit;
+  }
+  .tb-input::placeholder{ color:var(--text-dim); }
+  /* Puntito sobre el ☰: solo aparece cuando algo requiere atención (sin conexión o cambios por subir). */
+  .menu-badge{
+    position:absolute; top:8px; right:8px; width:10px; height:10px; border-radius:50%;
+    border:2px solid var(--surface); display:none;
+  }
+  .menu-badge.pend{ display:block; background:var(--ochre); }
+  .menu-badge.offline{ display:block; background:var(--danger); }
+
+  .buscador-res{
+    position:fixed; z-index:1350;
+    top:calc(10px + 48px + 6px + env(safe-area-inset-top)); left:10px;
+    width:calc(100% - 20px); max-width:420px; max-height:min(60vh, 460px); overflow-y:auto;
+    background:var(--surface); color:var(--text);
+    border-radius:16px; box-shadow:0 6px 20px rgba(0,0,0,.4);
+    display:none; padding:4px 0;
+  }
+  .buscador-res.visible{ display:block; }
+  .buscador-res .res{ display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; }
+  .buscador-res .res:active{ background:var(--surface-2); }
+  .buscador-res .res .dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .buscador-res .res .info{ flex:1; min-width:0; }
+  .buscador-res .res .nombre{ font-size:14.5px; font-weight:600; }
+  .buscador-res .res .meta{ font-size:12px; color:var(--text-dim); }
+  .buscador-res .nota{ padding:10px 14px; font-size:12px; color:var(--text-dim); }
+
+  .drawer-scrim{
+    position:fixed; inset:0; z-index:1450; background:rgba(0,0,0,.45);
+    opacity:0; pointer-events:none; transition:opacity .2s ease;
+  }
+  .drawer-scrim.open{ opacity:1; pointer-events:auto; }
+  .drawer{
+    position:fixed; top:0; bottom:0; left:0; z-index:1460;
+    width:min(300px, 84vw); overflow-y:auto;
+    background:var(--surface); color:var(--text);
+    box-shadow:6px 0 24px rgba(0,0,0,.4);
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+    transform:translateX(-105%); visibility:hidden;
+    transition:transform .22s ease, visibility 0s linear .22s;
+  }
+  .drawer.open{ transform:translateX(0); visibility:visible; transition:transform .22s ease, visibility 0s; }
+  .drawer-head{ padding:18px 18px 14px; border-bottom:1px solid var(--line); }
+  .drawer-title{ font-size:17px; font-weight:700; letter-spacing:-0.2px; }
+  .drawer-sub{ font-size:12px; color:var(--text-dim); margin-top:2px; }
+  .drawer-head .sync-wrap{ margin-top:10px; }
+  .drawer-section{
+    padding:14px 18px 4px; font-size:10.5px; font-weight:700;
+    letter-spacing:.4px; text-transform:uppercase; color:var(--text-dim);
+  }
+  .drawer-item{
+    display:flex; align-items:center; gap:14px; width:100%; padding:12px 18px;
+    border:none; background:transparent; color:var(--text);
+    font-size:14.5px; font-family:inherit; text-align:left; cursor:pointer;
+  }
+  .drawer-item:active{ background:var(--surface-2); }
+  .drawer-item svg{ color:var(--text-dim); flex-shrink:0; }
+  .drawer-item .txt{ flex:1; }
+  .drawer-item .estado{ font-size:11.5px; }
+  .drawer-item.active svg{ color:var(--teal); }
+  .drawer-item.active .estado{ color:var(--teal); font-weight:700; }
+  .drawer-item.active .estado::after{ content:'Activo'; }
+  .drawer-sep{ height:1px; background:var(--line); margin:8px 0; }
 
   #map{ position:absolute; inset:0; }
   .leaflet-control-attribution{ font-size:9px; }
 
   .fab{
-    position:fixed; right:16px; bottom:96px; z-index:1200;
+    position:fixed; right:16px; bottom:calc(20px + env(safe-area-inset-bottom)); z-index:1200;
     width:56px; height:56px; border-radius:50%;
     background:var(--accent); color:var(--accent-ink);
     border:none; font-size:28px; font-weight:600; line-height:1;
@@ -83,7 +154,8 @@
   .fab:active{ transform: scale(.95); }
 
   .locate-fab{
-    position:fixed; right:16px; bottom:164px; z-index:1200;
+    position:fixed; right:16px; bottom:calc(88px + env(safe-area-inset-bottom)); z-index:1200;
+    display:flex; align-items:center; justify-content:center; padding:0;
     width:44px; height:44px; border-radius:50%;
     background:var(--surface); color:var(--text);
     border:1px solid var(--line); font-size:18px;
@@ -106,51 +178,7 @@
     border-bottom:26px solid rgba(59,130,246,.55);
     transform-origin:50% 100%;
   }
-  .fit-fab{
-    position:fixed; right:16px; bottom:216px; z-index:1200;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--surface); color:var(--text);
-    border:1px solid var(--line); font-size:16px;
-    box-shadow:0 6px 14px rgba(0,0,0,.35);
-  }
-  .zone-fab{
-    position:fixed; right:16px; bottom:268px; z-index:1200;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--surface); color:var(--text);
-    border:1px solid var(--line); font-size:16px;
-    box-shadow:0 6px 14px rgba(0,0,0,.35);
-  }
-  .route-fab{
-    position:fixed; right:16px; bottom:320px; z-index:1200;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--surface); color:var(--text);
-    border:1px solid var(--line); font-size:18px;
-    box-shadow:0 6px 14px rgba(0,0,0,.35);
-  }
-  .route-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
-  .weather-fab{
-    position:fixed; right:16px; bottom:372px; z-index:1200;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--surface); color:var(--text);
-    border:1px solid var(--line); font-size:17px;
-    box-shadow:0 6px 14px rgba(0,0,0,.35);
-  }
-  .radar-fab{
-    position:fixed; right:16px; bottom:424px; z-index:1200;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--surface); color:var(--text);
-    border:1px solid var(--line); font-size:17px;
-    box-shadow:0 6px 14px rgba(0,0,0,.35);
-  }
-  .radar-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
 
-  .agenda-fab{
-    position:fixed; right:16px; bottom:476px; z-index:1200;
-    width:44px; height:44px; border-radius:50%;
-    background:var(--surface); color:var(--text);
-    border:1px solid var(--line); font-size:17px;
-    box-shadow:0 6px 14px rgba(0,0,0,.35);
-  }
 
   .agenda-tabla{ display:grid; grid-template-columns: 78px 1fr 1.2fr; font-size:12.5px; }
   .agenda-tabla .cab{ font-weight:700; color:var(--text-dim); font-size:10px; text-transform:uppercase; letter-spacing:.3px; padding:0 6px 8px; }
@@ -168,6 +196,8 @@
   }
   html[data-theme="claro"] .radar-legend{ background:rgba(255,255,255,.88); border-color:var(--line); }
   .radar-legend.visible{ display:block; }
+  @media (pointer: coarse){ .leaflet-control-zoom{ display:none; } }
+  @media (pointer: fine){ .radar-legend{ left:60px; } }
   .radar-legend .titulo{ font-size:10.5px; font-weight:700; color:var(--text-dim); letter-spacing:.3px; margin-bottom:5px; text-transform:uppercase; }
   .radar-legend .barra{
     height:7px; border-radius:4px; margin-bottom:4px;
@@ -250,11 +280,12 @@
     border-top:1px solid var(--line);
     box-shadow:0 -8px 24px rgba(0,0,0,.4);
     max-height:82vh;
-    transform: translateY(calc(100% - 74px));
-    transition: transform .25s ease;
+    transform: translateY(100%);
+    visibility:hidden;
+    transition: transform .25s ease, visibility 0s linear .25s;
     display:flex; flex-direction:column;
   }
-  .sheet.open{ transform: translateY(0); }
+  .sheet.open{ transform: translateY(0); visibility:visible; transition: transform .25s ease, visibility 0s; }
   .sheet-handle{
     padding:10px 16px 6px; cursor:pointer;
     display:flex; align-items:center; justify-content:space-between;
@@ -357,7 +388,7 @@
   .empty{ text-align:center; color:var(--text-dim); font-size:13.5px; padding:30px 10px; }
 
   .toast{
-    position:fixed; left:50%; bottom:180px; transform:translateX(-50%);
+    position:fixed; left:50%; bottom:calc(90px + env(safe-area-inset-bottom)); transform:translateX(-50%);
     background:var(--surface-2); color:var(--text); padding:10px 16px;
     border-radius:10px; font-size:13px; border:1px solid var(--line);
     z-index:1500; opacity:0; transition:opacity .2s ease; pointer-events:none;
@@ -390,30 +421,49 @@
   </div>
 </div>
 
-<header>
-  <div>
-    <h1>Prospectos & Rutas</h1>
-    <div class="sub" id="headerSub">0 registrados</div>
-  </div>
-  <div class="header-actions">
-    <button class="header-icon-btn" id="btnAjustesHeader" title="Ajustes">⚙</button>
-    <div class="sync-wrap" id="syncWrap">
+<div class="topbar" id="topbar">
+  <button class="tb-btn" id="btnMenu" title="Menú" aria-label="Abrir menú"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg><span class="menu-badge" id="menuBadge"></span></button>
+  <input class="tb-input" id="buscadorGlobal" type="text" inputmode="search" enterkeyhint="search" placeholder="Buscar prospecto, contacto o lugar" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Buscar">
+  <button class="tb-btn tb-clear" id="btnBuscadorLimpiar" title="Borrar búsqueda" aria-label="Borrar búsqueda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+  <button class="tb-btn tb-dir" id="btnComoLlegar" title="Planear ruta: elige prospectos en el mapa" aria-label="Planear ruta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.71 11.29l-9-9a.996.996 0 0 0-1.41 0l-9 9a.996.996 0 0 0 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9a.996.996 0 0 0 0-1.41zM14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/></svg></button>
+</div>
+<div class="buscador-res" id="buscadorResultados"></div>
+
+<div class="drawer-scrim" id="drawerScrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-title">Prospectos &amp; Rutas</div>
+    <div class="drawer-sub" id="headerSub">0 registrados</div>
+    <div class="sync-wrap" id="syncWrap" title="Toca para buscar cambios de otros dispositivos">
       <span class="sync-dot" id="syncDot"></span>
       <span id="syncText">Local</span>
     </div>
   </div>
-</header>
+
+  <div class="drawer-section">Prospectos</div>
+  <button class="drawer-item" id="btnLista"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg><span class="txt">Lista de prospectos</span></button>
+  <button class="drawer-item" id="btnFit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3l2.3 2.3-2.89 2.87 1.42 1.42L18.7 6.7 21 9V3zM3 9l2.3-2.3 2.87 2.89 1.42-1.42L6.7 5.3 9 3H3zm6 12l-2.3-2.3 2.89-2.87-1.42-1.42L5.3 17.3 3 15v6zm12-6l-2.3 2.3-2.87-2.89-1.42 1.42 2.89 2.87L15 21h6z"/></svg><span class="txt">Ver todos en el mapa</span></button>
+
+  <div class="drawer-section">Rutas</div>
+  <button class="drawer-item" id="btnPlanRuta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.71 11.29l-9-9a.996.996 0 0 0-1.41 0l-9 9a.996.996 0 0 0 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9a.996.996 0 0 0 0-1.41zM14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/></svg><span class="txt">Planear ruta nueva</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnRutaActual" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg><span class="txt">Ruta actual</span></button>
+  <button class="drawer-item" id="btnAgenda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg><span class="txt">Próximas rutas</span></button>
+
+  <div class="drawer-section">Mapas</div>
+  <button class="drawer-item" id="btnZonaOffline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span class="txt">Mapas descargados</span></button>
+
+  <div class="drawer-section">Clima</div>
+  <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
+  <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
+
+  <div class="drawer-sep"></div>
+  <button class="drawer-item" id="btnAjustesHeader"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg><span class="txt">Configuración</span></button>
+</aside>
 <input type="file" id="fileImportarGlobal" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
 
 <div id="map"></div>
 
-<button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo">◎</button>
-<button class="fit-fab" id="btnFit" title="Ver todos los prospectos">⤢</button>
-<button class="zone-fab" id="btnZonaOffline" title="Mapas guardados para trabajar sin señal">⬇</button>
-<button class="route-fab" id="btnPlanRuta" title="Planear ruta: selecciona prospectos en el mapa">🧭</button>
-<button class="weather-fab" id="btnClima" title="Pronóstico del clima">🌤</button>
-<button class="radar-fab" id="btnRadar" title="Radar de lluvia en vivo">🌧</button>
-<button class="agenda-fab" id="btnAgenda" title="Próximas rutas programadas">📅</button>
+<button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo" aria-label="Mi ubicación"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg></button>
 <div class="radar-legend" id="radarLegend">
   <div class="titulo">Radar de lluvia · en vivo</div>
   <div class="barra"></div>
@@ -877,7 +927,7 @@ function renderMarcadores(){
         if(etiquetaMostrada){ etiquetaMostrada = false; return; }
         if(modoRuta){ toggleSeleccionRuta(p.id); return; }
         if(enRuta){ quitarParadaDeRuta(p.id); return; }
-        abrirDetalle(p.id);
+        abrirDetalle(p.id, 'mapa');
       });
       marcadoresPorId.set(p.id, m);
       nuevosMarcadores.push(m);
@@ -1087,7 +1137,7 @@ document.getElementById('btnFit').addEventListener('click', () => {
 
 document.getElementById('btnZonaOffline').addEventListener('click', () => {
   abrirSheet();
-  cambiarTab('zonas');
+  cambiarTab('zonas', 'mapa');
 });
 
 /* ---------- Selección de ruta directamente en el mapa ----------
@@ -1557,17 +1607,22 @@ habilitarArrastreSheet();
 document.getElementById('fileImportarGlobal').addEventListener('change', manejarArchivoImportado);
 document.getElementById('btnAjustesHeader').addEventListener('click', () => {
   abrirSheet();
-  cambiarTab('ajustes');
+  cambiarTab('ajustes', 'mapa');
 });
 
 document.getElementById('btnClima').addEventListener('click', () => {
   abrirSheet();
-  cambiarTab('clima');
+  cambiarTab('clima', 'mapa');
 });
 
 document.getElementById('btnAgenda').addEventListener('click', () => {
   abrirSheet();
-  cambiarTab('agenda');
+  cambiarTab('agenda', 'mapa');
+});
+
+document.getElementById('btnLista').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('lista');
 });
 
 document.getElementById('btnAdd').addEventListener('click', () => {
@@ -1575,7 +1630,7 @@ document.getElementById('btnAdd').addEventListener('click', () => {
   tempCoord = null;
   if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
   abrirSheet();
-  cambiarTab('alta');
+  cambiarTab('alta', 'mapa');
 });
 
 function abrirSheet(){ sheet.classList.add('open'); }
@@ -1598,9 +1653,9 @@ function habilitarArrastreSheet(){
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const delta = clientY - startY;
     const isOpen = sheet.classList.contains('open');
-    const base = isOpen ? 0 : startHeight - 74;
+    const base = isOpen ? 0 : startHeight;
     let newY = base + delta;
-    newY = Math.max(0, Math.min(startHeight - 74, newY));
+    newY = Math.max(0, Math.min(startHeight, newY));
     sheet.style.transition = 'none';
     sheet.style.transform = `translateY(${newY}px)`;
   };
@@ -1657,7 +1712,16 @@ function volverAlMapa(){
   cerrarSheet();
 }
 
-function cambiarTab(tab){
+// A dónde regresa el botón "‹" de las vistas secundarias: la Lista de prospectos,
+// la tabla de Próximas rutas o simplemente el mapa (cierra la hoja). Se fija al
+// entrar a cada vista, para que abrir una ficha desde "Próximas rutas" regrese
+// ahí mismo y no siempre a la Lista.
+let origenNav = 'mapa';
+let scrollOrigenGuardado = 0; // posición de la lista/tabla de la que se salió, para volver al mismo lugar
+const ETIQUETA_ORIGEN = { lista: 'Lista', agenda: 'Próximas rutas', mapa: 'Mapa' };
+
+function cambiarTab(tab, origen){
+  if(origen) origenNav = origen;
   currentTab = tab;
   renderSheetTabs();
   abrirSheet();
@@ -1670,29 +1734,62 @@ function cambiarTab(tab){
   if(tab === 'agenda') renderAgenda();
 }
 
-// "Agregar", "Ruta", "Zonas sin señal" y "Ajustes" ya se activan desde sus
-// propios botones (+, 🧭, ⬇, ⚙), así que no necesitan ser pestañas fijas
-// todo el tiempo: solo aparece un "‹ Lista" para regresar, evitando el
-// botón duplicado.
+// Regresa a la pantalla de origen (Lista o Próximas rutas, en el mismo punto
+// de scroll) o, si se venía del mapa/buscador/menú, cierra la hoja.
+function volverDesdeSecundaria(){
+  const destino = origenNav;
+  if(destino === 'agenda' || destino === 'lista'){
+    const scroll = scrollOrigenGuardado;
+    cambiarTab(destino, 'mapa');
+    sheetBody.scrollTop = scroll;
+  } else {
+    volverAlMapa();
+  }
+}
+
+// Tras guardar o eliminar: si la ficha se abrió desde Próximas rutas se regresa
+// a esa tabla (así se ve al instante cómo cambió la agenda); en cualquier otro
+// caso se vuelve al mapa, como siempre.
+function volverTrasEditar(){
+  if(origenNav === 'agenda'){
+    const scroll = scrollOrigenGuardado;
+    cambiarTab('agenda', 'mapa');
+    sheetBody.scrollTop = scroll;
+  } else {
+    volverAlMapa();
+  }
+}
+
+// Las vistas se abren desde el menú lateral, el buscador o el botón "+", así que
+// la hoja no necesita pestañas fijas: solo un "‹" para regresar al origen.
 function renderSheetTabs(){
   const tabsEl = document.getElementById('sheetTabs');
   if(currentTab === 'lista'){
-    tabsEl.innerHTML = `<div class="tab-title">${modoRuta ? 'Armando tu ruta' : 'Lista de prospectos'}</div>`;
+    if(modoRuta){
+      tabsEl.innerHTML = `<div class="tab-title">Armando tu ruta</div>`;
+      return;
+    }
+    tabsEl.innerHTML = `
+      <button class="tab-back" id="btnVolverNav">‹ Mapa</button>
+      <div class="tab-title">Lista de prospectos</div>
+    `;
+    document.getElementById('btnVolverNav').addEventListener('click', volverAlMapa);
     return;
   }
   const titulos = {
     alta: editandoId ? 'Editar prospecto' : 'Agregar prospecto',
     ruta: 'Ruta',
-    zonas: 'Mapas sin señal',
-    ajustes: 'Ajustes',
+    zonas: 'Mapas descargados',
+    ajustes: 'Configuración',
     clima: 'Clima',
     agenda: 'Próximas rutas'
   };
+  const destino = ETIQUETA_ORIGEN[origenNav] ? origenNav : 'mapa';
   tabsEl.innerHTML = `
-    <button class="tab-back" id="btnVolverLista">‹ Lista</button>
+    <button class="tab-back" id="btnVolverNav">‹ ${ETIQUETA_ORIGEN[destino]}</button>
     <div class="tab-title">${titulos[currentTab] || ''}</div>
   `;
-  document.getElementById('btnVolverLista').addEventListener('click', () => cambiarTab('lista'));
+  document.getElementById('btnVolverNav').addEventListener('click', volverDesdeSecundaria);
 }
 
 /* ---------- Clima (Open-Meteo, gratis, sin llave) ---------- */
@@ -1927,7 +2024,7 @@ function renderAgenda(){
   `;
 
   sheetBody.querySelectorAll('.agenda-tabla .fila').forEach(fila => {
-    fila.addEventListener('click', () => abrirDetalle(fila.dataset.id));
+    fila.addEventListener('click', () => abrirDetalle(fila.dataset.id, 'agenda'));
   });
 }
 
@@ -2304,7 +2401,7 @@ function renderLista(){
   sheetBody.querySelectorAll('.item').forEach(it => {
     it.addEventListener('click', () => {
       if(modoRuta) toggleSeleccionRuta(it.dataset.id);
-      else abrirDetalle(it.dataset.id);
+      else abrirDetalle(it.dataset.id, 'lista');
     });
   });
 }
@@ -2501,7 +2598,7 @@ function calcularYMostrarRuta(){
     rutaCalculada = { origen, paradas: optimizarRuta(origen, seleccionados) };
     dibujarLineaRuta();
     salirModoRutaEnMapa();
-    cambiarTab('ruta');
+    cambiarTab('ruta', 'mapa');
   };
 
   mostrarToast('Calculando la mejor ruta desde tu ubicación…');
@@ -2510,7 +2607,7 @@ function calcularYMostrarRuta(){
 
 function renderRuta(){
   if(!rutaCalculada || rutaCalculada.paradas.length === 0){
-    sheetBody.innerHTML = `<div class="empty">Toca el botón 🧭 del mapa, marca los prospectos a visitar hoy tocándolos, y presiona "Calcular ruta" en la barra de arriba.</div>`;
+    sheetBody.innerHTML = `<div class="empty">Toca el icono de "cómo llegar" junto al buscador (o ☰ → Planear ruta nueva), marca los prospectos a visitar hoy tocándolos, y presiona "Calcular ruta" en la barra de arriba.</div>`;
     return;
   }
   const { origen, paradas } = rutaCalculada;
@@ -2885,11 +2982,15 @@ function tituloCase(s){
   return s.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
 }
 
-function abrirDetalle(id){
+// "origen" dice desde dónde se abrió la ficha ('lista', 'agenda' o 'mapa': pin
+// o buscador) para que el "‹" regrese exactamente ahí, en el mismo punto de scroll.
+function abrirDetalle(id, origen){
   const p = prospectos.find(x => x.id === id);
   if(p) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 16));
+  const destino = origen || 'mapa';
+  scrollOrigenGuardado = (destino === 'lista' || destino === 'agenda') ? sheetBody.scrollTop : 0;
   editandoId = id;
-  cambiarTab('alta');
+  cambiarTab('alta', destino);
 }
 
 /* ---------- Vista: Alta / edición ---------- */
@@ -3138,7 +3239,7 @@ function guardarDesdeForm(){
   tempLugar = null;
   editandoId = null;
   mostrarToast('Guardado localmente');
-  volverAlMapa();
+  volverTrasEditar();
   syncPendientes();
 }
 
@@ -3165,7 +3266,7 @@ function eliminarProspectoPorId(id){
 function eliminarActual(){
   if(eliminarProspectoPorId(editandoId)){
     editandoId = null;
-    volverAlMapa();
+    volverTrasEditar();
   }
 }
 
@@ -3175,20 +3276,25 @@ function actualizarHeader(){
   const pendientes = prospectos.filter(p => p.pendienteSync).length + cargarPendientesEliminar().length;
   const dot = document.getElementById('syncDot');
   const txt = document.getElementById('syncText');
+  const badge = document.getElementById('menuBadge');
   if(!navigator.onLine){
     dot.classList.remove('pend');
     dot.classList.add('offline');
     txt.textContent = 'Sin conexión';
+    badge.className = 'menu-badge offline';
     return;
   }
   dot.classList.remove('offline');
+  let hayPendiente;
   if(!SHEET_ENDPOINT){
-    dot.classList.toggle('pend', pendientes > 0);
+    hayPendiente = pendientes > 0;
     txt.textContent = pendientes > 0 ? `${pendientes} sin sincronizar` : 'Local';
   } else {
-    dot.classList.toggle('pend', pendientes > 0 || sincronizando);
+    hayPendiente = pendientes > 0 || sincronizando;
     txt.textContent = sincronizando ? 'Sincronizando…' : (pendientes > 0 ? `${pendientes} por subir` : 'Sincronizado');
   }
+  dot.classList.toggle('pend', hayPendiente);
+  badge.className = hayPendiente ? 'menu-badge pend' : 'menu-badge';
 }
 window.addEventListener('online', () => { actualizarHeader(); syncPendientes(); });
 document.getElementById('syncWrap').addEventListener('click', () => {
@@ -3208,6 +3314,168 @@ function mostrarToast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
+
+/* ---------- Buscador superior + menú lateral ----------
+   Pantalla principal estilo Google Maps: arriba a la izquierda ☰ + buscador +
+   "cómo llegar" (planear ruta); a la derecha solo GPS y "+". Rutas, mapas
+   descargados, clima y configuración viven en el menú lateral. */
+const topbarEl = document.getElementById('topbar');
+const buscadorInput = document.getElementById('buscadorGlobal');
+const buscadorRes = document.getElementById('buscadorResultados');
+const MAX_RESULTADOS_BUSQUEDA = 15;
+
+// Sin acentos ni mayúsculas, para que "refaccionaria" encuentre "Refaccionaría".
+function normalizarBusqueda(texto){
+  return String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Palabras clave: cada palabra escrita debe aparecer en el nombre, notas,
+// contacto, localidad o municipio (en cualquier orden); el teléfono se compara
+// por dígitos. Primero van los nombres que empiezan/contienen lo escrito y,
+// dentro de cada grupo, los más cercanos a ti si ya se conoce tu ubicación.
+function buscarProspectosPorPalabras(texto){
+  const q = normalizarBusqueda(texto).trim();
+  if(!q) return [];
+  const palabras = q.split(/\s+/).filter(Boolean);
+  const digitosQ = q.replace(/\D/g, '');
+  const centro = radioCentro || ultimaUbicacionConocida;
+  const encontrados = [];
+  prospectos.forEach(p => {
+    const nombre = normalizarBusqueda(p.nombre);
+    const resto = normalizarBusqueda([p.notas, p.contactoNombre, p.localidad, p.municipio].filter(Boolean).join(' '));
+    const todo = nombre + ' ' + resto;
+    const digitosTel = String(p.contactoTel || '').replace(/\D/g, '');
+    const coincide = palabras.every(w => todo.includes(w)) || (digitosQ.length >= 3 && digitosTel.includes(digitosQ));
+    if(!coincide) return;
+    const grupo = nombre.startsWith(q) ? 0 : (nombre.includes(q) ? 1 : 2);
+    encontrados.push({ p, grupo, dist: centro ? distanciaKm(centro, p) : null });
+  });
+  encontrados.sort((a, b) => {
+    if(a.grupo !== b.grupo) return a.grupo - b.grupo;
+    if(a.dist !== null && b.dist !== null) return a.dist - b.dist;
+    return (a.p.nombre || '').localeCompare(b.p.nombre || '', 'es', { sensitivity: 'base' });
+  });
+  return encontrados;
+}
+
+function ocultarResultadosBusqueda(){
+  buscadorRes.classList.remove('visible');
+}
+
+function renderResultadosBusqueda(){
+  const texto = buscadorInput.value;
+  topbarEl.classList.toggle('con-texto', texto.length > 0);
+  if(!texto.trim()){
+    buscadorRes.innerHTML = '';
+    ocultarResultadosBusqueda();
+    return;
+  }
+  const encontrados = buscarProspectosPorPalabras(texto);
+  if(encontrados.length === 0){
+    buscadorRes.innerHTML = '<div class="nota">Sin resultados para esa búsqueda.</div>';
+  } else {
+    const muestra = encontrados.slice(0, MAX_RESULTADOS_BUSQUEDA);
+    buscadorRes.innerHTML = muestra.map(({ p, dist }) => {
+      const lugar = p.localidad || p.municipio;
+      const meta = [p.estatus, lugar ? escapeHtml(lugar) : '', dist !== null ? `${dist.toFixed(1)} km` : ''].filter(Boolean).join(' · ');
+      return `
+        <div class="res" data-id="${p.id}">
+          <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}"></span>
+          <div class="info">
+            <div class="nombre">${p.prioridad ? '⚠️ ' : ''}${escapeHtml(p.nombre)}</div>
+            <div class="meta">${meta}</div>
+          </div>
+        </div>`;
+    }).join('') + (encontrados.length > muestra.length
+      ? `<div class="nota">Mostrando ${muestra.length} de ${encontrados.length}. Escribe más palabras para afinar.</div>`
+      : '');
+  }
+  buscadorRes.classList.add('visible');
+}
+
+function limpiarBuscador(){
+  buscadorInput.value = '';
+  buscadorRes.innerHTML = '';
+  topbarEl.classList.remove('con-texto');
+  ocultarResultadosBusqueda();
+}
+
+function seleccionarResultadoBusqueda(id){
+  limpiarBuscador();
+  buscadorInput.blur();
+  abrirDetalle(id, 'mapa');
+}
+
+buscadorInput.addEventListener('input', renderResultadosBusqueda);
+buscadorInput.addEventListener('focus', () => { if(buscadorInput.value.trim()) renderResultadosBusqueda(); });
+buscadorInput.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){
+    const primero = buscadorRes.querySelector('.res');
+    if(primero) seleccionarResultadoBusqueda(primero.dataset.id);
+  } else if(e.key === 'Escape'){
+    limpiarBuscador();
+    buscadorInput.blur();
+  }
+});
+document.getElementById('btnBuscadorLimpiar').addEventListener('click', () => {
+  limpiarBuscador();
+  buscadorInput.focus();
+});
+buscadorRes.addEventListener('click', (e) => {
+  const fila = e.target.closest('.res');
+  if(fila) seleccionarResultadoBusqueda(fila.dataset.id);
+});
+// Tocar en cualquier otro lado (mapa, menú…) esconde la lista de resultados.
+document.addEventListener('pointerdown', (e) => {
+  if(!e.target.closest('#topbar') && !e.target.closest('#buscadorResultados')) ocultarResultadosBusqueda();
+});
+
+// "Cómo llegar": arranca el mismo flujo de "Planear ruta" del menú.
+document.getElementById('btnComoLlegar').addEventListener('click', () => {
+  buscadorInput.blur();
+  ocultarResultadosBusqueda();
+  document.getElementById('btnPlanRuta').click();
+});
+
+/* ---------- Menú lateral ---------- */
+const drawerEl = document.getElementById('drawer');
+const drawerScrim = document.getElementById('drawerScrim');
+
+function abrirDrawer(){
+  buscadorInput.blur();
+  ocultarResultadosBusqueda();
+  const hayRuta = !!(rutaCalculada && rutaCalculada.paradas && rutaCalculada.paradas.length > 0);
+  document.getElementById('btnRutaActual').style.display = hayRuta ? 'flex' : 'none';
+  drawerScrim.classList.add('open');
+  drawerEl.classList.add('open');
+  drawerEl.setAttribute('aria-hidden', 'false');
+}
+function cerrarDrawer(){
+  drawerScrim.classList.remove('open');
+  drawerEl.classList.remove('open');
+  drawerEl.setAttribute('aria-hidden', 'true');
+}
+document.getElementById('btnMenu').addEventListener('click', abrirDrawer);
+drawerScrim.addEventListener('click', cerrarDrawer);
+// Cada opción hace lo suyo (su propio handler) y luego el menú se esconde solo.
+drawerEl.addEventListener('click', (e) => {
+  if(e.target.closest('.drawer-item')) cerrarDrawer();
+});
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') cerrarDrawer();
+});
+let drawerToqueX = null;
+drawerEl.addEventListener('touchstart', (e) => { drawerToqueX = e.touches[0].clientX; }, { passive:true });
+drawerEl.addEventListener('touchend', (e) => {
+  if(drawerToqueX === null) return;
+  const dx = e.changedTouches[0].clientX - drawerToqueX;
+  drawerToqueX = null;
+  if(dx < -60) cerrarDrawer(); // deslizar hacia la izquierda lo cierra
+}, { passive:true });
+
+document.getElementById('btnRutaActual').addEventListener('click', () => {
+  cambiarTab('ruta', 'mapa');
+});
 
 /* ---------- Arranque ---------- */
 cerrarSheet(); // estado conocido: nunca debe arrancar abierta de por sí
