@@ -265,10 +265,10 @@
 
   .field{ margin-bottom:12px; }
   .field label{ display:block; font-size:12px; color:var(--text-dim); margin-bottom:5px; }
-  .field input[type=text], .field textarea, .field select{
+  .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=number], .field input[type=date], .field textarea, .field select{
     width:100%; background:var(--surface-2); border:1px solid var(--line);
     color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px;
-    font-family:inherit;
+    font-family:inherit; box-sizing:border-box;
   }
   .field textarea{ min-height:64px; resize:vertical; }
 
@@ -847,6 +847,11 @@ function renderMarcadores(){
       });
 
       m.on('click', () => {
+        // Si se está corrigiendo/marcando una ubicación (banner "toca el mapa..."
+        // visible), tocar un pin existente no debe abrir SU ficha — antes eso
+        // sacaba de golpe la edición en curso y aterrizaba en otro prospecto.
+        // En su lugar, se usa ese punto exacto como la nueva coordenada.
+        if(pickingLocation){ confirmarSeleccionEnMapa(p.lat, p.lng); return; }
         if(etiquetaMostrada){ etiquetaMostrada = false; return; }
         if(modoRuta){ toggleSeleccionRuta(p.id); return; }
         if(enRuta){ quitarParadaDeRuta(p.id); return; }
@@ -1362,13 +1367,17 @@ function activarSeleccionEnMapa(){
   cerrarSheet();
 }
 
-map.on('click', (e) => {
-  if(!pickingLocation) return;
+function confirmarSeleccionEnMapa(lat, lng){
   pickingLocation = false;
   document.getElementById('pickBanner').style.display = 'none';
-  fijarCoordTemporal(e.latlng.lat, e.latlng.lng);
+  fijarCoordTemporal(lat, lng);
   abrirSheet();
   cambiarTab('alta');
+}
+
+map.on('click', (e) => {
+  if(!pickingLocation) return;
+  confirmarSeleccionEnMapa(e.latlng.lat, e.latlng.lng);
 });
 
 function fijarCoordTemporal(lat, lng){
@@ -2822,7 +2831,7 @@ function renderFormAlta(){
         <button class="btn" type="button" id="btnVisitaHoy" style="width:100%;">Marcar visitado hoy</button>
       </div>
     </div>
-    ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin:-6px 0 12px;">${textoEstadoVisita(p)}</div>` : ''}
+    ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin:6px 0 12px;">${textoEstadoVisita(p)}</div>` : ''}
     <div class="field">
       <label>Notas</label>
       <textarea id="fNotas" placeholder="Referencias, contacto, horario…">${p ? escapeHtml(p.notas||'') : ''}</textarea>
@@ -2897,6 +2906,10 @@ function renderFormAlta(){
 // Abre WhatsApp con el mensaje ya escrito (no lo envía solo: se revisa antes
 // de mandarlo). El número se normaliza a formato internacional; si trae 10
 // dígitos se asume México (+52).
+// Igual que con Google Maps: window.open(url,'_blank') deja una pestaña en
+// blanco abierta dentro del PWA al volver de WhatsApp. Con location.href el
+// sistema intercepta el enlace y abre la app de WhatsApp directo, sin dejar
+// nada huérfano atrás.
 function enviarWhatsApp(telefono, nombreContacto, nombreNegocio){
   const digitos = (telefono || '').replace(/\D/g, '');
   if(!digitos){ mostrarToast('Escribe primero el teléfono del contacto'); return; }
@@ -2907,7 +2920,7 @@ function enviarWhatsApp(telefono, nombreContacto, nombreNegocio){
   const negocio = nombreNegocio || 'su negocio';
   const mensaje = `Hola buen día${saludo}, soy Henry de Valladolid, pasé a ${negocio} para hacerle refacciones para motocicletas`;
 
-  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, '_blank');
+  location.href = `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
 
 // Saca lat/lng de un enlace de Google Maps (varios formatos posibles) o de
