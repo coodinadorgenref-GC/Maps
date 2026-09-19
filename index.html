@@ -144,6 +144,21 @@
   }
   .radar-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
 
+  .agenda-fab{
+    position:fixed; right:16px; bottom:476px; z-index:1200;
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--line); font-size:17px;
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+  }
+
+  .agenda-tabla{ display:grid; grid-template-columns: 78px 1fr 1.2fr; font-size:12.5px; }
+  .agenda-tabla .cab{ font-weight:700; color:var(--text-dim); font-size:10px; text-transform:uppercase; letter-spacing:.3px; padding:0 6px 8px; }
+  .agenda-tabla .fila{ display:contents; cursor:pointer; }
+  .agenda-tabla .fila .celda{ padding:9px 6px; display:flex; align-items:center; }
+  .agenda-tabla .fila + .fila .celda{ border-top:1px solid var(--line); }
+  .agenda-tabla .fila.vencida .celda:first-child{ color:var(--danger); font-weight:600; }
+
   .radar-legend{
     position:fixed; left:12px; bottom:calc(14px + env(safe-area-inset-bottom));
     z-index:1150; display:none;
@@ -156,9 +171,10 @@
   .radar-legend .titulo{ font-size:10.5px; font-weight:700; color:var(--text-dim); letter-spacing:.3px; margin-bottom:5px; text-transform:uppercase; }
   .radar-legend .barra{
     height:7px; border-radius:4px; margin-bottom:4px;
-    background: linear-gradient(90deg, #3B82F6, #22C55E, #EAB308, #F97316, #EF4444, #EC4899, #F3E8FF);
+    background: linear-gradient(90deg, #A7D8F0, #4FA8DE, #1E6FB8, #0B3D77);
   }
   .radar-legend .rotulos{ display:flex; justify-content:space-between; font-size:8.5px; color:var(--text-dim); }
+  .radar-legend .nota{ font-size:8.5px; color:var(--text-dim); margin-top:5px; line-height:1.3; }
 
   .clima-hora{
     flex-shrink:0; text-align:center; min-width:52px;
@@ -301,7 +317,8 @@
     cursor:pointer;
   }
 
-  .loc-row{ display:flex; gap:8px; margin-bottom:14px; }
+  .loc-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .loc-row > button{ flex:1 1 130px; }
   .btn{
     border:none; border-radius:10px; padding:10px 14px; font-size:13.5px;
     font-weight:600; color:var(--text); background:var(--surface-2);
@@ -396,10 +413,12 @@
 <button class="route-fab" id="btnPlanRuta" title="Planear ruta: selecciona prospectos en el mapa">🧭</button>
 <button class="weather-fab" id="btnClima" title="Pronóstico del clima">🌤</button>
 <button class="radar-fab" id="btnRadar" title="Radar de lluvia en vivo">🌧</button>
+<button class="agenda-fab" id="btnAgenda" title="Próximas rutas programadas">📅</button>
 <div class="radar-legend" id="radarLegend">
   <div class="titulo">Radar de lluvia · en vivo</div>
   <div class="barra"></div>
-  <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span><span>Nieve</span></div>
+  <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span></div>
+  <div class="nota">Resolución limitada por el proveedor gratuito; se ve más nítido alejado.</div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
@@ -605,9 +624,12 @@ async function obtenerInfoRadar(){
 }
 
 function urlFrameRadar(info, frame){
-  // Esquema de color 3 (tipo "TITAN"): degradado azul→verde→amarillo→rojo→
-  // rosa, muy similar al de la captura de zoom.earth. 1_1 = suavizado + nieve.
-  return `${info.host}${frame.path}/256/{z}/{x}/{y}/3/1_1.png`;
+  // Nota (sept. 2026): RainViewer redujo su nivel gratuito a solo zoom 7 y al
+  // esquema "Universal Blue" (color=2) desde enero de 2026 — antes llegaba a
+  // más zoom y tenía varios colores tipo TITAN. Por eso el radar ahora se ve
+  // borroso al acercarse: es la resolución máxima que da la versión gratuita,
+  // ya no un límite nuestro.
+  return `${info.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
 }
 
 async function actualizarFrameRadar(){
@@ -630,7 +652,7 @@ async function activarRadar(){
     if(capaRadar){ map.removeLayer(capaRadar); }
     // Opacidad a la mitad: se ve bien la lluvia sin volver ilegible el mapa
     // de abajo, y los pines de prospectos siempre quedan encima de todos modos.
-    capaRadar = L.tileLayer(urlFrameRadar(info, ultimo), { opacity:0.55, maxZoom:18, zIndex:5 }).addTo(map);
+    capaRadar = L.tileLayer(urlFrameRadar(info, ultimo), { opacity:0.55, maxZoom:18, maxNativeZoom:7, zIndex:5 }).addTo(map);
     radarVisible = true;
     document.getElementById('btnRadar').classList.add('active');
     document.getElementById('radarLegend').classList.add('visible');
@@ -1077,6 +1099,9 @@ function activarModoRutaEnMapa(){
   document.getElementById('btnPlanRuta').classList.add('active');
   actualizarRouteBanner();
   renderMarcadores();
+  currentTab = 'lista';
+  renderSheetTabs();
+  renderLista(); // ya con modoRuta=true, esto pinta el panel de armar ruta (no la lista completa)
   cerrarSheet();
 }
 
@@ -1110,6 +1135,8 @@ document.getElementById('btnPlanRuta').addEventListener('click', () => {
   if(modoRuta){
     seleccionRuta.clear();
     salirModoRutaEnMapa();
+    renderSheetTabs();
+    renderLista();
   } else {
     activarModoRutaEnMapa();
   }
@@ -1117,6 +1144,8 @@ document.getElementById('btnPlanRuta').addEventListener('click', () => {
 document.getElementById('btnRutaCancelar').addEventListener('click', () => {
   seleccionRuta.clear();
   salirModoRutaEnMapa();
+  renderSheetTabs();
+  renderLista();
 });
 document.getElementById('btnRutaListo').addEventListener('click', () => {
   if(seleccionRuta.size === 0){ mostrarToast('Toca al menos un prospecto en el mapa'); return; }
@@ -1533,6 +1562,11 @@ document.getElementById('btnClima').addEventListener('click', () => {
   cambiarTab('clima');
 });
 
+document.getElementById('btnAgenda').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('agenda');
+});
+
 document.getElementById('btnAdd').addEventListener('click', () => {
   editandoId = null;
   tempCoord = null;
@@ -1630,6 +1664,7 @@ function cambiarTab(tab){
   if(tab === 'zonas') renderZonas();
   if(tab === 'ajustes') renderAjustes();
   if(tab === 'clima') renderClima();
+  if(tab === 'agenda') renderAgenda();
 }
 
 // "Agregar", "Ruta", "Zonas sin señal" y "Ajustes" ya se activan desde sus
@@ -1639,7 +1674,7 @@ function cambiarTab(tab){
 function renderSheetTabs(){
   const tabsEl = document.getElementById('sheetTabs');
   if(currentTab === 'lista'){
-    tabsEl.innerHTML = `<div class="tab-title">Lista de prospectos</div>`;
+    tabsEl.innerHTML = `<div class="tab-title">${modoRuta ? 'Armando tu ruta' : 'Lista de prospectos'}</div>`;
     return;
   }
   const titulos = {
@@ -1647,7 +1682,8 @@ function renderSheetTabs(){
     ruta: 'Ruta',
     zonas: 'Mapas sin señal',
     ajustes: 'Ajustes',
-    clima: 'Clima'
+    clima: 'Clima',
+    agenda: 'Próximas rutas'
   };
   tabsEl.innerHTML = `
     <button class="tab-back" id="btnVolverLista">‹ Lista</button>
@@ -1853,6 +1889,45 @@ const HORIZONTE_PRONOSTICO_DIAS = 16; // más allá de esto, Open-Meteo ya no da
 // Junta los prospectos que ya tienen frecuencia (Semanal/Quincenal/Mensual) y
 // fecha de última visita registrada, y calcula cuándo les toca la próxima —
 // "Ocasional" o sin fecha registrada no entra aquí porque no tiene calendario.
+/* ---------- Vista: Próximas rutas (tabla día / población / lugar) ---------- */
+// Mismo cálculo que "Mis próximas visitas" en Clima (frecuencia + fecha de
+// última visita), pero aquí en formato de tabla simple para planear la
+// semana/quincena/mes sin tener que abrir el clima de cada una.
+function renderAgenda(){
+  const visitas = obtenerProximasVisitasProgramadas(200);
+  if(visitas.length === 0){
+    sheetBody.innerHTML = `<div class="empty">Ningún prospecto tiene todavía frecuencia (Semanal/Quincenal/Mensual) + fecha de última visita registrada, así que no hay rutas próximas que calcular. Se llena al editar cada prospecto.</div>`;
+    return;
+  }
+
+  const filas = visitas.map(({ p, dias }) => {
+    const vencido = dias <= 0;
+    const fecha = new Date(Date.now() + Math.max(dias, 0) * 86400000);
+    const diaTxt = vencido ? 'Vencido' : fecha.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
+    const poblacion = p.localidad || p.municipio || '—';
+    return `
+      <div class="fila${vencido ? ' vencida' : ''}" data-id="${p.id}">
+        <div class="celda">${diaTxt}</div>
+        <div class="celda">${escapeHtml(poblacion)}</div>
+        <div class="celda">${escapeHtml(p.nombre)}</div>
+      </div>`;
+  }).join('');
+
+  sheetBody.innerHTML = `
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">
+      Calculado con la frecuencia de cada prospecto (Semanal, Quincenal, Mensual) y su fecha de última visita. Toca cualquier fila para abrir esa ficha.
+    </div>
+    <div class="agenda-tabla">
+      <div class="cab">Día</div><div class="cab">Población</div><div class="cab">Lugar</div>
+      ${filas}
+    </div>
+  `;
+
+  sheetBody.querySelectorAll('.agenda-tabla .fila').forEach(fila => {
+    fila.addEventListener('click', () => abrirDetalle(fila.dataset.id));
+  });
+}
+
 function obtenerProximasVisitasProgramadas(limite = 25){
   return prospectos
     .map(p => ({ p, dias: diasParaVisita(p) }))
@@ -2043,6 +2118,8 @@ function renderZonas(){
 
 /* ---------- Vista: Lista ---------- */
 function renderLista(){
+  if(modoRuta) return renderArmandoRuta();
+
   const localidades = localidadesDisponibles();
 
   const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia']
@@ -2230,6 +2307,54 @@ function renderLista(){
 }
 
 /* ---------- Vista: Ruta (selección de prospectos + orden sugerido) ---------- */
+// Mientras se arma la ruta (modoRuta activo), aquí — donde antes vivía la
+// Lista de prospectos completa con filtros — se muestra solo lo que importa
+// en ese momento: las paradas ya tocadas, cuánto suman en línea recta, y
+// Cancelar/Listo. Buscar y filtrar prospectos se sigue haciendo tocándolos
+// directo en el mapa.
+function renderArmandoRuta(){
+  const seleccionados = [...seleccionRuta].map(id => prospectos.find(x => x.id === id)).filter(Boolean);
+
+  let distanciaAprox = 0;
+  for(let i = 1; i < seleccionados.length; i++){
+    distanciaAprox += distanciaKm(seleccionados[i - 1], seleccionados[i]);
+  }
+
+  const filas = seleccionados.map((p, i) => `
+    <div class="item">
+      <span class="dot" style="background:${COLOR_ESTATUS[p.estatus]}; width:22px; height:22px; display:flex; align-items:center; justify-content:center; color:#0E1518; font-size:11px; font-weight:700;">${i + 1}</span>
+      <div class="info">
+        <div class="name">${escapeHtml(p.nombre)}</div>
+        <div class="meta">${escapeHtml(p.localidad || p.municipio || '')}</div>
+      </div>
+      <button class="quitar-parada" data-id="${p.id}" title="Quitar de la ruta">✕</button>
+    </div>`).join('');
+
+  sheetBody.innerHTML = `
+    <div style="font-weight:700; font-size:15px;">${seleccionados.length} parada${seleccionados.length === 1 ? '' : 's'} seleccionada${seleccionados.length === 1 ? '' : 's'}${seleccionados.length > 1 ? ` · ~${distanciaAprox.toFixed(1)} km en línea recta` : ''}</div>
+    <div style="font-size:12px; color:var(--text-dim); margin:4px 0 14px;">Toca más prospectos en el mapa para sumarlos. El orden y la distancia real por calles se calculan al presionar "Listo".</div>
+    ${filas || '<div class="empty">Aún no tocas ningún prospecto — tócalos en el mapa para agregarlos aquí.</div>'}
+    <div class="save-row" style="margin-top:14px;">
+      <button class="btn danger" id="btnArmandoCancelar" style="flex:1;">Cancelar</button>
+      <button class="btn primary" id="btnArmandoListo" style="flex:1;">Listo${seleccionados.length ? ` (${seleccionados.length})` : ''}</button>
+    </div>
+  `;
+
+  sheetBody.querySelectorAll('.quitar-parada').forEach(btn => {
+    btn.addEventListener('click', () => toggleSeleccionRuta(btn.dataset.id));
+  });
+  document.getElementById('btnArmandoCancelar').addEventListener('click', () => {
+    seleccionRuta.clear();
+    salirModoRutaEnMapa();
+    renderSheetTabs();
+    renderLista();
+  });
+  document.getElementById('btnArmandoListo').addEventListener('click', () => {
+    if(seleccionRuta.size === 0){ mostrarToast('Toca al menos un prospecto en el mapa'); return; }
+    calcularYMostrarRuta();
+  });
+}
+
 function distanciaKm(a, b){
   const R = 6371;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
@@ -2472,6 +2597,15 @@ function quitarParadaDeRuta(id){
 // Google Maps no tiene turn-by-turn "embebido" gratis, pero sí acepta un
 // origen + varias paradas intermedias + destino por URL: le pasamos el
 // orden que ya calculamos y él se encarga de la navegación real por calles.
+// Abre un punto suelto (no una ruta) directo en la app de mapas del sistema.
+// En Android/iOS con Google Maps instalado, este mismo enlace abre la app
+// directo; si no, abre Google Maps en el navegador — funciona igual en PC.
+// Ya dentro de Google Maps, el usuario puede cambiar a Waze o Apple Maps si
+// lo prefiere (Google Maps no permite forzar "abrir con" desde un enlace web).
+function abrirUbicacionEnMaps(lat, lng){
+  location.href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+}
+
 function abrirEnGoogleMaps(){
   let { origen, paradas } = rutaCalculada;
   if(paradas.length === 0) return;
@@ -2769,9 +2903,10 @@ function renderFormAlta(){
 
     <div class="field">
       <div class="loc-row" style="margin-bottom:0;">
-        <button class="btn" type="button" id="btnMostrarEnlaceMaps" style="flex:1;">🔗 Enlace</button>
-        <button class="btn" type="button" id="btnCompartirUbicacion" style="flex:1;">📤 Compartir</button>
-        <button class="btn" type="button" id="btnMostrarContacto" style="flex:1;">💬 Contacto</button>
+        <button class="btn" type="button" id="btnMostrarEnlaceMaps">🔗 Enlace</button>
+        <button class="btn" type="button" id="btnAbrirEnMaps">🧭 Abrir en Maps</button>
+        <button class="btn" type="button" id="btnCompartirUbicacion">📤 Compartir</button>
+        <button class="btn" type="button" id="btnMostrarContacto">💬 Contacto</button>
       </div>
       <div id="bloqueEnlaceMaps" style="display:none; margin-top:10px;">
         <label>Enlace o coordenadas</label>
@@ -2821,17 +2956,14 @@ function renderFormAlta(){
         </select>
       </div>
     </div>
-    <div class="fila-2col">
-      <div class="field">
-        <label>Fecha de última visita</label>
-        <input type="date" id="fFechaVisita" style="width:100%; min-width:0; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
-      </div>
-      <div class="field">
-        <label>&nbsp;</label>
-        <button class="btn" type="button" id="btnVisitaHoy" style="width:100%;">Marcar visitado hoy</button>
-      </div>
+    <div class="field">
+      <label>Fecha de última visita</label>
+      <input type="date" id="fFechaVisita" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
     </div>
-    ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin:6px 0 12px;">${textoEstadoVisita(p)}</div>` : ''}
+    <div class="field">
+      <button class="btn" type="button" id="btnVisitaHoy" style="width:100%;">Marcar visitado hoy</button>
+    </div>
+    ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin:0 0 12px;">${textoEstadoVisita(p)}</div>` : ''}
     <div class="field">
       <label>Notas</label>
       <textarea id="fNotas" placeholder="Referencias, contacto, horario…">${p ? escapeHtml(p.notas||'') : ''}</textarea>
@@ -2889,6 +3021,10 @@ function renderFormAlta(){
       document.getElementById('fContactoNombre').value.trim(),
       document.getElementById('fNombre').value.trim()
     );
+  });
+  document.getElementById('btnAbrirEnMaps').addEventListener('click', () => {
+    if(!tempCoord){ mostrarToast('Primero define la ubicación (GPS, mapa o enlace)'); return; }
+    abrirUbicacionEnMaps(tempCoord.lat, tempCoord.lng);
   });
   document.getElementById('btnCompartirUbicacion').addEventListener('click', () => {
     if(!tempCoord){ mostrarToast('Primero define la ubicación (GPS, mapa o enlace)'); return; }
