@@ -198,6 +198,7 @@
   .radar-legend.visible{ display:block; }
   @media (pointer: coarse){ .leaflet-control-zoom{ display:none; } }
   @media (pointer: fine){ .radar-legend{ left:60px; } }
+  .radar-legend .ahora{ font-size:11px; color:var(--text); margin-bottom:6px; line-height:1.3; }
   .radar-legend .titulo{ font-size:10.5px; font-weight:700; color:var(--text-dim); letter-spacing:.3px; margin-bottom:5px; text-transform:uppercase; }
   .radar-legend .barra{
     height:7px; border-radius:4px; margin-bottom:4px;
@@ -455,6 +456,7 @@
   <div class="drawer-section">Clima</div>
   <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Nubes (satélite)</span><span class="estado"></span></button>
 
   <div class="drawer-sep"></div>
   <button class="drawer-item" id="btnAjustesHeader"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg><span class="txt">Configuración</span></button>
@@ -465,10 +467,17 @@
 
 <button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo" aria-label="Mi ubicación"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg></button>
 <div class="radar-legend" id="radarLegend">
-  <div class="titulo">Radar de lluvia · en vivo</div>
-  <div class="barra"></div>
-  <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span></div>
-  <div class="nota">Resolución limitada por el proveedor gratuito; se ve más nítido alejado.</div>
+  <div class="ahora" id="radarAhora" hidden></div>
+  <div id="leyRadar" hidden>
+    <div class="titulo">Radar de lluvia · <span id="radarHora">…</span></div>
+    <div class="barra"></div>
+    <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span></div>
+    <div class="nota">Resolución limitada por el proveedor gratuito; se ve más nítido alejado.</div>
+  </div>
+  <div id="leyNubes" hidden>
+    <div class="titulo">Nubes · satélite GOES-East</div>
+    <div class="nota" id="nubesHora">Buscando imagen…</div>
+  </div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
@@ -695,6 +704,27 @@ function urlFrameRadar(info, frame){
   return `${info.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
 }
 
+/* Hora del cuadro que se está viendo. Sirve para saber de un vistazo qué tan
+   viejo es lo que muestra el radar (y detectar si algo se quedó atorado). */
+function textoEdad(msEpoch){
+  const hora = new Date(msEpoch).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false });
+  const min = Math.max(0, Math.round((Date.now() - msEpoch) / 60000));
+  return { hora, min };
+}
+
+function mostrarHoraRadar(frame){
+  const { hora, min } = textoEdad(frame.time * 1000);
+  document.getElementById('radarHora').textContent =
+    `${hora} · hace ${min} min` + (min > 30 ? ' ⚠️ desfasado' : '');
+}
+
+/* Una sola leyenda para radar y nubes: se muestra si alguna de las dos capas está activa. */
+function actualizarLeyenda(){
+  document.getElementById('leyRadar').hidden = !radarVisible;
+  document.getElementById('leyNubes').hidden = !nubesVisible;
+  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible);
+}
+
 async function actualizarFrameRadar(){
   try{
     const info = await obtenerInfoRadar();
@@ -703,6 +733,7 @@ async function actualizarFrameRadar(){
     const ultimo = frames[frames.length - 1];
     const url = urlFrameRadar(info, ultimo);
     if(capaRadar) capaRadar.setUrl(url);
+    mostrarHoraRadar(ultimo);
   } catch(e){ /* si falla, se queda el último cuadro visible hasta el próximo intento */ }
 }
 
@@ -715,12 +746,17 @@ async function activarRadar(){
     if(capaRadar){ map.removeLayer(capaRadar); }
     // Opacidad a la mitad: se ve bien la lluvia sin volver ilegible el mapa
     // de abajo, y los pines de prospectos siempre quedan encima de todos modos.
-    capaRadar = L.tileLayer(urlFrameRadar(info, ultimo), { opacity:0.55, maxZoom:18, maxNativeZoom:7, zIndex:5 }).addTo(map);
+    capaRadar = L.tileLayer(urlFrameRadar(info, ultimo), {
+      opacity:0.55, maxZoom:18, maxNativeZoom:7, zIndex:5,
+      attribution:'Radar: <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>'
+    }).addTo(map);
     radarVisible = true;
+    mostrarHoraRadar(ultimo);
     document.getElementById('btnRadar').classList.add('active');
-    document.getElementById('radarLegend').classList.add('visible');
+    actualizarLeyenda();
     if(radarIntervalId) clearInterval(radarIntervalId);
-    radarIntervalId = setInterval(actualizarFrameRadar, RADAR_INFO_CACHE_MS);
+    radarIntervalId = setInterval(() => { actualizarFrameRadar(); actualizarLluviaAhora(); }, RADAR_INFO_CACHE_MS);
+    actualizarLluviaAhora();
   } catch(e){
     mostrarToast('No se pudo cargar el radar de lluvia (revisa tu señal)');
   }
@@ -730,8 +766,136 @@ function desactivarRadar(){
   if(capaRadar){ map.removeLayer(capaRadar); capaRadar = null; }
   radarVisible = false;
   document.getElementById('btnRadar').classList.remove('active');
-  document.getElementById('radarLegend').classList.remove('visible');
+  document.getElementById('radarAhora').hidden = true;
+  actualizarLeyenda();
   if(radarIntervalId){ clearInterval(radarIntervalId); radarIntervalId = null; }
+}
+
+/* ---------- Nubes: satélite GOES-East vía NASA GIBS (gratis, sin llave) ----------
+   RainViewer ya no da satélite en su nivel gratuito, así que las nubes salen
+   de GIBS. Ojo: NASA reporta ~40 min de retraso en estas imágenes, por eso
+   sirven para ver nubes, no para saber si está lloviendo ahora mismo.
+   Como el retraso varía y no todas las capas comparten configuración, la
+   app "prueba" en vivo qué combinación (capa + hora) responde y usa la más
+   reciente que exista, en vez de asumir una hora fija. */
+const NUBES_CANDIDATAS = [
+  { capa:'GOES-East_ABI_GeoColor',              matriz:'GoogleMapsCompatible_Level7', ext:'jpg', nz:7 },
+  { capa:'GOES-East_ABI_GeoColor',              matriz:'GoogleMapsCompatible_Level6', ext:'jpg', nz:6 },
+  { capa:'GOES-East_ABI_Band13_Clean_Infrared', matriz:'GoogleMapsCompatible_Level6', ext:'png', nz:6 }
+];
+const NUBES_PASO_MS = 10 * 60 * 1000;      // GOES-East publica cada 10 min
+const NUBES_REFRESCO_MS = 10 * 60 * 1000;
+let capaNubes = null;
+let nubesVisible = false;
+let nubesBuscando = false;
+let nubesIntervalId = null;
+let nubesInfo = null; // { ts, cfg, tiempo }
+
+function isoGibs(msEpoch){ return new Date(msEpoch).toISOString().slice(0, 19) + 'Z'; }
+
+function plantillaNubes(cfg, msEpoch){
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${cfg.capa}/default/${isoGibs(msEpoch)}/${cfg.matriz}/{z}/{y}/{x}.${cfg.ext}`;
+}
+
+function probarImagen(url, ms){
+  return new Promise(resolve => {
+    const img = new Image();
+    const t = setTimeout(() => { img.onload = img.onerror = null; resolve(false); }, ms || 7000);
+    img.onload = () => { clearTimeout(t); resolve(true); };
+    img.onerror = () => { clearTimeout(t); resolve(false); };
+    img.src = url;
+  });
+}
+
+async function buscarImagenNubes(){
+  if(nubesInfo && (Date.now() - nubesInfo.ts) < 5 * 60 * 1000) return nubesInfo;
+  // Se empieza 20 min atrás y se retrocede de 10 en 10 hasta ~100 min.
+  const base = Math.floor((Date.now() - 20 * 60 * 1000) / NUBES_PASO_MS) * NUBES_PASO_MS;
+  const tiempos = Array.from({ length: 9 }, (_, i) => base - i * NUBES_PASO_MS);
+  for(const cfg of NUBES_CANDIDATAS){
+    // Se prueba un tile chico (z=3, sobre la península) para cada hora, en paralelo.
+    const ok = await Promise.all(tiempos.map(t =>
+      probarImagen(plantillaNubes(cfg, t).replace('{z}','3').replace('{y}','3').replace('{x}','2'))));
+    const idx = ok.findIndex(Boolean);
+    if(idx >= 0){ nubesInfo = { ts: Date.now(), cfg, tiempo: tiempos[idx] }; return nubesInfo; }
+  }
+  return null;
+}
+
+function aplicarCapaNubes(info){
+  if(capaNubes){ map.removeLayer(capaNubes); capaNubes = null; }
+  capaNubes = L.tileLayer(plantillaNubes(info.cfg, info.tiempo), {
+    opacity:0.6, maxZoom:18, maxNativeZoom:info.cfg.nz, zIndex:4,
+    attribution:'Nubes: NASA GIBS · NOAA GOES-East'
+  }).addTo(map);
+  const { hora, min } = textoEdad(info.tiempo);
+  document.getElementById('nubesHora').textContent = `Imagen de las ${hora} · hace ${min} min`;
+}
+
+async function refrescarNubes(){
+  if(!nubesVisible) return;
+  nubesInfo = null;
+  const info = await buscarImagenNubes();
+  if(info && nubesVisible) aplicarCapaNubes(info);
+}
+
+async function activarNubes(){
+  if(nubesBuscando) return;
+  nubesBuscando = true;
+  mostrarToast('Buscando imagen de satélite…');
+  try{
+    const info = await buscarImagenNubes();
+    if(!info){ mostrarToast('No hay imagen de nubes disponible ahora'); return; }
+    aplicarCapaNubes(info);
+    nubesVisible = true;
+    document.getElementById('btnNubes').classList.add('active');
+    actualizarLeyenda();
+    if(nubesIntervalId) clearInterval(nubesIntervalId);
+    nubesIntervalId = setInterval(refrescarNubes, NUBES_REFRESCO_MS);
+  } finally {
+    nubesBuscando = false;
+  }
+}
+
+function desactivarNubes(){
+  if(capaNubes){ map.removeLayer(capaNubes); capaNubes = null; }
+  nubesVisible = false;
+  document.getElementById('btnNubes').classList.remove('active');
+  if(nubesIntervalId){ clearInterval(nubesIntervalId); nubesIntervalId = null; }
+  actualizarLeyenda();
+}
+
+document.getElementById('btnNubes').addEventListener('click', () => {
+  if(!navigator.onLine){ mostrarToast('Sin señal: las nubes necesitan conexión a internet'); return; }
+  if(nubesVisible) desactivarNubes(); else activarNubes();
+});
+
+/* ---------- "Lluvia ahora" en mi ubicación (Open-Meteo) ----------
+   Respaldo del radar: el radar gratuito es de baja resolución y puede no
+   mostrar una celda de lluvia justo encima de ti. Esta línea consulta el
+   estado actual del modelo en tu punto GPS. Es una estimación de modelo,
+   no una medición: por eso dice "según modelo". Si no hay GPS o señal,
+   simplemente no aparece. */
+async function actualizarLluviaAhora(){
+  const el = document.getElementById('radarAhora');
+  if(!radarVisible){ el.hidden = true; return; }
+  obtenerUbicacionReciente(30 * 60 * 1000, async ({ lat, lng }) => {
+    try{
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
+        + `&current=precipitation,weather_code&timezone=auto`;
+      const resp = await fetch(url, { cache: 'no-store' });
+      if(!resp.ok) throw new Error('Open-Meteo no respondió');
+      const d = await resp.json();
+      if(!radarVisible) return;
+      const codigo = d.current.weather_code;
+      let [icono, desc] = climaInfo(codigo);
+      // El modelo a veces reporta precipitación con un código de "nublado":
+      // en ese caso prevalece la precipitación.
+      if(d.current.precipitation > 0 && codigo < 51){ icono = '🌧️'; desc = 'Con precipitación'; }
+      el.textContent = `📍 Tu ubicación: ${icono} ${desc} · según modelo`;
+      el.hidden = false;
+    } catch(e){ el.hidden = true; }
+  }, () => { el.hidden = true; });
 }
 
 document.getElementById('btnRadar').addEventListener('click', () => {
