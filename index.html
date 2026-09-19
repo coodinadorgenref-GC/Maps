@@ -128,6 +128,18 @@
     box-shadow:0 6px 14px rgba(0,0,0,.35);
   }
   .route-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
+  .weather-fab{
+    position:fixed; right:16px; bottom:372px; z-index:1200;
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--line); font-size:17px;
+    box-shadow:0 6px 14px rgba(0,0,0,.35);
+  }
+
+  .clima-hora{
+    flex-shrink:0; text-align:center; min-width:52px;
+    background:var(--surface-2); border-radius:10px; padding:8px 6px;
+  }
 
   .route-banner{
     position:fixed; top:0; left:0; right:0; z-index:1400;
@@ -358,6 +370,7 @@
 <button class="fit-fab" id="btnFit" title="Ver todos los prospectos">⤢</button>
 <button class="zone-fab" id="btnZonaOffline" title="Mapas guardados para trabajar sin señal">⬇</button>
 <button class="route-fab" id="btnPlanRuta" title="Planear ruta: selecciona prospectos en el mapa">🧭</button>
+<button class="weather-fab" id="btnClima" title="Pronóstico del clima">🌤</button>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
 
 <div class="sheet" id="sheet">
@@ -1405,6 +1418,11 @@ document.getElementById('btnAjustesHeader').addEventListener('click', () => {
   cambiarTab('ajustes');
 });
 
+document.getElementById('btnClima').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('clima');
+});
+
 document.getElementById('btnAdd').addEventListener('click', () => {
   editandoId = null;
   tempCoord = null;
@@ -1501,6 +1519,7 @@ function cambiarTab(tab){
   if(tab === 'ruta') renderRuta();
   if(tab === 'zonas') renderZonas();
   if(tab === 'ajustes') renderAjustes();
+  if(tab === 'clima') renderClima();
 }
 
 // "Agregar", "Ruta", "Zonas sin señal" y "Ajustes" ya se activan desde sus
@@ -1517,13 +1536,222 @@ function renderSheetTabs(){
     alta: editandoId ? 'Editar prospecto' : 'Agregar prospecto',
     ruta: 'Ruta',
     zonas: 'Mapas sin señal',
-    ajustes: 'Ajustes'
+    ajustes: 'Ajustes',
+    clima: 'Clima'
   };
   tabsEl.innerHTML = `
     <button class="tab-back" id="btnVolverLista">‹ Lista</button>
     <div class="tab-title">${titulos[currentTab] || ''}</div>
   `;
   document.getElementById('btnVolverLista').addEventListener('click', () => cambiarTab('lista'));
+}
+
+/* ---------- Clima (Open-Meteo, gratis, sin llave) ---------- */
+// Open-Meteo: mismo tipo de servicio público y gratuito que Nominatim (geocodificador)
+// y OSRM (rutas) que ya usa esta app. Da clima actual, por hora y hasta 16 días —
+// aquí se piden 7. Sin señal simplemente se avisa: no hay forma de "adivinar" el clima.
+let climaFuente = 'mapa'; // 'mapa' = centro visible del mapa, 'gps' = mi ubicación
+let idPeticionClima = 0; // evita que una respuesta vieja pise una más nueva si cambias de fuente rápido
+const climaCacheStore = {}; // memoria en RAM de esta sesión, por coordenada redondeada
+const CLIMA_CACHE_MS = 10 * 60 * 1000; // 10 min: suficiente para no golpear la API de más
+
+function climaInfo(codigo){
+  const tabla = {
+    0:['☀️','Despejado'], 1:['🌤️','Poco nublado'], 2:['⛅','Parcialmente nublado'], 3:['☁️','Nublado'],
+    45:['🌫️','Niebla'], 48:['🌫️','Niebla con escarcha'],
+    51:['🌦️','Llovizna ligera'], 53:['🌦️','Llovizna'], 55:['🌧️','Llovizna densa'],
+    56:['🌧️','Llovizna helada'], 57:['🌧️','Llovizna helada densa'],
+    61:['🌧️','Lluvia ligera'], 63:['🌧️','Lluvia'], 65:['🌧️','Lluvia fuerte'],
+    66:['🌧️','Lluvia helada'], 67:['🌧️','Lluvia helada fuerte'],
+    71:['🌨️','Nieve ligera'], 73:['🌨️','Nieve'], 75:['❄️','Nieve fuerte'], 77:['🌨️','Granos de nieve'],
+    80:['🌦️','Chubascos ligeros'], 81:['🌧️','Chubascos'], 82:['⛈️','Chubascos fuertes'],
+    85:['🌨️','Chubascos de nieve'], 86:['🌨️','Chubascos de nieve fuertes'],
+    95:['⛈️','Tormenta eléctrica'], 96:['⛈️','Tormenta con granizo'], 99:['⛈️','Tormenta fuerte con granizo']
+  };
+  return tabla[codigo] || ['🌡️','Sin datos'];
+}
+
+async function obtenerClima(lat, lng){
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
+    + `&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m`
+    + `&hourly=temperature_2m,precipitation_probability,weather_code`
+    + `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max`
+    + `&timezone=auto&forecast_days=7`;
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error('Open-Meteo no respondió');
+  return await resp.json();
+}
+
+async function obtenerClimaCache(lat, lng){
+  const key = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+  const entrada = climaCacheStore[key];
+  if(entrada && (Date.now() - entrada.ts) < CLIMA_CACHE_MS) return entrada.datos;
+  const datos = await obtenerClima(lat, lng);
+  climaCacheStore[key] = { ts: Date.now(), datos };
+  return datos;
+}
+
+// Nombre corto de la localidad para mostrarlo junto al clima (mismo servicio
+// Nominatim que ya usa la app; si no hay señal o falla, se omite sin más).
+async function obtenerNombreLugarClima(lat, lng){
+  try{
+    const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=12&addressdetails=1`);
+    const datos = await resp.json();
+    const dir = datos.address || {};
+    return dir.city || dir.town || dir.village || dir.municipality || dir.county || '';
+  } catch(e){ return ''; }
+}
+
+function construirHtmlClima(datos, nombreLugar){
+  const actual = datos.current;
+  const [iconoAct, descAct] = climaInfo(actual.weather_code);
+
+  const horas = datos.hourly.time;
+  let idxInicio = horas.findIndex(t => t >= actual.time);
+  if(idxInicio < 0) idxInicio = 0;
+  const proximasHoras = [];
+  for(let i = idxInicio; i < Math.min(idxInicio + 24, horas.length); i++){
+    proximasHoras.push({
+      hora: horas[i],
+      temp: datos.hourly.temperature_2m[i],
+      prob: datos.hourly.precipitation_probability[i],
+      code: datos.hourly.weather_code[i]
+    });
+  }
+
+  const dias = datos.daily.time.map((t, i) => ({
+    fecha: t,
+    code: datos.daily.weather_code[i],
+    max: datos.daily.temperature_2m_max[i],
+    min: datos.daily.temperature_2m_min[i],
+    prob: datos.daily.precipitation_probability_max[i]
+  }));
+
+  const filasHoras = proximasHoras.map(h => {
+    const [ic] = climaInfo(h.code);
+    const horaTxt = new Date(h.hora).toLocaleTimeString('es-MX', { hour:'numeric' });
+    return `
+      <div class="clima-hora">
+        <div style="font-size:11px; color:var(--text-dim);">${horaTxt}</div>
+        <div style="font-size:20px; margin:4px 0;">${ic}</div>
+        <div style="font-size:12px; font-weight:600;">${Math.round(h.temp)}°</div>
+        <div style="font-size:10px; color:var(--teal);">${h.prob}%</div>
+      </div>`;
+  }).join('');
+
+  const filasDias = dias.map((d, i) => {
+    const [ic, desc] = climaInfo(d.code);
+    const nombreDia = i === 0 ? 'Hoy' : new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday:'long' });
+    return `
+      <div class="item">
+        <span style="font-size:20px; width:26px; text-align:center; flex-shrink:0;">${ic}</span>
+        <div class="info">
+          <div class="name" style="text-transform:capitalize;">${nombreDia}</div>
+          <div class="meta">${desc} · ${d.prob}% prob. de lluvia</div>
+        </div>
+        <div style="font-size:13px; color:var(--text-dim); flex-shrink:0;">${Math.round(d.min)}° / ${Math.round(d.max)}°</div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:4px;">
+      <div style="font-size:40px;">${iconoAct}</div>
+      <div>
+        <div style="font-size:28px; font-weight:700;">${Math.round(actual.temperature_2m)}°</div>
+        <div style="font-size:13px; color:var(--text-dim);">${descAct} · Sensación ${Math.round(actual.apparent_temperature)}°</div>
+      </div>
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:16px;">
+      💧 ${actual.relative_humidity_2m}% humedad · 💨 ${Math.round(actual.wind_speed_10m)} km/h${nombreLugar ? ' · 📍 ' + escapeHtml(nombreLugar) : ''}
+    </div>
+
+    <div style="font-weight:700; font-size:13px; margin-bottom:6px;">Próximas horas</div>
+    <div class="chip-row" style="gap:10px;">${filasHoras}</div>
+
+    <div style="font-weight:700; font-size:13px; margin:14px 0 2px;">Próximos días</div>
+    ${filasDias}
+
+    <div style="font-size:11px; color:var(--text-dim); margin-top:14px;">
+      Datos de Open-Meteo (gratis, servicio público) — se actualizan cada vez que abres esta pestaña.
+    </div>
+  `;
+}
+
+async function renderClima(){
+  const miPeticion = ++idPeticionClima;
+  sheetBody.innerHTML = `
+    <div class="chip-row">
+      <button class="chip ${climaFuente === 'mapa' ? 'active' : ''}" data-clima-fuente="mapa">🗺️ Aquí en el mapa</button>
+      <button class="chip ${climaFuente === 'gps' ? 'active' : ''}" data-clima-fuente="gps">📍 Mi ubicación</button>
+    </div>
+    <div id="climaContenido"><div class="empty">Obteniendo pronóstico…</div></div>
+  `;
+  sheetBody.querySelectorAll('[data-clima-fuente]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if(climaFuente === btn.dataset.climaFuente) return;
+      climaFuente = btn.dataset.climaFuente;
+      renderClima();
+    });
+  });
+
+  if(!navigator.onLine){
+    const cont = document.getElementById('climaContenido');
+    if(cont) cont.innerHTML = `<div class="empty">Sin señal: el pronóstico necesita conexión a internet.</div>`;
+    return;
+  }
+
+  let punto = null;
+  if(climaFuente === 'gps'){
+    punto = await new Promise(resolve => {
+      if(!navigator.geolocation){ resolve(null); return; }
+      obtenerUbicacionReciente(120000, ({ lat, lng }) => resolve({ lat, lng }), () => resolve(null));
+    });
+    if(miPeticion !== idPeticionClima) return; // ya cambiaste de fuente/pestaña mientras esperabas el GPS
+    if(!punto){
+      mostrarToast('No se pudo obtener tu ubicación; se muestra el clima del mapa');
+      const c = map.getCenter();
+      punto = { lat: c.lat, lng: c.lng };
+    }
+  } else {
+    const c = map.getCenter();
+    punto = { lat: c.lat, lng: c.lng };
+  }
+
+  try{
+    const [datos, nombreLugar] = await Promise.all([
+      obtenerClimaCache(punto.lat, punto.lng),
+      obtenerNombreLugarClima(punto.lat, punto.lng)
+    ]);
+    if(miPeticion !== idPeticionClima || currentTab !== 'clima') return;
+    const cont = document.getElementById('climaContenido');
+    if(cont) cont.innerHTML = construirHtmlClima(datos, nombreLugar);
+  } catch(e){
+    if(miPeticion !== idPeticionClima) return;
+    const cont = document.getElementById('climaContenido');
+    if(cont) cont.innerHTML = `<div class="empty">No se pudo obtener el pronóstico. Intenta de nuevo en un momento.</div>`;
+  }
+}
+
+// Aviso corto de clima para la última parada de la ruta del día: no calcula
+// hora estimada de llegada (sería aparentar precisión que no se tiene), solo
+// dice qué esperar hoy en esa zona para decidir si conviene adelantar o
+// llevar impermeable.
+async function actualizarClimaRuta(destino){
+  const box = document.getElementById('climaRutaBox');
+  if(!box) return;
+  if(!navigator.onLine){ box.textContent = 'Sin señal: no se puede consultar el clima ahora.'; return; }
+  try{
+    const datos = await obtenerClimaCache(destino.lat, destino.lng);
+    const box2 = document.getElementById('climaRutaBox');
+    if(!box2) return;
+    const [icono, desc] = climaInfo(datos.daily.weather_code[0]);
+    const prob = datos.daily.precipitation_probability_max[0];
+    box2.innerHTML = `${icono} ${desc} hoy en la zona de tu última parada · ${Math.round(datos.daily.temperature_2m_min[0])}°–${Math.round(datos.daily.temperature_2m_max[0])}° · ${prob}% prob. de lluvia`;
+    if(prob >= 50) box2.style.color = 'var(--ochre)';
+  } catch(e){
+    const box3 = document.getElementById('climaRutaBox');
+    if(box3) box3.textContent = 'No se pudo consultar el clima de la ruta.';
+  }
 }
 
 /* ---------- Vista: Ajustes (tema) ---------- */
@@ -2001,6 +2229,7 @@ function renderRuta(){
       <div style="font-weight:700; font-size:15px;">${paradas.length} paradas · ${resumenDistancia}</div>
       <div style="font-size:12px; color:var(--text-dim);">Ruta optimizada${origen ? ' desde tu ubicación actual' : ''} para evitar vueltas y cruces cuando hay negocios muy juntos. ✕ la quita solo de esta ruta; 🗑 la elimina definitivamente.${rutaCalculada.distanciaRealKm == null ? ' La distancia es aproximada (línea recta); si hay señal, se ajusta sola a la ruta real por calles.' : ''}</div>
     </div>
+    <div id="climaRutaBox" style="font-size:12px; color:var(--text-dim); background:var(--surface-2); border-radius:10px; padding:8px 10px; margin-bottom:12px;">Consultando clima de la ruta…</div>
     ${filas}
     <div class="save-row" style="margin-top:14px;">
       <button class="btn primary" id="btnAbrirGoogleMaps" style="flex:2">📍 Abrir GPS (Google Maps)</button>
@@ -2026,6 +2255,8 @@ function renderRuta(){
       if(parada){ map.setView([parada.lat, parada.lng], 17); cerrarSheet(); }
     });
   });
+
+  actualizarClimaRuta(paradas[paradas.length - 1]);
 
   document.getElementById('btnAbrirGoogleMaps').addEventListener('click', abrirEnGoogleMaps);
   document.getElementById('btnCancelarRuta').addEventListener('click', () => {
