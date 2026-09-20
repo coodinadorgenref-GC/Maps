@@ -768,6 +768,20 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
+const APP_BUILD = '20-sep · mapa vectorial 1';   // sello para saber si el celular ya cargó la versión nueva de la app
+let estadoBase = { fase: 'inicio', detalle: '' };
+let ultimoErrorGL = '';
+function textoEstadoBase(){
+  const t = { inicio: 'Esperando…', libreria: 'Descargando la librería del mapa…', estilo: 'Descargando el estilo del mapa…',
+              pintando: 'Dibujando el mapa vectorial…', activo: '✅ Mapa vectorial activo', clasico: 'Usando el mapa clásico',
+              fallo: '⚠️ No se pudo usar el mapa vectorial' }[estadoBase.fase] || estadoBase.fase;
+  return t + (estadoBase.detalle ? ' — ' + escapeHtml(estadoBase.detalle) : '');
+}
+function setEstadoBase(fase, detalle){
+  estadoBase = { fase, detalle: detalle || '' };
+  const el = document.getElementById('estadoBaseMapa');
+  if(el) el.innerHTML = textoEstadoBase();
+}
 let glMapa = null, glDiv = null, glActivo = false, glLibPromesa = null;
 let baseToken = 0, avisoBaseMostrado = false;
 const glEstilos = {};
@@ -830,6 +844,7 @@ map.on('zoomanim', (e) => {
 
 function mostrarGL(){
   if(!glActivo || !glDiv) return;
+  setEstadoBase('activo');
   glDiv.style.display = 'block';
   glDiv.style.opacity = '1';
   if(map.hasLayer(capaBaseOSM)) map.removeLayer(capaBaseOSM); // se quitan las imágenes solo cuando el fondo vectorial ya está pintado
@@ -839,8 +854,9 @@ function mostrarGL(){
   map.attributionControl.addAttribution(ATRIB_GL);
 }
 
-function usarBaseClasica(){
+function usarBaseClasica(motivo){
   glActivo = false;
+  if(estadoBase.fase !== 'fallo') setEstadoBase('clasico', motivo || '');
   if(glDiv){ glDiv.style.opacity = '0'; glDiv.style.display = 'none'; }
   if(!map.hasLayer(capaBaseOSM)){ capaBaseOSM.setOpacity(1); capaBaseOSM.addTo(map); }
   map.setMaxZoom(18);
@@ -868,21 +884,33 @@ function crearGL(estilo){
     minZoom: -2, maxZoom: 22, interactive: false, attributionControl: false,
     pixelRatio: Math.min(window.devicePixelRatio || 1, 2), fadeDuration: 150
   });
+  setEstadoBase('pintando');
+  glMapa.on('error', (e) => { ultimoErrorGL = (e && e.error && e.error.message) || 'error desconocido'; });
   esperarPintadoGL(mostrarGL);
+  // Vigilante: si en 20 s no se pintó, se avisa en vez de dejar el mapa clásico sin explicación.
+  setTimeout(() => {
+    if(estadoBase.fase === 'pintando'){
+      setEstadoBase('fallo', 'sin respuesta en 20 s' + (ultimoErrorGL ? ' · último error: ' + ultimoErrorGL : ''));
+      mostrarToast('El mapa vectorial no respondió; se sigue usando el clásico (mira Configuración › Mapa base)');
+    }
+  }, 20000);
 }
 
 async function activarBaseVectorial(clave){
   const token = ++baseToken;
   glActivo = true;
   try{
-    if(!soportaWebGL2()) throw new Error('sin WebGL2');
+    if(!soportaWebGL2()) throw new Error('el navegador no ofrece WebGL2 (algunos lo bloquean por privacidad)');
+    setEstadoBase('libreria');
     await cargarMapLibre();
+    setEstadoBase('estilo');
     const estilo = await obtenerEstilo(clave);
     if(token !== baseToken || !glActivo) return;
     if(!glMapa){
       crearGL(estilo);
     } else {
       glDiv.style.display = 'block';
+      setEstadoBase('pintando');
       glMapa.setStyle(estilo);
       sincronizarGL();
       esperarPintadoGL(mostrarGL);
@@ -890,17 +918,23 @@ async function activarBaseVectorial(clave){
   } catch(err){
     if(token !== baseToken) return;
     console.warn('Mapa vectorial no disponible:', err && err.message);
+    setEstadoBase('fallo', (err && err.message) || 'error desconocido');
     usarBaseClasica();
     if(!avisoBaseMostrado){ avisoBaseMostrado = true; mostrarToast('No se pudo cargar el mapa vectorial; se usa el mapa clásico'); }
   }
 }
 
 function aplicarBaseSegunPreferencia(){
-  if(basePref === 'clasico' || !navigator.onLine){ baseToken++; usarBaseClasica(); return; }
+  if(basePref === 'clasico' || !navigator.onLine){
+    baseToken++;
+    setEstadoBase('clasico', basePref === 'clasico' ? 'por tu elección' : 'sin conexión');
+    usarBaseClasica();
+    return;
+  }
   activarBaseVectorial(basePref);
 }
 
-window.addEventListener('offline', () => { if(basePref !== 'clasico'){ baseToken++; usarBaseClasica(); } });
+window.addEventListener('offline', () => { if(basePref !== 'clasico'){ baseToken++; setEstadoBase('clasico', 'sin conexión'); usarBaseClasica(); } });
 window.addEventListener('online', () => setTimeout(aplicarBaseSegunPreferencia, 1200));
 // Arranca un poco después de que la app ya se vea, para no alargar la carga inicial.
 if(document.readyState === 'complete') setTimeout(aplicarBaseSegunPreferencia, 800);
@@ -3261,6 +3295,9 @@ function renderAjustes(){
       ${[['liberty', '🗺️ Vectorial'], ['positron', '◽ Vectorial claro'], ['clasico', '🖼️ Clásico']]
         .map(([v, t]) => `<button class="chip ${basePref === v ? 'active' : ''}" data-base-mapa="${v}">${t}</button>`).join('')}
     </div>
+    <div style="font-size:12px; margin-bottom:4px;" id="estadoBaseMapa">${textoEstadoBase()}</div>
+    <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">Versión de la app: ${APP_BUILD}</div>
+    <div class="chip-row" style="margin-bottom:10px;"><button class="chip" data-base-reintentar="1">↻ Reintentar mapa vectorial</button></div>
     <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
       "Vectorial" dibuja los nombres de calles aparte: al girar el mapa siempre se leen y siguen la calle (necesita internet). "Vectorial claro" es lo mismo con colores más discretos, para que resalten tus pines. "Clásico" usa imágenes del mapa: es el que funciona sin señal en las zonas guardadas, pero al girar el mapa el texto también gira. Sin conexión la app cambia sola al clásico.
     </div>
@@ -3278,6 +3315,14 @@ function renderAjustes(){
       temaPref = btn.dataset.tema;
       guardarTemaPreferido(temaPref);
       aplicarTema(temaPref);
+      renderAjustes();
+    });
+  });
+  sheetBody.querySelectorAll('[data-base-reintentar]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if(basePref === 'clasico'){ basePref = 'liberty'; guardarBasePreferida(basePref); }
+      estadoBase = { fase: 'inicio', detalle: '' };
+      aplicarBaseSegunPreferencia();
       renderAjustes();
     });
   });
