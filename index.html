@@ -199,6 +199,16 @@
   @media (pointer: coarse){ .leaflet-control-zoom{ display:none; } }
   @media (pointer: fine){ .radar-legend{ left:60px; } }
   .leaflet-container .capa-suave .leaflet-tile{ image-rendering:auto; }
+  .radar-legend .barra.viento{ background: linear-gradient(90deg, #2b6cb0, #0f9d8a, #e0a100, #d63c2f); }
+  .radar-legend .mini-btn{
+    margin-left:4px; padding:2px 8px; font-size:10px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:var(--surface-2); color:var(--text);
+  }
+  .temp-label{
+    width:46px; height:22px; line-height:20px; text-align:center; border-radius:11px;
+    font-size:12px; font-weight:700; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.55);
+    border:1.5px solid rgba(255,255,255,.92); box-shadow:0 1px 4px rgba(0,0,0,.35);
+  }
   .radar-legend .ahora{ font-size:11px; color:var(--text); margin-bottom:6px; line-height:1.3; }
   .radar-legend .titulo{ font-size:10.5px; font-weight:700; color:var(--text-dim); letter-spacing:.3px; margin-bottom:5px; text-transform:uppercase; }
   .radar-legend .barra{
@@ -458,6 +468,9 @@
   <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Nubes (satélite)</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnFronteras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V5l5-2 6 3 5-2v15l-5 2-6-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2"/></svg><span class="txt">Fronteras y estados</span><span class="estado"></span></button>
 
   <div class="drawer-sep"></div>
   <button class="drawer-item" id="btnAjustesHeader"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg><span class="txt">Configuración</span></button>
@@ -474,6 +487,16 @@
     <div class="barra"></div>
     <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span></div>
     <div class="nota">Resolución limitada por el proveedor gratuito; se ve más nítido alejado.</div>
+  </div>
+  <div id="leyViento" hidden>
+    <div class="titulo">Viento · <span id="vientoHora">…</span></div>
+    <div class="barra viento"></div>
+    <div class="rotulos"><span>Suave</span><span>Moderado</span><span>Fuerte</span></div>
+    <div class="nota">Modelo Open-Meteo (~11 km). <button type="button" class="mini-btn" id="btnVientoPausa">⏸ Pausar</button></div>
+  </div>
+  <div id="leyTemp" hidden>
+    <div class="titulo">Temperaturas · <span id="tempHora">…</span></div>
+    <div class="nota">Estimación de modelo (Open-Meteo), no de estación.</div>
   </div>
   <div id="leyNubes" hidden>
     <div class="titulo">Nubes · satélite GOES-East</div>
@@ -747,7 +770,9 @@ function mostrarHoraRadar(frame){
 function actualizarLeyenda(){
   document.getElementById('leyRadar').hidden = !radarVisible;
   document.getElementById('leyNubes').hidden = !nubesVisible;
-  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible);
+  document.getElementById('leyViento').hidden = !vientoVisible;
+  document.getElementById('leyTemp').hidden = !tempVisible;
+  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible);
 }
 
 async function actualizarFrameRadar(){
@@ -896,6 +921,401 @@ document.getElementById('btnNubes').addEventListener('click', () => {
   if(!navigator.onLine){ mostrarToast('Sin señal: las nubes necesitan conexión a internet'); return; }
   if(nubesVisible) desactivarNubes(); else activarNubes();
 });
+
+/* ---------- Fronteras, temperaturas y viento ----------
+   Todo gratis y sin llave:
+   - Fronteras: archivo propio fronteras.json (Natural Earth, dominio público,
+     recortado a México y Centroamérica). Sin API y sin consumir datos.
+   - Temperaturas y viento: una sola consulta a Open-Meteo que trae una
+     cuadrícula de ~36 puntos sobre lo que ves (~11 km de resolución, modelo).
+     Cada punto cuenta como una llamada del límite gratuito (10,000/día), por
+     eso los datos se guardan 30 min y solo se piden al encender la capa o al
+     mover el mapa fuera de la zona ya cargada. */
+[['fronterasPane', 430], ['vientoPane', 450], ['tempPane', 460]].forEach(([nombre, z]) => {
+  const pane = map.createPane(nombre);
+  pane.style.zIndex = z;
+  pane.style.pointerEvents = 'none';
+});
+
+/* ----- Fronteras ----- */
+let fronterasDatos = null;
+let capaFronteras = null;
+let fronterasVisible = false;
+
+async function activarFronteras(){
+  try{
+    if(!fronterasDatos){
+      const resp = await fetch('./fronteras.json');
+      if(!resp.ok) throw new Error('sin archivo');
+      fronterasDatos = await resp.json();
+    }
+  } catch(e){
+    mostrarToast('No se pudo cargar fronteras.json (¿ya lo subiste al repo?)');
+    return;
+  }
+  const solo = t => ({ type:'FeatureCollection', features: fronterasDatos.features.filter(f => f.properties.t === t) });
+  const base = { pane:'fronterasPane', interactive:false };
+  // Un "halo" blanco debajo hace que la línea se lea igual sobre mapa claro, radar o nubes.
+  capaFronteras = L.layerGroup([
+    L.geoJSON(fronterasDatos, { ...base, style:{ color:'#ffffff', weight:5, opacity:0.65 } }),
+    L.geoJSON(solo('e'), { ...base, style:{ color:'#5b3f8c', weight:1.2, opacity:0.9, dashArray:'6 5' } }),
+    L.geoJSON(solo('p'), { ...base, style:{ color:'#3b1f6b', weight:2.4, opacity:0.95 } })
+  ]).addTo(map);
+  fronterasVisible = true;
+  document.getElementById('btnFronteras').classList.add('active');
+}
+function desactivarFronteras(){
+  if(capaFronteras){ map.removeLayer(capaFronteras); capaFronteras = null; }
+  fronterasVisible = false;
+  document.getElementById('btnFronteras').classList.remove('active');
+}
+document.getElementById('btnFronteras').addEventListener('click', () => {
+  if(fronterasVisible) desactivarFronteras(); else activarFronteras();
+});
+
+/* ----- Cuadrícula de datos (Open-Meteo) ----- */
+const CUAD_PUNTOS = 36;
+const CUAD_TTL_MS = 30 * 60 * 1000;
+const CUAD_MIN_ENTRE_DESCARGAS_MS = 30 * 1000; // freno si se mueve el mapa sin parar
+const CUAD_MAX_DESCARGAS_DIA = 200;            // ≈7,200 de las 10,000 llamadas gratuitas/día (cada punto cuenta 1)
+const CUAD_USO_KEY = 'gc_cuadricula_uso_v1';
+
+function registrarUsoCuadricula(){
+  const hoy = new Date().toLocaleDateString('en-CA');
+  let uso = null;
+  try{ uso = JSON.parse(localStorage.getItem(CUAD_USO_KEY) || 'null'); } catch(e){}
+  if(!uso || uso.dia !== hoy) uso = { dia: hoy, n: 0 };
+  if(uso.n >= CUAD_MAX_DESCARGAS_DIA) return false;
+  uso.n++;
+  try{ localStorage.setItem(CUAD_USO_KEY, JSON.stringify(uso)); } catch(e){}
+  return true;
+}
+const ATRIB_OPENMETEO = 'Viento/temperatura: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>';
+let cuadricula = null;          // { ts, n, s, w, e, nx, ny, temp[], u[], v[] }
+let cuadriculaCargando = null;
+let cuadIntervalId = null;
+let vientoVisible = false;
+let tempVisible = false;
+let atribucionPuesta = false;
+const capaTemp = L.layerGroup();
+
+function limitesCuadricula(){
+  // Un poco más grande que la vista (x1.5) y nunca menor a ~1.2°, para no
+  // volver a pedir datos a cada acercamiento o desplazamiento pequeño.
+  const b = map.getBounds(), c = b.getCenter();
+  const spanLat = Math.max((b.getNorth() - b.getSouth()) * 1.5, 1.2);
+  const spanLng = Math.max((b.getEast() - b.getWest()) * 1.5, 1.2);
+  return {
+    n: Math.min(84, c.lat + spanLat / 2), s: Math.max(-84, c.lat - spanLat / 2),
+    w: c.lng - spanLng / 2, e: c.lng + spanLng / 2
+  };
+}
+
+async function descargarCuadricula(){
+  if(!registrarUsoCuadricula()) throw new Error('limite');
+  const { n, s, w, e } = limitesCuadricula();
+  const sz = map.getSize();
+  const ny = Math.max(4, Math.round(Math.sqrt(CUAD_PUNTOS * sz.y / sz.x)));
+  const nx = Math.max(4, Math.round(CUAD_PUNTOS / ny));
+  const lats = [], lngs = [];
+  for(let i = 0; i < ny; i++){
+    for(let j = 0; j < nx; j++){
+      lats.push((n - i * (n - s) / (ny - 1)).toFixed(2));
+      lngs.push((w + j * (e - w) / (nx - 1)).toFixed(2));
+    }
+  }
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lngs.join(',')}`
+    + `&current=temperature_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=UTC`;
+  const resp = await fetch(url, { cache: 'no-store' });
+  if(resp.status === 429) throw new Error('limite');
+  if(!resp.ok) throw new Error('http ' + resp.status);
+  let datos = await resp.json();
+  if(!Array.isArray(datos)) datos = [datos];
+  if(datos.length !== lats.length) throw new Error('formato');
+  const temp = [], u = [], v = [];
+  datos.forEach(d => {
+    const c = d.current || {};
+    temp.push(typeof c.temperature_2m === 'number' ? c.temperature_2m : null);
+    const vel = c.wind_speed_10m, dir = c.wind_direction_10m;
+    if(typeof vel === 'number' && typeof dir === 'number'){
+      // La dirección meteorológica es DE DÓNDE viene el viento: se invierte.
+      const r = dir * Math.PI / 180;
+      u.push(-vel * Math.sin(r)); v.push(-vel * Math.cos(r));
+    } else { u.push(0); v.push(0); }
+  });
+  return { ts: Date.now(), n: Number(lats[0]), s: Number(lats[lats.length - 1]),
+           w: Number(lngs[0]), e: Number(lngs[nx - 1]), nx, ny, temp, u, v };
+}
+
+function cuadriculaCubreVista(g){
+  const b = map.getBounds();
+  return !!g && b.getSouth() >= g.s && b.getNorth() <= g.n && b.getWest() >= g.w && b.getEast() <= g.e;
+}
+
+async function asegurarCuadricula(){
+  if(cuadricula){
+    const edad = Date.now() - cuadricula.ts;
+    if(edad < CUAD_TTL_MS && cuadriculaCubreVista(cuadricula)) return cuadricula;
+    if(edad < CUAD_MIN_ENTRE_DESCARGAS_MS) return cuadricula;
+  }
+  if(cuadriculaCargando) return cuadriculaCargando;
+  cuadriculaCargando = descargarCuadricula()
+    .then(g => { cuadricula = g; return g; })
+    .catch(err => {
+      mostrarToast(err.message === 'limite'
+        ? 'Se alcanzó el límite diario de consultas de clima (protege el plan gratuito); intenta más tarde'
+        : 'No se pudo cargar viento/temperatura (revisa tu señal)');
+      return null;
+    })
+    .finally(() => { cuadriculaCargando = null; });
+  return cuadriculaCargando;
+}
+
+// Interpolación bilineal de la cuadrícula en un punto cualquiera.
+function muestrearCuadricula(g, lat, lng){
+  if(lat > g.n || lat < g.s || lng < g.w || lng > g.e) return null;
+  const fy = (g.n - lat) / (g.n - g.s) * (g.ny - 1);
+  const fx = (lng - g.w) / (g.e - g.w) * (g.nx - 1);
+  const i0 = Math.min(g.ny - 2, Math.floor(fy));
+  const j0 = Math.min(g.nx - 2, Math.floor(fx));
+  const ty = fy - i0, tx = fx - j0;
+  const idx = [i0 * g.nx + j0, i0 * g.nx + j0 + 1, (i0 + 1) * g.nx + j0, (i0 + 1) * g.nx + j0 + 1];
+  const bil = arr => {
+    const a = arr[idx[0]], b = arr[idx[1]], c = arr[idx[2]], d = arr[idx[3]];
+    if(a == null || b == null || c == null || d == null) return null;
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  };
+  return { t: bil(g.temp), u: bil(g.u), v: bil(g.v) };
+}
+
+function horaDatos(g){
+  return 'datos de las ' + new Date(g.ts).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+function actualizarAtribucionOpenMeteo(){
+  const necesaria = vientoVisible || tempVisible;
+  if(necesaria && !atribucionPuesta){ map.attributionControl.addAttribution(ATRIB_OPENMETEO); atribucionPuesta = true; }
+  if(!necesaria && atribucionPuesta){ map.attributionControl.removeAttribution(ATRIB_OPENMETEO); atribucionPuesta = false; }
+}
+
+function actualizarRefrescoCuadricula(){
+  const activa = vientoVisible || tempVisible;
+  if(activa && !cuadIntervalId){
+    cuadIntervalId = setInterval(() => { cuadricula = null; refrescarCapasCuadricula(); }, CUAD_TTL_MS);
+  }
+  if(!activa && cuadIntervalId){ clearInterval(cuadIntervalId); cuadIntervalId = null; }
+}
+
+async function refrescarCapasCuadricula(){
+  if(!vientoVisible && !tempVisible) return;
+  const g = (await asegurarCuadricula()) || cuadricula; // si falla una descarga nueva, se conserva la anterior
+  if(!g) return;
+  if(tempVisible) dibujarTemperaturas();
+  if(vientoVisible) prepararViento();
+  const txt = horaDatos(g);
+  document.getElementById('vientoHora').textContent = txt;
+  document.getElementById('tempHora').textContent = txt;
+}
+
+/* ----- Temperaturas: etiquetas de color repartidas por la pantalla ----- */
+const TEMP_PARADAS = [[10,'#3b6fb6'], [18,'#2f9bb0'], [24,'#3f9d54'], [28,'#d99a1f'], [33,'#e2702a'], [38,'#c93a2f']];
+function colorTemp(t){
+  if(t <= TEMP_PARADAS[0][0]) return TEMP_PARADAS[0][1];
+  for(let i = 1; i < TEMP_PARADAS.length; i++){
+    const [t1, c1] = TEMP_PARADAS[i];
+    if(t <= t1){
+      const [t0, c0] = TEMP_PARADAS[i - 1];
+      const f = (t - t0) / (t1 - t0);
+      const mezcla = k => Math.round(parseInt(c0.substr(1 + k * 2, 2), 16) * (1 - f) + parseInt(c1.substr(1 + k * 2, 2), 16) * f);
+      return `rgb(${mezcla(0)},${mezcla(1)},${mezcla(2)})`;
+    }
+  }
+  return TEMP_PARADAS[TEMP_PARADAS.length - 1][1];
+}
+
+function dibujarTemperaturas(){
+  capaTemp.clearLayers();
+  const g = cuadricula;
+  if(!g) return;
+  const sz = map.getSize();
+  // Se evita la franja del buscador (arriba) para que ninguna etiqueta quede tapada.
+  const yIni = sz.y > 500 ? 130 : 20, yFin = sz.y - 30;
+  const cols = Math.max(2, Math.round(sz.x / 125));
+  const filas = Math.max(2, Math.round((yFin - yIni) / 150));
+  for(let r = 0; r < filas; r++){
+    for(let c = 0; c < cols; c++){
+      const pt = L.point(sz.x * (c + 0.5) / cols, yIni + (yFin - yIni) * (r + 0.5) / filas);
+      const ll = map.containerPointToLatLng(pt);
+      const m = muestrearCuadricula(g, ll.lat, ll.lng);
+      if(!m || m.t == null) continue;
+      L.marker(ll, {
+        pane:'tempPane', interactive:false, keyboard:false,
+        icon: L.divIcon({
+          className:'', iconSize:[46, 22], iconAnchor:[23, 11],
+          html:`<div class="temp-label" style="background:${colorTemp(m.t)}">${Math.round(m.t)}°</div>`
+        })
+      }).addTo(capaTemp);
+    }
+  }
+}
+
+async function activarTemperaturas(){
+  tempVisible = true;
+  document.getElementById('btnTemp').classList.add('active');
+  actualizarLeyenda();
+  actualizarAtribucionOpenMeteo();
+  capaTemp.addTo(map);
+  const g = await asegurarCuadricula();
+  if(!g){ desactivarTemperaturas(); return; }
+  await refrescarCapasCuadricula();
+  actualizarRefrescoCuadricula();
+}
+function desactivarTemperaturas(){
+  tempVisible = false;
+  capaTemp.clearLayers();
+  map.removeLayer(capaTemp);
+  document.getElementById('btnTemp').classList.remove('active');
+  actualizarLeyenda();
+  actualizarAtribucionOpenMeteo();
+  actualizarRefrescoCuadricula();
+}
+document.getElementById('btnTemp').addEventListener('click', () => {
+  if(tempVisible){ desactivarTemperaturas(); return; }
+  if(!navigator.onLine){ mostrarToast('Sin señal: las temperaturas necesitan conexión a internet'); return; }
+  activarTemperaturas();
+});
+
+/* ----- Viento: partículas animadas sobre un canvas ----- */
+const VIENTO_PASO = 12;       // px entre puntos del campo de viento en pantalla
+const VIENTO_ESCALA = 0.22;   // px por cuadro por cada m/s (velocidad visual, no física)
+const COLORES_VIENTO = ['#2b6cb0', '#0f9d8a', '#e0a100', '#d63c2f']; // <3, 3-6, 6-10, >10 m/s
+let vientoCanvas = null, vientoCtx = null, vientoCampo = null, vientoParticulas = [];
+let vientoRaf = null, vientoPausado = false, vientoMoviendo = false, vientoUltimoTs = 0;
+
+function reiniciarParticula(p, W, H, edadAleatoria){
+  p.x = Math.random() * W; p.y = Math.random() * H;
+  p.vida = 50 + Math.random() * 60;
+  p.edad = edadAleatoria ? Math.random() * p.vida : 0;
+}
+
+function prepararViento(){
+  if(!vientoVisible || !cuadricula) return;
+  const sz = map.getSize();
+  const dpr = window.devicePixelRatio || 1;
+  if(!vientoCanvas){
+    vientoCanvas = document.createElement('canvas');
+    vientoCanvas.style.position = 'absolute';
+    vientoCanvas.style.pointerEvents = 'none';
+    map.getPane('vientoPane').appendChild(vientoCanvas);
+  }
+  vientoCanvas.width = Math.round(sz.x * dpr);
+  vientoCanvas.height = Math.round(sz.y * dpr);
+  vientoCanvas.style.width = sz.x + 'px';
+  vientoCanvas.style.height = sz.y + 'px';
+  vientoCanvas.style.display = 'block';
+  L.DomUtil.setPosition(vientoCanvas, map.containerPointToLayerPoint([0, 0]));
+  vientoCtx = vientoCanvas.getContext('2d');
+  vientoCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Campo de viento en una retícula de pantalla: se interpola una sola vez aquí
+  // y luego cada partícula solo consulta la celda en la que está.
+  const cols = Math.ceil(sz.x / VIENTO_PASO) + 1, filas = Math.ceil(sz.y / VIENTO_PASO) + 1;
+  const U = new Float32Array(cols * filas), V = new Float32Array(cols * filas), OK = new Uint8Array(cols * filas);
+  for(let j = 0; j < filas; j++){
+    for(let i = 0; i < cols; i++){
+      const ll = map.containerPointToLatLng([i * VIENTO_PASO, j * VIENTO_PASO]);
+      const m = muestrearCuadricula(cuadricula, ll.lat, ll.lng);
+      if(m && m.u != null && m.v != null){ const k = j * cols + i; U[k] = m.u; V[k] = m.v; OK[k] = 1; }
+    }
+  }
+  vientoCampo = { cols, filas, U, V, OK, W: sz.x, H: sz.y };
+  const n = Math.max(600, Math.min(2200, Math.round(sz.x * sz.y / 260)));
+  vientoParticulas = Array.from({ length: n }, () => { const p = {}; reiniciarParticula(p, sz.x, sz.y, true); return p; });
+  vientoMoviendo = false;
+  if(!vientoRaf) vientoRaf = requestAnimationFrame(pasoViento);
+}
+
+function pasoViento(ts){
+  if(!vientoVisible){ vientoRaf = null; return; }
+  vientoRaf = requestAnimationFrame(pasoViento);
+  if(vientoPausado || vientoMoviendo || document.hidden || !vientoCampo) return;
+  if(ts - vientoUltimoTs < 33) return; // ~30 cuadros/s: suficiente y cuida la batería
+  vientoUltimoTs = ts;
+  const { cols, filas, U, V, OK, W, H } = vientoCampo;
+  const c = vientoCtx;
+  // Se desvanece lo dibujado antes: eso deja la "estela" de cada partícula.
+  c.globalCompositeOperation = 'destination-out';
+  c.fillStyle = 'rgba(0,0,0,0.14)';
+  c.fillRect(0, 0, W, H);
+  c.globalCompositeOperation = 'source-over';
+  const trazos = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+  for(const p of vientoParticulas){
+    const ci = Math.round(p.x / VIENTO_PASO), cj = Math.round(p.y / VIENTO_PASO);
+    const k = cj * cols + ci;
+    if(p.edad++ > p.vida || ci < 0 || cj < 0 || ci >= cols || cj >= filas || !OK[k]){
+      reiniciarParticula(p, W, H, false);
+      continue;
+    }
+    const u = U[k], v = V[k];
+    const nx = p.x + u * VIENTO_ESCALA, ny = p.y - v * VIENTO_ESCALA;
+    const vel = Math.hypot(u, v);
+    const b = vel < 3 ? 0 : vel < 6 ? 1 : vel < 10 ? 2 : 3;
+    trazos[b].moveTo(p.x, p.y); trazos[b].lineTo(nx, ny);
+    p.x = nx; p.y = ny;
+  }
+  c.lineWidth = 1.6; c.lineCap = 'round';
+  trazos.forEach((t, i) => { c.strokeStyle = COLORES_VIENTO[i]; c.stroke(t); });
+}
+
+async function activarViento(){
+  vientoVisible = true;
+  vientoPausado = false;
+  document.getElementById('btnVientoPausa').textContent = '⏸ Pausar';
+  document.getElementById('btnViento').classList.add('active');
+  actualizarLeyenda();
+  actualizarAtribucionOpenMeteo();
+  const g = await asegurarCuadricula();
+  if(!g){ desactivarViento(); return; }
+  await refrescarCapasCuadricula();
+  actualizarRefrescoCuadricula();
+}
+function desactivarViento(){
+  vientoVisible = false;
+  if(vientoRaf){ cancelAnimationFrame(vientoRaf); vientoRaf = null; }
+  if(vientoCanvas) vientoCanvas.style.display = 'none';
+  vientoCampo = null; vientoParticulas = [];
+  document.getElementById('btnViento').classList.remove('active');
+  actualizarLeyenda();
+  actualizarAtribucionOpenMeteo();
+  actualizarRefrescoCuadricula();
+}
+document.getElementById('btnViento').addEventListener('click', () => {
+  if(vientoVisible){ desactivarViento(); return; }
+  if(!navigator.onLine){ mostrarToast('Sin señal: el viento necesita conexión a internet'); return; }
+  activarViento();
+});
+document.getElementById('btnVientoPausa').addEventListener('click', (e) => {
+  vientoPausado = !vientoPausado;
+  e.currentTarget.textContent = vientoPausado ? '▶ Reanudar' : '⏸ Pausar';
+});
+
+/* ----- Reacción al mover/acercar el mapa ----- */
+let temporizadorMovimiento = null;
+map.on('zoomstart', () => { if(vientoVisible && vientoCanvas) vientoCanvas.style.display = 'none'; });
+map.on('movestart', () => { if(vientoVisible) vientoMoviendo = true; });
+function alTerminarMovimiento(){
+  if(!vientoVisible && !tempVisible) return;
+  if(vientoVisible && vientoCanvas){
+    // El canvas viaja con el mapa mientras lo arrastras; al terminar se
+    // realinea con la pantalla y se recalcula el campo de viento.
+    L.DomUtil.setPosition(vientoCanvas, map.containerPointToLayerPoint([0, 0]));
+    if(vientoCtx) vientoCtx.clearRect(0, 0, vientoCanvas.width, vientoCanvas.height);
+  }
+  clearTimeout(temporizadorMovimiento);
+  temporizadorMovimiento = setTimeout(refrescarCapasCuadricula, 300);
+}
+map.on('moveend', alTerminarMovimiento);
+map.on('resize', alTerminarMovimiento);
 
 /* ---------- "Lluvia ahora" en mi ubicación (Open-Meteo) ----------
    Respaldo del radar: el radar gratuito es de baja resolución y puede no
