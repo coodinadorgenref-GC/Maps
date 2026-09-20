@@ -2297,6 +2297,10 @@ function pasaRadio(p){
 let filtrosAbiertos = false;
 let textoBusqueda = '';
 let editandoId = null;
+// Capa y estado del resaltado en el mapa (ver "Resaltar una ubicación en el mapa", más abajo).
+const capaResaltado = L.layerGroup().addTo(map);
+let resaltadoId = null;
+let resaltadoModo = null; // 'busqueda' | 'edicion'
 let modoRuta = false;
 let seleccionRuta = new Set();
 let rutaCalculada = null;
@@ -2469,6 +2473,7 @@ function volverAlMapa(){
   renderSheetTabs();
   renderLista();
   cerrarSheet();
+  sincronizarResaltadoEdicion();
 }
 
 // A dónde regresa el botón "‹" de las vistas secundarias: la Lista de prospectos,
@@ -2498,6 +2503,7 @@ function cambiarTab(tab, origen){
     console.error(err);
     sheetBody.innerHTML = `<div class="empty">No se pudo abrir esta pantalla (${escapeHtml(err && err.message)}). Toca "‹" para regresar.</div>`;
   }
+  sincronizarResaltadoEdicion();
 }
 
 // Regresa a la pantalla de origen (Lista o Próximas rutas, en el mismo punto
@@ -4136,7 +4142,7 @@ function renderResultadosBusqueda(){
   if(!texto.trim()){
     buscadorRes.innerHTML = '';
     ocultarResultadosBusqueda();
-    quitarResaltado();
+    quitarResaltadoBusqueda();
     return;
   }
   const encontrados = buscarProspectosPorPalabras(texto);
@@ -4163,20 +4169,21 @@ function renderResultadosBusqueda(){
 }
 
 function limpiarBuscador(){
-  quitarResaltado();
+  quitarResaltadoBusqueda();
   buscadorInput.value = '';
   buscadorRes.innerHTML = '';
   topbarEl.classList.remove('con-texto');
   ocultarResultadosBusqueda();
 }
 
-/* ---------- Resaltar el resultado elegido en el buscador ----------
-   En vez de saltar directo a la ficha, el mapa se centra en el prospecto, lo agranda con un
-   anillo que pulsa y abre su etiqueta (nombre, estatus, datos del DENUE y notas) con un botón
-   para abrir la ficha. Vive en una capa aparte: se ve aunque los pines estén ocultos, dentro de
-   una burbuja de agrupación o fuera del filtro activo. */
-const capaResaltado = L.layerGroup().addTo(map);
-let resaltadoId = null;
+/* ---------- Resaltar una ubicación en el mapa ----------
+   Se usa en dos casos con la misma animación (pin grande + anillo que pulsa):
+   - 'busqueda': el resultado elegido en el buscador; se centra el mapa y se abre su etiqueta
+     (nombre, estatus, datos del DENUE y notas) con un botón para abrir la ficha.
+   - 'edicion': el prospecto que se está editando, para saber cuál es cuando se cierra o baja la
+     hoja y se ve el mapa (por ejemplo al corregir su ubicación). No mueve el mapa ni abre etiqueta.
+   Vive en una capa aparte: se ve aunque los pines estén ocultos, dentro de una burbuja de
+   agrupación o fuera del filtro activo. */
 
 function contenidoPopupResaltado(p){
   const estado = [p.estatus, p.frecuencia].filter(Boolean).map(escapeHtml).join(' · ');
@@ -4194,24 +4201,37 @@ function contenidoPopupResaltado(p){
 
 function quitarResaltado(){
   resaltadoId = null;
+  resaltadoModo = null;
   capaResaltado.clearLayers();
 }
+// El buscador solo quita SU resaltado, nunca el del prospecto que se está editando.
+function quitarResaltadoBusqueda(){ if(resaltadoModo === 'busqueda') quitarResaltado(); }
 
-function resaltarProspecto(id){
-  const p = prospectos.find(x => x.id === id);
-  if(!p || typeof p.lat !== 'number' || typeof p.lng !== 'number') return;
+// Dibuja anillo + pin grande. Con "conEtiqueta" el pin lleva su popup; sin ella no es tocable,
+// así los toques pasan al pin normal que tiene debajo (por ejemplo al elegir un punto exacto).
+function ponerResaltado(p, modo, conEtiqueta){
   quitarResaltado();
-  resaltadoId = id;
+  resaltadoId = p.id;
+  resaltadoModo = modo;
   const ll = L.latLng(p.lat, p.lng);
   const anillo = L.marker(ll, {
     interactive: false, keyboard: false, zIndexOffset: 9000,
     icon: L.divIcon({ className:'', html:'<div class="resaltado-anillo"></div><div class="resaltado-anillo r2"></div>', iconSize:[80, 80], iconAnchor:[40, 40] })
   });
   const pin = L.marker(ll, {
-    keyboard: false, zIndexOffset: 10000,
+    keyboard: false, zIndexOffset: 10000, interactive: !!conEtiqueta,
     icon: crearIconoPin(p, { esDenue: p.origen === 'DENUE', enRuta:false, idxRuta:-1, seleccionado:false,
                              esPrioridad: !!p.prioridad, numeroSeleccion:null, grande:true })
-  }).bindPopup(contenidoPopupResaltado(p), {
+  });
+  capaResaltado.addLayer(anillo).addLayer(pin);
+  return pin;
+}
+
+function resaltarProspecto(id){
+  const p = prospectos.find(x => x.id === id);
+  if(!p || typeof p.lat !== 'number' || typeof p.lng !== 'number') return;
+  const pin = ponerResaltado(p, 'busqueda', true);
+  pin.bindPopup(contenidoPopupResaltado(p), {
     autoClose:false, closeOnClick:false, maxWidth:260,
     autoPanPaddingTopLeft:[12, 150], autoPanPaddingBottomRight:[12, 40] // sin taparse con el buscador
   });
@@ -4219,17 +4239,30 @@ function resaltarProspecto(id){
     const b = e.popup.getElement() && e.popup.getElement().querySelector('.pop-ficha');
     if(b) b.onclick = () => abrirDetalle(id, 'mapa');
   });
-  pin.on('popupclose', () => { if(resaltadoId === id) quitarResaltado(); });
-  capaResaltado.addLayer(anillo).addLayer(pin);
+  pin.on('popupclose', () => { if(resaltadoId === id && resaltadoModo === 'busqueda') quitarResaltado(); });
 
+  const ll = L.latLng(p.lat, p.lng);
   let abierto = false;
-  const abrir = () => { if(abierto || resaltadoId !== id) return; abierto = true; pin.openPopup(); };
+  const abrir = () => { if(abierto || resaltadoId !== id || resaltadoModo !== 'busqueda') return; abierto = true; pin.openPopup(); };
   const zoom = Math.max(map.getZoom(), 17);
   const yaAhi = map.getZoom() >= zoom && map.getCenter().distanceTo(ll) < 3;
   if(yaAhi){ abrir(); return; }
   map.once('moveend', abrir);
   map.setView(ll, zoom);
   setTimeout(abrir, 1200); // por si el mapa no llegó a moverse
+}
+
+// Mientras se edita una ficha (aunque la hoja esté bajada o cerrada para ver el mapa), el
+// prospecto en edición se ve resaltado. Se llama cada vez que cambia la pantalla de la hoja.
+function sincronizarResaltadoEdicion(){
+  const editando = currentTab === 'alta' && editandoId;
+  if(editando){
+    if(resaltadoModo === 'edicion' && resaltadoId === editandoId) return;
+    const p = prospectos.find(x => x.id === editandoId);
+    if(p && typeof p.lat === 'number' && typeof p.lng === 'number') ponerResaltado(p, 'edicion', false);
+  } else if(resaltadoModo === 'edicion'){
+    quitarResaltado();
+  }
 }
 
 function seleccionarResultadoBusqueda(id){
