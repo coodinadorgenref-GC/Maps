@@ -265,6 +265,26 @@
     border-color:#C4D600; border-width:3px;
     box-shadow:0 0 0 2px rgba(196,214,0,.4), 0 2px 6px rgba(0,0,0,.45);
   }
+  .map-pin-shape.resaltado{
+    border-color:#fff; border-width:3px;
+    box-shadow:0 0 0 3px rgba(196,214,0,.9), 0 3px 10px rgba(0,0,0,.55);
+  }
+  /* Resultado de la búsqueda: anillo que pulsa alrededor del punto exacto. */
+  .resaltado-anillo{
+    position:absolute; left:50%; top:50%; width:74px; height:74px; margin:-37px 0 0 -37px;
+    border-radius:50%; border:3px solid #C4D600; background:rgba(196,214,0,.25);
+    box-shadow:0 0 0 2px rgba(14,21,24,.35); pointer-events:none;
+    animation:pulso-resaltado 1.8s ease-out infinite;
+  }
+  .resaltado-anillo.r2{ animation-delay:.9s; }
+  @keyframes pulso-resaltado{ 0%{ transform:scale(.3); opacity:.95; } 100%{ transform:scale(1.15); opacity:0; } }
+  @media (prefers-reduced-motion: reduce){ .resaltado-anillo{ animation:none; opacity:.8; } .resaltado-anillo.r2{ display:none; } }
+  .pop-res .pop-dim{ color:#7d8891; }
+  .pop-res .pop-nota{ margin-top:5px; font-size:12px; line-height:1.35; color:#4b5560; }
+  .pop-res .pop-ficha{
+    margin-top:8px; width:100%; padding:7px 10px; border:none; border-radius:8px; cursor:pointer;
+    background:#C4D600; color:#0E1518; font-size:13px; font-weight:700;
+  }
   .map-pin-icon{
     position:absolute; inset:0;
     display:flex; align-items:center; justify-content:center;
@@ -1580,11 +1600,12 @@ function crearIconoPinTemp(){
 }
 
 function crearIconoPin(p, opciones){
-  const { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion } = opciones;
-  const size = esDenue ? 22 : 28;
+  const { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion, grande } = opciones;
+  const size = Math.round((esDenue ? 22 : 28) * (grande ? 1.5 : 1));
   const claseForma = ['map-pin-shape'];
   if(seleccionado) claseForma.push('seleccionado');
   else if(esPrioridad) claseForma.push('prioridad');
+  if(grande) claseForma.push('resaltado');
 
   let icono = '<span class="punto"></span>';
   if(enRuta) icono = `<span>${idxRuta + 1}</span>`;
@@ -1594,7 +1615,7 @@ function crearIconoPin(p, opciones){
   const html = `
     <div class="map-pin-wrap" style="width:${size}px; height:${size}px;">
       <div class="${claseForma.join(' ')}" style="background:${COLOR_ESTATUS[p.estatus] || '#9AA4AE'}"></div>
-      <div class="map-pin-icon" style="font-size:${esDenue ? 10 : 11}px;">${icono}</div>
+      <div class="map-pin-icon" style="font-size:${Math.round((esDenue ? 10 : 11) * (grande ? 1.4 : 1))}px;">${icono}</div>
     </div>`;
 
   return L.divIcon({
@@ -4115,6 +4136,7 @@ function renderResultadosBusqueda(){
   if(!texto.trim()){
     buscadorRes.innerHTML = '';
     ocultarResultadosBusqueda();
+    quitarResaltado();
     return;
   }
   const encontrados = buscarProspectosPorPalabras(texto);
@@ -4141,16 +4163,81 @@ function renderResultadosBusqueda(){
 }
 
 function limpiarBuscador(){
+  quitarResaltado();
   buscadorInput.value = '';
   buscadorRes.innerHTML = '';
   topbarEl.classList.remove('con-texto');
   ocultarResultadosBusqueda();
 }
 
+/* ---------- Resaltar el resultado elegido en el buscador ----------
+   En vez de saltar directo a la ficha, el mapa se centra en el prospecto, lo agranda con un
+   anillo que pulsa y abre su etiqueta (nombre, estatus, datos del DENUE y notas) con un botón
+   para abrir la ficha. Vive en una capa aparte: se ve aunque los pines estén ocultos, dentro de
+   una burbuja de agrupación o fuera del filtro activo. */
+const capaResaltado = L.layerGroup().addTo(map);
+let resaltadoId = null;
+
+function contenidoPopupResaltado(p){
+  const estado = [p.estatus, p.frecuencia].filter(Boolean).map(escapeHtml).join(' · ');
+  const lugar = [p.municipio, p.localidad && p.localidad !== p.municipio ? p.localidad : ''].filter(Boolean).map(escapeHtml).join(' · ');
+  const notas = p.notas ? String(p.notas) : '';
+  const notasCorta = notas.length > 160 ? notas.slice(0, 157) + '…' : notas;
+  return `<div class="pop-res">
+    <b>${escapeHtml(p.nombre)}</b>${p.prioridad ? ' ⚠️' : ''}<br>
+    ${estado}<br>
+    <span class="pop-dim">${escapeHtml(p.origen)}${lugar ? ' · ' + lugar : ''}</span>
+    ${notasCorta ? `<div class="pop-nota">${escapeHtml(notasCorta)}</div>` : ''}
+    <button type="button" class="pop-ficha">Ver ficha</button>
+  </div>`;
+}
+
+function quitarResaltado(){
+  resaltadoId = null;
+  capaResaltado.clearLayers();
+}
+
+function resaltarProspecto(id){
+  const p = prospectos.find(x => x.id === id);
+  if(!p || typeof p.lat !== 'number' || typeof p.lng !== 'number') return;
+  quitarResaltado();
+  resaltadoId = id;
+  const ll = L.latLng(p.lat, p.lng);
+  const anillo = L.marker(ll, {
+    interactive: false, keyboard: false, zIndexOffset: 9000,
+    icon: L.divIcon({ className:'', html:'<div class="resaltado-anillo"></div><div class="resaltado-anillo r2"></div>', iconSize:[80, 80], iconAnchor:[40, 40] })
+  });
+  const pin = L.marker(ll, {
+    keyboard: false, zIndexOffset: 10000,
+    icon: crearIconoPin(p, { esDenue: p.origen === 'DENUE', enRuta:false, idxRuta:-1, seleccionado:false,
+                             esPrioridad: !!p.prioridad, numeroSeleccion:null, grande:true })
+  }).bindPopup(contenidoPopupResaltado(p), {
+    autoClose:false, closeOnClick:false, maxWidth:260,
+    autoPanPaddingTopLeft:[12, 150], autoPanPaddingBottomRight:[12, 40] // sin taparse con el buscador
+  });
+  pin.on('popupopen', e => {
+    const b = e.popup.getElement() && e.popup.getElement().querySelector('.pop-ficha');
+    if(b) b.onclick = () => abrirDetalle(id, 'mapa');
+  });
+  pin.on('popupclose', () => { if(resaltadoId === id) quitarResaltado(); });
+  capaResaltado.addLayer(anillo).addLayer(pin);
+
+  let abierto = false;
+  const abrir = () => { if(abierto || resaltadoId !== id) return; abierto = true; pin.openPopup(); };
+  const zoom = Math.max(map.getZoom(), 17);
+  const yaAhi = map.getZoom() >= zoom && map.getCenter().distanceTo(ll) < 3;
+  if(yaAhi){ abrir(); return; }
+  map.once('moveend', abrir);
+  map.setView(ll, zoom);
+  setTimeout(abrir, 1200); // por si el mapa no llegó a moverse
+}
+
 function seleccionarResultadoBusqueda(id){
-  limpiarBuscador();
+  // Se conserva el texto buscado (con su "X") y solo se esconde la lista de resultados.
+  ocultarResultadosBusqueda();
   buscadorInput.blur();
-  abrirDetalle(id, 'mapa');
+  cerrarSheet(); // si había una hoja abierta tapando el mapa, se cierra para ver el resultado
+  resaltarProspecto(id);
 }
 
 buscadorInput.addEventListener('input', renderResultadosBusqueda);
