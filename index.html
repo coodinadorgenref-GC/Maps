@@ -172,13 +172,15 @@
     background:#3B82F6; border:3px solid #FFFFFF;
     box-shadow:0 0 0 2px rgba(59,130,246,.35);
   }
+  /* Cono de dirección: abanico de ~90° que nace en el punto azul y se desvanece con la distancia
+     (como en Google Maps). Gira alrededor del centro, que es donde está el punto. */
   .ubi-cono{
-    position:absolute; left:50%; top:50%; margin-left:-9px; margin-top:-26px;
-    width:0; height:0;
-    border-left:9px solid transparent;
-    border-right:9px solid transparent;
-    border-bottom:26px solid rgba(59,130,246,.55);
-    transform-origin:50% 100%;
+    position:absolute; left:50%; top:50%; width:170px; height:170px; margin:-85px 0 0 -85px;
+    pointer-events:none; transform-origin:50% 50%;
+    background:conic-gradient(from -46deg at 50% 50%,
+      rgba(59,130,246,0) 0deg, rgba(59,130,246,.62) 24deg, rgba(59,130,246,.62) 68deg, rgba(59,130,246,0) 92deg, rgba(59,130,246,0) 360deg);
+    -webkit-mask-image:radial-gradient(circle closest-side at 50% 50%, #000 8%, rgba(0,0,0,.6) 40%, rgba(0,0,0,0) 100%);
+            mask-image:radial-gradient(circle closest-side at 50% 50%, #000 8%, rgba(0,0,0,.6) 40%, rgba(0,0,0,0) 100%);
   }
 
 
@@ -1243,6 +1245,8 @@ const ATRIB_OPENMETEO = 'Viento/temperatura: <a href="https://open-meteo.com" ta
 let cuadricula = null;          // { ts, n, s, w, e, nx, ny, temp[], u[], v[] }
 let cuadriculaCargando = null;
 let cuadReintentoTimer = null;
+let ultimoFalloViento = null;   // { ts, motivo } de la última descarga fallida
+let vientoReintentos = 0, vientoReintentoTimer = null;
 let cuadIntervalId = null;
 let vientoVisible = false;
 let tempVisible = false;
@@ -1276,7 +1280,13 @@ async function descargarCuadricula(){
   }
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lngs.join(',')}`
     + `&current=temperature_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=UTC`;
-  const resp = await fetch(url, { cache: 'no-store' });
+  // Con tiempo límite: en una señal lenta la petición se quedaba colgada y el viento "no cargaba" sin avisar.
+  const ctl = new AbortController();
+  const corte = setTimeout(() => ctl.abort(), 15000);
+  let resp;
+  try{ resp = await fetch(url, { cache: 'no-store', signal: ctl.signal }); }
+  catch(e){ throw new Error(e && e.name === 'AbortError' ? 'tardó demasiado' : 'sin conexión'); }
+  finally { clearTimeout(corte); }
   if(resp.status === 429) throw new Error('limite');
   if(!resp.ok) throw new Error('http ' + resp.status);
   let datos = await resp.json();
@@ -1293,8 +1303,26 @@ async function descargarCuadricula(){
       u.push(-vel * Math.sin(r)); v.push(-vel * Math.cos(r));
     } else { u.push(0); v.push(0); }
   });
-  return { ts: Date.now(), n: Number(lats[0]), s: Number(lats[lats.length - 1]),
-           w: Number(lngs[0]), e: Number(lngs[nx - 1]), nx, ny, temp, u, v };
+  const g = { ts: Date.now(), n: Number(lats[0]), s: Number(lats[lats.length - 1]),
+              w: Number(lngs[0]), e: Number(lngs[nx - 1]), nx, ny, temp, u, v };
+  guardarCuadricula(g);
+  return g;
+}
+
+// Último dato bueno guardado en el teléfono: si la red falla o va lenta, el viento se dibuja con eso
+// (dice "guardados" en la leyenda) mientras se reintenta, en vez de quedarse en blanco.
+const CUAD_GUARDADA_KEY = 'gc_cuadricula_guardada_v1';
+const CUAD_GUARDADA_MAX_MS = 3 * 60 * 60 * 1000;
+function guardarCuadricula(g){
+  try{ localStorage.setItem(CUAD_GUARDADA_KEY, JSON.stringify(g)); } catch(e){}
+}
+function leerCuadriculaGuardada(){
+  try{
+    const g = JSON.parse(localStorage.getItem(CUAD_GUARDADA_KEY) || 'null');
+    if(!g || !Array.isArray(g.u) || !Array.isArray(g.v) || g.u.length !== g.nx * g.ny || g.v.length !== g.u.length) return null;
+    if(Date.now() - g.ts > CUAD_GUARDADA_MAX_MS) return null;
+    return g;
+  } catch(e){ return null; }
 }
 
 function cuadriculaCubreVista(g){
@@ -1321,9 +1349,12 @@ async function asegurarCuadricula(){
   cuadriculaCargando = descargarCuadricula()
     .then(g => { cuadricula = g; return g; })
     .catch(err => {
-      mostrarToast(err.message === 'limite'
-        ? 'Se alcanzó el límite diario de consultas de clima (protege el plan gratuito); intenta más tarde'
-        : 'No se pudo cargar viento/temperatura (revisa tu señal)');
+      ultimoFalloViento = { ts: Date.now(), motivo: err.message };
+      if(!cuadricula){
+        mostrarToast(err.message === 'limite'
+          ? 'Se alcanzó el límite diario de consultas de clima (protege el plan gratuito); intenta más tarde'
+          : 'No se pudo cargar viento/temperatura (' + (err.message || 'error') + ')');
+      }
       return null;
     })
     .finally(() => { cuadriculaCargando = null; });
@@ -1368,7 +1399,7 @@ function actualizarAtribucionOpenMeteo(){
 function actualizarRefrescoCuadricula(){
   const activa = vientoVisible || tempVisible;
   if(activa && !cuadIntervalId){
-    cuadIntervalId = setInterval(() => { cuadricula = null; tempLocalidades.clear(); refrescarCapasCuadricula(); refrescarTemperaturas(); }, CUAD_TTL_MS);
+    cuadIntervalId = setInterval(() => { tempLocalidades.clear(); refrescarCapasCuadricula(); refrescarTemperaturas(); }, CUAD_TTL_MS); // los datos viejos se conservan hasta que llegue algo nuevo
   }
   if(!activa && cuadIntervalId){ clearInterval(cuadIntervalId); cuadIntervalId = null; }
 }
@@ -1376,11 +1407,39 @@ function actualizarRefrescoCuadricula(){
 async function refrescarCapasCuadricula(){
   if(!vientoVisible) return; // la cuadrícula solo alimenta el viento; las temperaturas se piden por localidad
   if(cuadricula) prepararViento(false); // pinta ya con lo que hay (a lo mucho a medias unos segundos) en vez de esperar la red
-  const g = (await asegurarCuadricula()) || cuadricula; // si falla una descarga nueva, se conserva la anterior
-  if(!g || !vientoVisible) return;
+  const nuevo = await asegurarCuadricula();
+  const g = nuevo || cuadricula; // si falla una descarga nueva, se conserva la anterior
+  if(!vientoVisible) return;
+  const falloReciente = !nuevo && ultimoFalloViento && (Date.now() - ultimoFalloViento.ts) < 3000;
+  if(!g){
+    // Sin ningún dato (ni guardado): no se apaga; se reintenta solo unas veces y la leyenda lo explica.
+    programarReintentoViento(ultimoFalloViento ? ultimoFalloViento.motivo : 'sin datos');
+    return;
+  }
   prepararViento(false);
-  // Si los datos aún no cubren toda la pantalla, se avisa en la leyenda en vez de dejar el viento "cortado" sin explicación.
-  document.getElementById('vientoHora').textContent = horaDatos(g) + (cuadriculaCubreVista(g) ? '' : ' · actualizando zona…');
+  const cubre = cuadriculaCubreVista(g);
+  const viejo = Date.now() - g.ts > CUAD_TTL_MS;
+  let txt = horaDatos(g);
+  if(falloReciente) txt += ' · guardados (' + ultimoFalloViento.motivo + '), reintentando…';
+  else if(!cubre) txt += ' · actualizando zona…';
+  else if(viejo) txt += ' · actualizando…';
+  document.getElementById('vientoHora').textContent = txt;
+  if(nuevo && nuevo === g && !falloReciente) vientoReintentos = 0;
+  if(falloReciente && (viejo || !cubre)) programarReintentoViento(ultimoFalloViento.motivo, true);
+}
+
+// Reintento con espera creciente (6, 12, 18, 24 s). Con datos guardados el viento sigue visible mientras tanto.
+function programarReintentoViento(motivo, hayDatos){
+  clearTimeout(vientoReintentoTimer);
+  if(!vientoVisible) return;
+  if(vientoReintentos >= 4){
+    if(!hayDatos){ mostrarToast('No se pudieron cargar los datos del viento (' + motivo + '). Intenta más tarde.'); desactivarViento(); }
+    return;
+  }
+  vientoReintentos++;
+  const espera = 6 * vientoReintentos;
+  if(!hayDatos) document.getElementById('vientoHora').textContent = 'sin datos (' + motivo + ') · reintentando en ' + espera + ' s…';
+  vientoReintentoTimer = setTimeout(() => { if(vientoVisible) refrescarCapasCuadricula(); }, espera * 1000);
 }
 
 /* ----- Temperaturas: etiquetas de color repartidas por la pantalla ----- */
@@ -1666,8 +1725,14 @@ async function activarViento(){
   document.getElementById('btnViento').classList.add('active');
   actualizarLeyenda();
   actualizarAtribucionOpenMeteo();
-  const g = await asegurarCuadricula();
-  if(!g){ desactivarViento(); return; }
+  vientoReintentos = 0; ultimoFalloViento = null;
+  document.getElementById('vientoHora').textContent = 'cargando datos…';
+  if(!cuadricula){
+    // Si hay un dato reciente guardado que cubre la pantalla, el viento aparece al instante.
+    const guardada = leerCuadriculaGuardada();
+    if(guardada && cuadriculaCubreVista(guardada)) cuadricula = guardada;
+  }
+  if(cuadricula) prepararViento(true);
   await refrescarCapasCuadricula();
   actualizarRefrescoCuadricula();
 }
@@ -1676,6 +1741,7 @@ function desactivarViento(){
   if(vientoRaf){ cancelAnimationFrame(vientoRaf); vientoRaf = null; }
   if(vientoCanvas) vientoCanvas.style.display = 'none';
   vientoCampo = null; vientoParticulas = []; vientoRect = null; vientoBase = null;
+  clearTimeout(vientoReintentoTimer);
   document.getElementById('btnViento').classList.remove('active');
   actualizarLeyenda();
   actualizarAtribucionOpenMeteo();
@@ -1683,7 +1749,7 @@ function desactivarViento(){
 }
 document.getElementById('btnViento').addEventListener('click', () => {
   if(vientoVisible){ desactivarViento(); return; }
-  if(!navigator.onLine){ mostrarToast('Sin señal: el viento necesita conexión a internet'); return; }
+  if(!navigator.onLine && !leerCuadriculaGuardada()){ mostrarToast('Sin señal: el viento necesita conexión a internet'); return; }
   activarViento();
 });
 document.getElementById('btnVientoPausa').addEventListener('click', (e) => {
@@ -1694,7 +1760,18 @@ document.getElementById('btnVientoPausa').addEventListener('click', (e) => {
 /* ----- Reacción al mover/acercar el mapa ----- */
 let temporizadorMovimiento = null;
 map.on('zoomstart', () => { if(vientoVisible && vientoCanvas) vientoCanvas.style.display = 'none'; });
+let vientoUltimoGesto = 0;
+map.on('movestart zoomstart', () => { vientoUltimoGesto = performance.now(); });
+map.on('moveend zoomend rotate', () => { vientoUltimoGesto = performance.now(); });
 map.on('movestart', () => { if(vientoVisible) vientoMoviendo = true; });
+// Vigilante: algunos gestos de dos dedos terminan sin avisar "moveend" y el viento se quedaba oculto o
+// pausado. Si el mapa lleva 1.5 s quieto y el viento sigue en ese estado, se vuelve a dibujar solo.
+setInterval(() => {
+  if(!vientoVisible || !cuadricula || document.hidden) return;
+  if(performance.now() - vientoUltimoGesto < 1500) return;
+  const oculto = vientoCanvas && vientoCanvas.style.display === 'none';
+  if(vientoMoviendo || oculto || !vientoRaf || !vientoCampo) prepararViento(true);
+}, 1500);
 function alTerminarMovimiento(){
   if(!vientoVisible && !tempVisible) return;
   // El canvas viaja con el mapa; solo se recalcula si ya no cubre la pantalla (ver vientoVigente).
