@@ -204,10 +204,20 @@
     margin-left:4px; padding:2px 8px; font-size:10px; border-radius:10px; cursor:pointer;
     border:1px solid var(--line); background:var(--surface-2); color:var(--text);
   }
-  .temp-label{
-    width:46px; height:22px; line-height:20px; text-align:center; border-radius:11px;
-    font-size:12px; font-weight:700; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.55);
-    border:1.5px solid rgba(255,255,255,.92); box-shadow:0 1px 4px rgba(0,0,0,.35);
+  .radar-legend .barra.viento.claro{ background: linear-gradient(90deg, #8fd3ff, #7ef0c9, #ffe27a, #ff9d7a); }
+  /* Etiqueta por localidad: nombre arriba, temperatura abajo. El fondo blanco del nombre
+     tapa el rótulo del mapa base para que no se encimen dos nombres iguales. */
+  .loc-tag{
+    border-radius:10px; overflow:hidden; pointer-events:none;
+    border:1px solid rgba(255,255,255,.9); box-shadow:0 1px 4px rgba(0,0,0,.4);
+  }
+  .loc-nombre{
+    background:rgba(255,255,255,.94); color:#1B2126; font-size:10.5px; font-weight:600;
+    line-height:15px; text-align:center; padding:0 5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .loc-temp{
+    color:#fff; font-size:13px; font-weight:700; line-height:19px; text-align:center;
+    text-shadow:0 1px 2px rgba(0,0,0,.55);
   }
   .radar-legend .ahora{ font-size:11px; color:var(--text); margin-bottom:6px; line-height:1.3; }
   .radar-legend .titulo{ font-size:10.5px; font-weight:700; color:var(--text-dim); letter-spacing:.3px; margin-bottom:5px; text-transform:uppercase; }
@@ -496,7 +506,7 @@
   </div>
   <div id="leyTemp" hidden>
     <div class="titulo">Temperaturas · <span id="tempHora">…</span></div>
-    <div class="nota">Estimación de modelo (Open-Meteo), no de estación.</div>
+    <div class="nota">Por localidad · estimación de modelo (Open-Meteo), no de estación.</div>
   </div>
   <div id="leyNubes" hidden>
     <div class="titulo">Nubes · satélite GOES-East</div>
@@ -772,6 +782,8 @@ function actualizarLeyenda(){
   document.getElementById('leyNubes').hidden = !nubesVisible;
   document.getElementById('leyViento').hidden = !vientoVisible;
   document.getElementById('leyTemp').hidden = !tempVisible;
+  // Sobre el satélite (oscuro de noche) el viento usa una paleta clara; la barra de la leyenda la sigue.
+  document.querySelector('#leyViento .barra').classList.toggle('claro', nubesVisible);
   document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible);
 }
 
@@ -977,19 +989,20 @@ document.getElementById('btnFronteras').addEventListener('click', () => {
 const CUAD_PUNTOS = 36;
 const CUAD_TTL_MS = 30 * 60 * 1000;
 const CUAD_MIN_ENTRE_DESCARGAS_MS = 30 * 1000; // freno si se mueve el mapa sin parar
-const CUAD_MAX_DESCARGAS_DIA = 200;            // ≈7,200 de las 10,000 llamadas gratuitas/día (cada punto cuenta 1)
+const CUAD_MAX_DESCARGAS_DIA = 120;            // ≈4,300 de las 10,000 llamadas gratuitas/día (cada punto cuenta 1)
 const CUAD_USO_KEY = 'gc_cuadricula_uso_v1';
 
-function registrarUsoCuadricula(){
+function registrarUso(clave, max){
   const hoy = new Date().toLocaleDateString('en-CA');
   let uso = null;
-  try{ uso = JSON.parse(localStorage.getItem(CUAD_USO_KEY) || 'null'); } catch(e){}
+  try{ uso = JSON.parse(localStorage.getItem(clave) || 'null'); } catch(e){}
   if(!uso || uso.dia !== hoy) uso = { dia: hoy, n: 0 };
-  if(uso.n >= CUAD_MAX_DESCARGAS_DIA) return false;
+  if(uso.n >= max) return false;
   uso.n++;
-  try{ localStorage.setItem(CUAD_USO_KEY, JSON.stringify(uso)); } catch(e){}
+  try{ localStorage.setItem(clave, JSON.stringify(uso)); } catch(e){}
   return true;
 }
+function registrarUsoCuadricula(){ return registrarUso(CUAD_USO_KEY, CUAD_MAX_DESCARGAS_DIA); }
 const ATRIB_OPENMETEO = 'Viento/temperatura: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>';
 let cuadricula = null;          // { ts, n, s, w, e, nx, ny, temp[], u[], v[] }
 let cuadriculaCargando = null;
@@ -1101,20 +1114,17 @@ function actualizarAtribucionOpenMeteo(){
 function actualizarRefrescoCuadricula(){
   const activa = vientoVisible || tempVisible;
   if(activa && !cuadIntervalId){
-    cuadIntervalId = setInterval(() => { cuadricula = null; refrescarCapasCuadricula(); }, CUAD_TTL_MS);
+    cuadIntervalId = setInterval(() => { cuadricula = null; tempLocalidades.clear(); refrescarCapasCuadricula(); refrescarTemperaturas(); }, CUAD_TTL_MS);
   }
   if(!activa && cuadIntervalId){ clearInterval(cuadIntervalId); cuadIntervalId = null; }
 }
 
 async function refrescarCapasCuadricula(){
-  if(!vientoVisible && !tempVisible) return;
+  if(!vientoVisible) return; // la cuadrícula solo alimenta el viento; las temperaturas se piden por localidad
   const g = (await asegurarCuadricula()) || cuadricula; // si falla una descarga nueva, se conserva la anterior
   if(!g) return;
-  if(tempVisible) dibujarTemperaturas();
-  if(vientoVisible) prepararViento();
-  const txt = horaDatos(g);
-  document.getElementById('vientoHora').textContent = txt;
-  document.getElementById('tempHora').textContent = txt;
+  prepararViento();
+  document.getElementById('vientoHora').textContent = horaDatos(g);
 }
 
 /* ----- Temperaturas: etiquetas de color repartidas por la pantalla ----- */
@@ -1133,30 +1143,108 @@ function colorTemp(t){
   return TEMP_PARADAS[TEMP_PARADAS.length - 1][1];
 }
 
-function dibujarTemperaturas(){
-  capaTemp.clearLayers();
-  const g = cuadricula;
-  if(!g) return;
+/* Temperatura por localidad (como zoom.earth): se muestran los pueblos y ciudades de la
+   zona, con prioridad a las cabeceras/ciudades grandes, y se evita que se encimen. La lista
+   (localidades.json) sale de tus propios datos del DENUE (centro de cada localidad) más
+   ciudades de Natural Earth para lo que queda fuera de Yucatán y Quintana Roo. */
+const TEMP_TTL_MS = 30 * 60 * 1000;
+const TEMP_MAX_ETIQUETAS = 22;
+const TEMP_MAX_POR_CONSULTA = 16;      // puntos por consulta a Open-Meteo (cada punto cuenta como 1 llamada)
+const TEMP_MAX_CONSULTAS_DIA = 250;    // ≈4,000 llamadas/día como máximo; sumadas al viento quedan bajo las 10,000
+const TEMP_USO_KEY = 'gc_temp_loc_uso_v1';
+let localidades = null;                // [[nombre, lat, lng, prioridad], ...] ya ordenada de mayor a menor prioridad
+const tempLocalidades = new Map();     // "lat,lng" -> { t, ts }
+let tempCargando = false;
+let tempPendiente = false;
+
+function anchoEtiquetaLoc(nombre){ return Math.max(50, Math.min(120, Math.round(nombre.length * 6.3 + 14))); }
+function claveLoc(l){ return l[1] + ',' + l[2]; }
+
+function elegirLocalidadesVisibles(){
   const sz = map.getSize();
-  // Se evita la franja del buscador (arriba) para que ninguna etiqueta quede tapada.
-  const yIni = sz.y > 500 ? 130 : 20, yFin = sz.y - 30;
-  const cols = Math.max(2, Math.round(sz.x / 125));
-  const filas = Math.max(2, Math.round((yFin - yIni) / 150));
-  for(let r = 0; r < filas; r++){
-    for(let c = 0; c < cols; c++){
-      const pt = L.point(sz.x * (c + 0.5) / cols, yIni + (yFin - yIni) * (r + 0.5) / filas);
-      const ll = map.containerPointToLatLng(pt);
-      const m = muestrearCuadricula(g, ll.lat, ll.lng);
-      if(!m || m.t == null) continue;
-      L.marker(ll, {
-        pane:'tempPane', interactive:false, keyboard:false,
-        icon: L.divIcon({
-          className:'', iconSize:[46, 22], iconAnchor:[23, 11],
-          html:`<div class="temp-label" style="background:${colorTemp(m.t)}">${Math.round(m.t)}°</div>`
-        })
-      }).addTo(capaTemp);
-    }
+  const yIni = sz.y > 500 ? 120 : 10, yFin = sz.y - 20; // se evita la franja del buscador
+  const ocupado = [], elegidas = [];
+  for(const l of localidades){
+    if(elegidas.length >= TEMP_MAX_ETIQUETAS) break;
+    const pt = map.latLngToContainerPoint([l[1], l[2]]);
+    if(pt.x < 10 || pt.x > sz.x - 10 || pt.y < yIni || pt.y > yFin) continue;
+    const w = anchoEtiquetaLoc(l[0]) + 8, h = 48;
+    const r = { x0: pt.x - w / 2, x1: pt.x + w / 2, y0: pt.y - h / 2, y1: pt.y + h / 2 };
+    if(ocupado.some(o => r.x0 < o.x1 && r.x1 > o.x0 && r.y0 < o.y1 && r.y1 > o.y0)) continue;
+    ocupado.push(r); elegidas.push(l);
   }
+  return elegidas;
+}
+
+async function descargarTempLocalidades(lista){
+  if(!registrarUso(TEMP_USO_KEY, TEMP_MAX_CONSULTAS_DIA)) throw new Error('limite');
+  const lats = lista.map(l => l[1].toFixed(3)).join(','), lngs = lista.map(l => l[2].toFixed(3)).join(',');
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lngs}&current=temperature_2m&timezone=UTC`;
+  const resp = await fetch(url, { cache: 'no-store' });
+  if(resp.status === 429) throw new Error('limite');
+  if(!resp.ok) throw new Error('http ' + resp.status);
+  let datos = await resp.json();
+  if(!Array.isArray(datos)) datos = [datos];
+  if(datos.length !== lista.length) throw new Error('formato');
+  const ts = Date.now();
+  datos.forEach((d, i) => {
+    const t = d.current && d.current.temperature_2m;
+    if(typeof t === 'number') tempLocalidades.set(claveLoc(lista[i]), { t, ts });
+  });
+}
+
+function dibujarTemperaturas(lista){
+  capaTemp.clearLayers();
+  let masReciente = 0;
+  (lista || []).forEach(l => {
+    const c = tempLocalidades.get(claveLoc(l));
+    if(!c) return;
+    masReciente = Math.max(masReciente, c.ts);
+    const w = anchoEtiquetaLoc(l[0]);
+    L.marker([l[1], l[2]], {
+      pane:'tempPane', interactive:false, keyboard:false,
+      icon: L.divIcon({
+        className:'', iconSize:[w, 38], iconAnchor:[w / 2, 19],
+        html:`<div class="loc-tag" style="width:${w}px"><div class="loc-nombre">${escapeHtml(l[0])}</div>`
+          + `<div class="loc-temp" style="background:${colorTemp(c.t)}">${Math.round(c.t)}°</div></div>`
+      })
+    }).addTo(capaTemp);
+  });
+  if(masReciente) document.getElementById('tempHora').textContent =
+    'datos de las ' + new Date(masReciente).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+// Devuelve false solo si no hay nada que mostrar (primera carga fallida).
+async function refrescarTemperaturas(){
+  if(!tempVisible) return true;
+  if(tempCargando){ tempPendiente = true; return true; }
+  tempCargando = true;
+  let ok = true;
+  try{
+    if(!localidades){
+      const resp = await fetch('./localidades.json');
+      if(!resp.ok) throw new Error('sin archivo');
+      localidades = await resp.json();
+    }
+    for(let vuelta = 0; vuelta < 3; vuelta++){
+      const ahora = Date.now();
+      const faltan = elegirLocalidadesVisibles().filter(l => {
+        const c = tempLocalidades.get(claveLoc(l));
+        return !c || ahora - c.ts > TEMP_TTL_MS;
+      });
+      if(!faltan.length) break;
+      await descargarTempLocalidades(faltan.slice(0, TEMP_MAX_POR_CONSULTA));
+    }
+  } catch(err){
+    ok = tempLocalidades.size > 0;
+    mostrarToast(err.message === 'sin archivo' ? 'No se pudo cargar localidades.json (¿ya lo subiste al repo?)'
+      : err.message === 'limite' ? 'Se alcanzó el límite diario de consultas de clima (protege el plan gratuito); intenta más tarde'
+      : 'No se pudieron cargar las temperaturas (revisa tu señal)');
+  }
+  if(localidades) dibujarTemperaturas(elegirLocalidadesVisibles());
+  tempCargando = false;
+  if(tempPendiente){ tempPendiente = false; refrescarTemperaturas(); }
+  return ok;
 }
 
 async function activarTemperaturas(){
@@ -1165,9 +1253,8 @@ async function activarTemperaturas(){
   actualizarLeyenda();
   actualizarAtribucionOpenMeteo();
   capaTemp.addTo(map);
-  const g = await asegurarCuadricula();
-  if(!g){ desactivarTemperaturas(); return; }
-  await refrescarCapasCuadricula();
+  const ok = await refrescarTemperaturas();
+  if(!ok){ desactivarTemperaturas(); return; }
   actualizarRefrescoCuadricula();
 }
 function desactivarTemperaturas(){
@@ -1187,14 +1274,15 @@ document.getElementById('btnTemp').addEventListener('click', () => {
 
 /* ----- Viento: partículas animadas sobre un canvas ----- */
 const VIENTO_PASO = 12;       // px entre puntos del campo de viento en pantalla
-const VIENTO_ESCALA = 0.22;   // px por cuadro por cada m/s (velocidad visual, no física)
-const COLORES_VIENTO = ['#2b6cb0', '#0f9d8a', '#e0a100', '#d63c2f']; // <3, 3-6, 6-10, >10 m/s
+const VIENTO_ESCALA = 0.3;    // px por cuadro por cada m/s (velocidad visual, no física)
+const COLORES_VIENTO = ['#2b6cb0', '#0f9d8a', '#e0a100', '#d63c2f']; // <3, 3-6, 6-10, >10 m/s (mapa claro)
+const COLORES_VIENTO_CLARO = ['#8fd3ff', '#7ef0c9', '#ffe27a', '#ff9d7a']; // sobre satélite / de noche
 let vientoCanvas = null, vientoCtx = null, vientoCampo = null, vientoParticulas = [];
 let vientoRaf = null, vientoPausado = false, vientoMoviendo = false, vientoUltimoTs = 0;
 
 function reiniciarParticula(p, W, H, edadAleatoria){
   p.x = Math.random() * W; p.y = Math.random() * H;
-  p.vida = 50 + Math.random() * 60;
+  p.vida = 60 + Math.random() * 70;
   p.edad = edadAleatoria ? Math.random() * p.vida : 0;
 }
 
@@ -1245,7 +1333,7 @@ function pasoViento(ts){
   const c = vientoCtx;
   // Se desvanece lo dibujado antes: eso deja la "estela" de cada partícula.
   c.globalCompositeOperation = 'destination-out';
-  c.fillStyle = 'rgba(0,0,0,0.14)';
+  c.fillStyle = 'rgba(0,0,0,0.11)';
   c.fillRect(0, 0, W, H);
   c.globalCompositeOperation = 'source-over';
   const trazos = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
@@ -1263,8 +1351,17 @@ function pasoViento(ts){
     trazos[b].moveTo(p.x, p.y); trazos[b].lineTo(nx, ny);
     p.x = nx; p.y = ny;
   }
-  c.lineWidth = 1.6; c.lineCap = 'round';
-  trazos.forEach((t, i) => { c.strokeStyle = COLORES_VIENTO[i]; c.stroke(t); });
+  // Con la capa de nubes (imagen de satélite, oscura de noche) las líneas se dibujan claras y con
+  // un contorno oscuro debajo; en el mapa normal, oscuras con un contorno blanco. Así se leen
+  // igual sobre fondo oscuro, sobre nubes blancas o sobre el radar.
+  const sobreSatelite = nubesVisible;
+  const colores = sobreSatelite ? COLORES_VIENTO_CLARO : COLORES_VIENTO;
+  c.lineCap = 'round';
+  c.lineWidth = 3.6;
+  c.strokeStyle = sobreSatelite ? 'rgba(0,0,0,0.38)' : 'rgba(255,255,255,0.55)';
+  trazos.forEach(t => c.stroke(t));
+  c.lineWidth = 1.8;
+  trazos.forEach((t, i) => { c.strokeStyle = colores[i]; c.stroke(t); });
 }
 
 async function activarViento(){
@@ -1312,7 +1409,7 @@ function alTerminarMovimiento(){
     if(vientoCtx) vientoCtx.clearRect(0, 0, vientoCanvas.width, vientoCanvas.height);
   }
   clearTimeout(temporizadorMovimiento);
-  temporizadorMovimiento = setTimeout(refrescarCapasCuadricula, 300);
+  temporizadorMovimiento = setTimeout(() => { refrescarCapasCuadricula(); refrescarTemperaturas(); }, 300);
 }
 map.on('moveend', alTerminarMovimiento);
 map.on('resize', alTerminarMovimiento);
