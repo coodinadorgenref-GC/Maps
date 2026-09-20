@@ -200,6 +200,7 @@
   .radar-legend.visible{ display:block; }
   @media (pointer: coarse){ .leaflet-control-zoom{ display:none; } }
   @media (pointer: fine){ .radar-legend{ left:60px; } }
+  .leaflet-container.base-gl{ background:transparent; }
   .leaflet-container .capa-suave .leaflet-tile{ image-rendering:auto; }
   .radar-legend .barra.viento{ background: linear-gradient(90deg, #2b6cb0, #0f9d8a, #e0a100, #d63c2f); }
   .radar-legend .mini-btn{
@@ -737,13 +738,174 @@ function rumboMapa(){ return ROTACION ? map.getBearing() : 0; }
 // Diferencia angular más corta a - b, en (-180, 180]
 function difAngulo(a, b){ return ((a - b + 540) % 360) - 180; }
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+const capaBaseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18,
   attribution: '&copy; OpenStreetMap',
   ...ROT_TILE
 }).addTo(map);
 
 L.control.zoom({ position:'bottomleft' }).addTo(map);
+
+/* ---------- Mapa base vectorial (MapLibre GL + OpenFreeMap) ----------
+   Los nombres de calles del mapa clásico vienen dentro de las imágenes, así que al girar el mapa quedan
+   de lado o de cabeza. Con el mapa vectorial el texto se dibuja aparte: sigue la calle y siempre se lee.
+   Cómo funciona: Leaflet sigue manejando todo lo demás (pines, agrupación, rutas, radar, viento,
+   temperaturas, gestos y giro); MapLibre solo dibuja el mapa de fondo, detrás de todo, y se mantiene
+   sincronizado con el centro, el zoom y el giro de Leaflet. Si algo falla (sin WebGL2, sin señal,
+   librería que no carga) se vuelve solo al mapa clásico, que también es el que sirve sin conexión. */
+const BASE_KEY = 'gc_base_mapa_v1';
+const BASES_VECTORIALES = {
+  liberty:  { url: 'https://tiles.openfreemap.org/styles/liberty',  nombre: 'Vectorial' },
+  positron: { url: 'https://tiles.openfreemap.org/styles/positron', nombre: 'Vectorial claro' }
+};
+const MAPLIBRE_JS  = 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js';
+const MAPLIBRE_CSS = 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css';
+const ATRIB_GL = '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © '
+  + '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> · datos de '
+  + '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+
+let basePref = (() => {
+  let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
+  return (v === 'clasico' || v === 'positron') ? v : 'liberty';
+})();
+let glMapa = null, glDiv = null, glActivo = false, glLibPromesa = null;
+let baseToken = 0, avisoBaseMostrado = false;
+const glEstilos = {};
+
+function guardarBasePreferida(v){ try{ localStorage.setItem(BASE_KEY, v); } catch(e){} }
+
+function soportaWebGL2(){
+  try{ return !!document.createElement('canvas').getContext('webgl2'); } catch(e){ return false; }
+}
+
+// La librería se carga solo cuando hace falta (no retrasa el arranque de la app).
+function cargarMapLibre(){
+  if(window.maplibregl) return Promise.resolve();
+  if(glLibPromesa) return glLibPromesa;
+  glLibPromesa = new Promise((ok, mal) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = MAPLIBRE_CSS;
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = MAPLIBRE_JS; js.async = true;
+    js.onload = () => window.maplibregl ? ok() : mal(new Error('maplibre no disponible'));
+    js.onerror = () => mal(new Error('no cargó maplibre'));
+    document.head.appendChild(js);
+  }).catch(err => { glLibPromesa = null; throw err; });
+  return glLibPromesa;
+}
+
+// Baja el estilo y lo ajusta: nombres en español, y sin edificios en 3D (el mapa no se inclina; pesan de más en el celular).
+async function obtenerEstilo(clave){
+  if(!glEstilos[clave]){
+    const resp = await fetch(BASES_VECTORIALES[clave].url);
+    if(!resp.ok) throw new Error('estilo ' + resp.status);
+    const texto = (await resp.text()).split('["get","name_en"]').join('["get","name:es"]');
+    const estilo = JSON.parse(texto);
+    estilo.layers = estilo.layers.filter(l => l.type !== 'fill-extrusion');
+    const edificios = estilo.layers.find(l => l.id === 'building');
+    if(edificios) delete edificios.maxzoom; // ya no hay capa 3D que tome el relevo a zoom 14
+    glEstilos[clave] = estilo;
+  }
+  return JSON.parse(JSON.stringify(glEstilos[clave]));
+}
+
+function rumboGL(){ return (360 - rumboMapa() + 360) % 360; } // el rumbo de MapLibre es la dirección que queda "arriba"
+
+function sincronizarGL(){
+  if(!glMapa || !glActivo) return;
+  const c = map.getCenter();
+  // MapLibre usa mosaicos de 512 px: su zoom es el de Leaflet menos 1.
+  glMapa.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() - 1, bearing: rumboGL() });
+}
+
+map.on('move zoom rotate viewreset', sincronizarGL);
+map.on('resize', () => { if(glMapa && glActivo){ glMapa.resize(); sincronizarGL(); } });
+// Durante la animación de zoom de Leaflet (que solo avisa al terminar) MapLibre anima en paralelo.
+map.on('zoomanim', (e) => {
+  if(!glMapa || !glActivo) return;
+  glMapa.easeTo({ center: [e.center.lng, e.center.lat], zoom: e.zoom - 1, bearing: rumboGL(),
+                  duration: 250, easing: t => 1 - Math.pow(1 - t, 3), essential: true });
+});
+
+function mostrarGL(){
+  if(!glActivo || !glDiv) return;
+  glDiv.style.display = 'block';
+  glDiv.style.opacity = '1';
+  if(map.hasLayer(capaBaseOSM)) map.removeLayer(capaBaseOSM); // se quitan las imágenes solo cuando el fondo vectorial ya está pintado
+  map.setMaxZoom(19);
+  map.getContainer().classList.add('base-gl');
+  map.attributionControl.removeAttribution(ATRIB_GL);
+  map.attributionControl.addAttribution(ATRIB_GL);
+}
+
+function usarBaseClasica(){
+  glActivo = false;
+  if(glDiv){ glDiv.style.opacity = '0'; glDiv.style.display = 'none'; }
+  if(!map.hasLayer(capaBaseOSM)){ capaBaseOSM.setOpacity(1); capaBaseOSM.addTo(map); }
+  map.setMaxZoom(18);
+  map.getContainer().classList.remove('base-gl');
+  map.attributionControl.removeAttribution(ATRIB_GL);
+}
+
+function esperarPintadoGL(cb){
+  let hecho = false;
+  const listo = () => { if(!hecho){ hecho = true; cb(); } };
+  glMapa.once('idle', listo);
+  glMapa.triggerRepaint();
+  setTimeout(() => { if(glMapa && glMapa.loaded()) listo(); }, 2500);
+}
+
+function crearGL(estilo){
+  glDiv = document.createElement('div');
+  glDiv.id = 'glBase';
+  glDiv.style.cssText = 'position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0;';
+  map.getContainer().insertBefore(glDiv, map.getContainer().firstChild);
+  const c = map.getCenter();
+  glMapa = new maplibregl.Map({
+    container: glDiv, style: estilo,
+    center: [c.lng, c.lat], zoom: map.getZoom() - 1, bearing: rumboGL(),
+    minZoom: -2, maxZoom: 22, interactive: false, attributionControl: false,
+    pixelRatio: Math.min(window.devicePixelRatio || 1, 2), fadeDuration: 150
+  });
+  esperarPintadoGL(mostrarGL);
+}
+
+async function activarBaseVectorial(clave){
+  const token = ++baseToken;
+  glActivo = true;
+  try{
+    if(!soportaWebGL2()) throw new Error('sin WebGL2');
+    await cargarMapLibre();
+    const estilo = await obtenerEstilo(clave);
+    if(token !== baseToken || !glActivo) return;
+    if(!glMapa){
+      crearGL(estilo);
+    } else {
+      glDiv.style.display = 'block';
+      glMapa.setStyle(estilo);
+      sincronizarGL();
+      esperarPintadoGL(mostrarGL);
+    }
+  } catch(err){
+    if(token !== baseToken) return;
+    console.warn('Mapa vectorial no disponible:', err && err.message);
+    usarBaseClasica();
+    if(!avisoBaseMostrado){ avisoBaseMostrado = true; mostrarToast('No se pudo cargar el mapa vectorial; se usa el mapa clásico'); }
+  }
+}
+
+function aplicarBaseSegunPreferencia(){
+  if(basePref === 'clasico' || !navigator.onLine){ baseToken++; usarBaseClasica(); return; }
+  activarBaseVectorial(basePref);
+}
+
+window.addEventListener('offline', () => { if(basePref !== 'clasico'){ baseToken++; usarBaseClasica(); } });
+window.addEventListener('online', () => setTimeout(aplicarBaseSegunPreferencia, 1200));
+// Arranca un poco después de que la app ya se vea, para no alargar la carga inicial.
+if(document.readyState === 'complete') setTimeout(aplicarBaseSegunPreferencia, 800);
+else window.addEventListener('load', () => setTimeout(aplicarBaseSegunPreferencia, 800));
+
 
 /* ---------- Suavizado de capas de radar/nubes (sin "píxeles") ----------
    El radar gratuito solo llega a zoom 7: al acercarte, cada píxel de dato
@@ -1028,7 +1190,7 @@ document.getElementById('btnFronteras').addEventListener('click', () => {
 /* ----- Cuadrícula de datos (Open-Meteo) ----- */
 const CUAD_PUNTOS = 36;
 const CUAD_TTL_MS = 30 * 60 * 1000;
-const CUAD_MIN_ENTRE_DESCARGAS_MS = 30 * 1000; // freno si se mueve el mapa sin parar
+const CUAD_MIN_ENTRE_DESCARGAS_MS = 8 * 1000;  // freno si se mueve el mapa sin parar
 const CUAD_MAX_DESCARGAS_DIA = 120;            // ≈4,300 de las 10,000 llamadas gratuitas/día (cada punto cuenta 1)
 const CUAD_USO_KEY = 'gc_cuadricula_uso_v1';
 
@@ -1046,6 +1208,7 @@ function registrarUsoCuadricula(){ return registrarUso(CUAD_USO_KEY, CUAD_MAX_DE
 const ATRIB_OPENMETEO = 'Viento/temperatura: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>';
 let cuadricula = null;          // { ts, n, s, w, e, nx, ny, temp[], u[], v[] }
 let cuadriculaCargando = null;
+let cuadReintentoTimer = null;
 let cuadIntervalId = null;
 let vientoVisible = false;
 let tempVisible = false;
@@ -1053,11 +1216,11 @@ let atribucionPuesta = false;
 const capaTemp = L.layerGroup();
 
 function limitesCuadricula(){
-  // Un poco más grande que la vista (x1.5) y nunca menor a ~1.2°, para no
-  // volver a pedir datos a cada acercamiento o desplazamiento pequeño.
+  // El doble de grande que la vista y nunca menor a ~1.2°, para no volver a
+  // pedir datos a cada acercamiento o desplazamiento pequeño (ni al girar el mapa).
   const b = map.getBounds(), c = b.getCenter();
-  const spanLat = Math.max((b.getNorth() - b.getSouth()) * 1.5, 1.2);
-  const spanLng = Math.max((b.getEast() - b.getWest()) * 1.5, 1.2);
+  const spanLat = Math.max((b.getNorth() - b.getSouth()) * 2, 1.2);
+  const spanLng = Math.max((b.getEast() - b.getWest()) * 2, 1.2);
   return {
     n: Math.min(84, c.lat + spanLat / 2), s: Math.max(-84, c.lat - spanLat / 2),
     w: c.lng - spanLng / 2, e: c.lng + spanLng / 2
@@ -1108,8 +1271,17 @@ function cuadriculaCubreVista(g){
 async function asegurarCuadricula(){
   if(cuadricula){
     const edad = Date.now() - cuadricula.ts;
-    if(edad < CUAD_TTL_MS && cuadriculaCubreVista(cuadricula)) return cuadricula;
-    if(edad < CUAD_MIN_ENTRE_DESCARGAS_MS) return cuadricula;
+    const cubre = cuadriculaCubreVista(cuadricula);
+    if(edad < CUAD_TTL_MS && cubre) return cuadricula;
+    if(edad < CUAD_MIN_ENTRE_DESCARGAS_MS){
+      // Aún no toca pedir datos nuevos. Se reintenta solo cuando se cumpla el plazo, para que el viento
+      // no se quede a medias en una parte del mapa hasta que muevas la pantalla otra vez.
+      if(!cubre){
+        clearTimeout(cuadReintentoTimer);
+        cuadReintentoTimer = setTimeout(() => { if(vientoVisible) refrescarCapasCuadricula(); }, CUAD_MIN_ENTRE_DESCARGAS_MS - edad + 400);
+      }
+      return cuadricula;
+    }
   }
   if(cuadriculaCargando) return cuadriculaCargando;
   cuadriculaCargando = descargarCuadricula()
@@ -1122,6 +1294,14 @@ async function asegurarCuadricula(){
     })
     .finally(() => { cuadriculaCargando = null; });
   return cuadriculaCargando;
+}
+
+// Como muestrearCuadricula, pero hasta un 35% fuera de la cuadrícula repite el valor del borde: así, mientras
+// llegan datos nuevos, el viento no desaparece de golpe al alejar o mover el mapa.
+function muestrearCuadriculaSuave(g, lat, lng){
+  const mLat = 0.35 * (g.n - g.s), mLng = 0.35 * (g.e - g.w);
+  if(lat > g.n + mLat || lat < g.s - mLat || lng < g.w - mLng || lng > g.e + mLng) return null;
+  return muestrearCuadricula(g, Math.min(g.n, Math.max(g.s, lat)), Math.min(g.e, Math.max(g.w, lng)));
 }
 
 // Interpolación bilineal de la cuadrícula en un punto cualquiera.
@@ -1161,10 +1341,12 @@ function actualizarRefrescoCuadricula(){
 
 async function refrescarCapasCuadricula(){
   if(!vientoVisible) return; // la cuadrícula solo alimenta el viento; las temperaturas se piden por localidad
+  if(cuadricula) prepararViento(false); // pinta ya con lo que hay (a lo mucho a medias unos segundos) en vez de esperar la red
   const g = (await asegurarCuadricula()) || cuadricula; // si falla una descarga nueva, se conserva la anterior
-  if(!g) return;
+  if(!g || !vientoVisible) return;
   prepararViento(false);
-  document.getElementById('vientoHora').textContent = horaDatos(g);
+  // Si los datos aún no cubren toda la pantalla, se avisa en la leyenda en vez de dejar el viento "cortado" sin explicación.
+  document.getElementById('vientoHora').textContent = horaDatos(g) + (cuadriculaCubreVista(g) ? '' : ' · actualizando zona…');
 }
 
 /* ----- Temperaturas: etiquetas de color repartidas por la pantalla ----- */
@@ -1388,7 +1570,7 @@ function prepararViento(forzar){
   for(let j = 0; j < filas; j++){
     for(let i = 0; i < cols; i++){
       const ll = map.layerPointToLatLng(L.point(x0 + i * VIENTO_PASO, y0 + j * VIENTO_PASO));
-      const m = muestrearCuadricula(cuadricula, ll.lat, ll.lng);
+      const m = muestrearCuadriculaSuave(cuadricula, ll.lat, ll.lng);
       if(m && m.u != null && m.v != null){ const k = j * cols + i; U[k] = m.u; V[k] = m.v; OK[k] = 1; }
     }
   }
@@ -1490,7 +1672,7 @@ map.on('resize', alTerminarMovimiento);
 // Al girar el mapa: el viento se recalcula solo si el giro ya fue grande (>10°) y las etiquetas
 // de temperatura se reacomodan al terminar de girar.
 map.on('rotate', () => {
-  if(vientoVisible && vientoBase && Math.abs(difAngulo(rumboMapa(), vientoBase.rumbo)) > 10){
+  if(vientoVisible && !vientoMoviendo && vientoBase && Math.abs(difAngulo(rumboMapa(), vientoBase.rumbo)) > 10){
     clearTimeout(vientoRepTimer);
     vientoRepTimer = setTimeout(() => prepararViento(true), 500);
   }
@@ -3074,6 +3256,15 @@ function renderAjustes(){
       "Agrupación" junta los prospectos muy cercanos en una burbuja con número (recomendado, más fluido). "Individual" los muestra todos sueltos, sin agrupar — útil para revisar todo de un vistazo, pero puede sentirse más lento con muchos registros a la vez. "Ocultar" quita todos los pines para ver solo el mapa, el radar y las nubes; es temporal: al volver a abrir la app regresa al modo anterior.
     </div>
 
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Mapa base</div>
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
+      ${[['liberty', '🗺️ Vectorial'], ['positron', '◽ Vectorial claro'], ['clasico', '🖼️ Clásico']]
+        .map(([v, t]) => `<button class="chip ${basePref === v ? 'active' : ''}" data-base-mapa="${v}">${t}</button>`).join('')}
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
+      "Vectorial" dibuja los nombres de calles aparte: al girar el mapa siempre se leen y siguen la calle (necesita internet). "Vectorial claro" es lo mismo con colores más discretos, para que resalten tus pines. "Clásico" usa imágenes del mapa: es el que funciona sin señal en las zonas guardadas, pero al girar el mapa el texto también gira. Sin conexión la app cambia sola al clásico.
+    </div>
+
     <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Importar datos</div>
     <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">
       Agrega otra lista de prospectos desde un archivo CSV o JSON.
@@ -3087,6 +3278,14 @@ function renderAjustes(){
       temaPref = btn.dataset.tema;
       guardarTemaPreferido(temaPref);
       aplicarTema(temaPref);
+      renderAjustes();
+    });
+  });
+  sheetBody.querySelectorAll('[data-base-mapa]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      basePref = btn.dataset.baseMapa;
+      guardarBasePreferida(basePref);
+      aplicarBaseSegunPreferencia();
       renderAjustes();
     });
   });
