@@ -162,6 +162,8 @@
     box-shadow:0 6px 14px rgba(0,0,0,.35);
   }
   .locate-fab.active{ background:var(--teal); color:#0E1518; border-color:var(--teal); }
+  .brujula-fab{ bottom:calc(144px + env(safe-area-inset-bottom)); }
+  .brujula-fab[hidden]{ display:none; }
 
   .ubi-divicon{ position:relative; }
   .ubi-punto{
@@ -510,6 +512,7 @@
 <div id="map"></div>
 
 <button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo" aria-label="Mi ubicación"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg></button>
+<button class="locate-fab brujula-fab" id="btnBrujula" title="Brújula: toca para poner el norte arriba" aria-label="Orientar el mapa al norte" hidden><svg id="brujulaIcono" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 16.2 12H7.8Z" fill="#E5484D"/><path d="M12 21.5 7.8 12h8.4Z" fill="currentColor" opacity=".6"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/></svg></button>
 <div class="radar-legend" id="radarLegend">
   <div class="ahora" id="radarAhora" hidden></div>
   <div id="leyRadar" hidden>
@@ -546,6 +549,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="leaflet-rotate.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 /* ---------- Tema: claro / oscuro / sistema ---------- */
@@ -719,12 +723,24 @@ function estaVencido(p){
 }
 
 /* ---------- Mapa ---------- */
-const map = L.map('map', { zoomControl:false, attributionControl:true })
+// Rotación con dos dedos (leaflet-rotate). Si el archivo leaflet-rotate.js no cargó, estas opciones se
+// ignoran y el mapa funciona igual que antes, siempre con el norte arriba.
+const map = L.map('map', { zoomControl:false, attributionControl:true,
+                           rotate:true, bearing:0, touchRotate:true, shiftKeyRotate:true, rotateControl:false })
   .setView([20.70, -89.10], 9); // centrado aprox. en Yucatán
+
+const ROTACION = typeof map.setBearing === 'function' && !!map.options.rotate;
+// Con el mapa girado hay que cargar mosaicos también mientras gira (no solo al terminar de moverlo).
+const ROT_TILE = ROTACION ? { updateWhenIdle: false } : {};
+let rumboSuave = null; // hacia dónde apunta el teléfono (0-360), ya suavizado
+function rumboMapa(){ return ROTACION ? map.getBearing() : 0; }
+// Diferencia angular más corta a - b, en (-180, 180]
+function difAngulo(a, b){ return ((a - b + 540) % 360) - 180; }
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18,
-  attribution: '&copy; OpenStreetMap'
+  attribution: '&copy; OpenStreetMap',
+  ...ROT_TILE
 }).addTo(map);
 
 L.control.zoom({ position:'bottomleft' }).addTo(map);
@@ -829,7 +845,7 @@ async function activarRadar(){
     // Opacidad a la mitad: se ve bien la lluvia sin volver ilegible el mapa
     // de abajo, y los pines de prospectos siempre quedan encima de todos modos.
     capaRadar = L.tileLayer(urlFrameRadar(info, ultimo), {
-      opacity:0.55, maxZoom:18, maxNativeZoom:7, zIndex:5, className:'capa-suave',
+      opacity:0.55, maxZoom:18, maxNativeZoom:7, zIndex:5, className:'capa-suave', ...ROT_TILE,
       attribution:'Radar: <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>'
     }).addTo(map);
     registrarSuavizado(capaRadar, 7);
@@ -908,7 +924,7 @@ async function buscarImagenNubes(){
 function aplicarCapaNubes(info){
   if(capaNubes){ quitarSuavizado(capaNubes); map.removeLayer(capaNubes); capaNubes = null; }
   capaNubes = L.tileLayer(plantillaNubes(info.cfg, info.tiempo), {
-    opacity:0.6, maxZoom:18, maxNativeZoom:info.cfg.nz, zIndex:4, className:'capa-suave',
+    opacity:0.6, maxZoom:18, maxNativeZoom:info.cfg.nz, zIndex:4, className:'capa-suave', ...ROT_TILE,
     attribution:'Nubes: NASA GIBS · NOAA GOES-East'
   }).addTo(map);
   registrarSuavizado(capaNubes, info.cfg.nz);
@@ -963,8 +979,12 @@ document.getElementById('btnNubes').addEventListener('click', () => {
      Cada punto cuenta como una llamada del límite gratuito (10,000/día), por
      eso los datos se guardan 30 min y solo se piden al encender la capa o al
      mover el mapa fuera de la zona ya cargada. */
-[['fronterasPane', 430], ['vientoPane', 450], ['tempPane', 460]].forEach(([nombre, z]) => {
-  const pane = map.createPane(nombre);
+// Con rotación: fronteras y viento viven en el panel que gira con el mapa; las etiquetas de temperatura
+// en el panel que no gira (así se quedan derechas y legibles). Sin el plugin, todo va al panel normal.
+[['fronterasPane', 430, ROTACION ? map._rotatePane : undefined],
+ ['vientoPane', 450, ROTACION ? map._rotatePane : undefined],
+ ['tempPane', 460, ROTACION ? map._norotatePane : undefined]].forEach(([nombre, z, padre]) => {
+  const pane = map.createPane(nombre, padre);
   pane.style.zIndex = z;
   pane.style.pointerEvents = 'none';
 });
@@ -1143,7 +1163,7 @@ async function refrescarCapasCuadricula(){
   if(!vientoVisible) return; // la cuadrícula solo alimenta el viento; las temperaturas se piden por localidad
   const g = (await asegurarCuadricula()) || cuadricula; // si falla una descarga nueva, se conserva la anterior
   if(!g) return;
-  prepararViento();
+  prepararViento(false);
   document.getElementById('vientoHora').textContent = horaDatos(g);
 }
 
@@ -1306,39 +1326,78 @@ function reiniciarParticula(p, W, H, edadAleatoria){
   p.edad = edadAleatoria ? Math.random() * p.vida : 0;
 }
 
-function prepararViento(){
-  if(!vientoVisible || !cuadricula) return;
+let vientoRect = null;   // zona que cubre el canvas, en coordenadas de capa
+let vientoBase = null;   // con qué vista se calculó (zoom, origen, rumbo, datos)
+let vientoRepTimer = null, tempRotTimer = null;
+
+// Rectángulo (en coordenadas de capa) que contiene la pantalla, aunque el mapa esté girado.
+function rectVistaEnCapa(margen){
   const sz = map.getSize();
-  const dpr = window.devicePixelRatio || 1;
+  const esq = [[0, 0], [sz.x, 0], [sz.x, sz.y], [0, sz.y]].map(p => map.containerPointToLayerPoint(p));
+  const xs = esq.map(p => p.x), ys = esq.map(p => p.y);
+  return { x0: Math.min(...xs) - margen, y0: Math.min(...ys) - margen, x1: Math.max(...xs) + margen, y1: Math.max(...ys) + margen };
+}
+
+// ¿Sigue sirviendo el campo de viento ya calculado? (mismo zoom, mismos datos, poco giro y la
+// pantalla aún cae dentro del canvas). Así el viento no parpadea cada vez que el GPS mueve el mapa.
+function vientoVigente(){
+  if(!vientoRect || !vientoBase || !vientoCanvas || !vientoCampo) return false;
+  const o = map.getPixelOrigin();
+  if(vientoBase.zoom !== map.getZoom() || vientoBase.ox !== o.x || vientoBase.oy !== o.y) return false;
+  if(vientoBase.cuadricula !== cuadricula) return false;
+  if(Math.abs(difAngulo(rumboMapa(), vientoBase.rumbo)) > 10) return false;
+  const v = rectVistaEnCapa(0);
+  return v.x0 >= vientoRect.x0 && v.y0 >= vientoRect.y0 && v.x1 <= vientoRect.x1 && v.y1 <= vientoRect.y1;
+}
+
+function prepararViento(forzar){
+  if(!vientoVisible || !cuadricula) return;
+  if(!forzar && vientoVigente()){
+    vientoMoviendo = false;
+    if(vientoCanvas) vientoCanvas.style.display = 'block';
+    return;
+  }
+  const sz = map.getSize();
+  const girado = Math.abs(difAngulo(rumboMapa(), 0)) > 0.5;
+  // Girado: el canvas se hace un poco más grande para seguir cubriendo la pantalla si el rumbo cambia hasta ~10°.
+  const margen = girado ? Math.round(0.09 * Math.hypot(sz.x, sz.y)) : 0;
+  const r = rectVistaEnCapa(margen);
+  const x0 = Math.floor(r.x0), y0 = Math.floor(r.y0);
+  const W = Math.ceil(r.x1) - x0, H = Math.ceil(r.y1) - y0;
+  const dpr = Math.min(window.devicePixelRatio || 1, girado ? 1.5 : 2); // girado el canvas es más grande: menos resolución para cuidar batería
   if(!vientoCanvas){
     vientoCanvas = document.createElement('canvas');
     vientoCanvas.style.position = 'absolute';
     vientoCanvas.style.pointerEvents = 'none';
     map.getPane('vientoPane').appendChild(vientoCanvas);
   }
-  vientoCanvas.width = Math.round(sz.x * dpr);
-  vientoCanvas.height = Math.round(sz.y * dpr);
-  vientoCanvas.style.width = sz.x + 'px';
-  vientoCanvas.style.height = sz.y + 'px';
+  vientoCanvas.width = Math.round(W * dpr);
+  vientoCanvas.height = Math.round(H * dpr);
+  vientoCanvas.style.width = W + 'px';
+  vientoCanvas.style.height = H + 'px';
   vientoCanvas.style.display = 'block';
-  L.DomUtil.setPosition(vientoCanvas, map.containerPointToLayerPoint([0, 0]));
+  L.DomUtil.setPosition(vientoCanvas, L.point(x0, y0));
   vientoCtx = vientoCanvas.getContext('2d');
   vientoCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Campo de viento en una retícula de pantalla: se interpola una sola vez aquí
-  // y luego cada partícula solo consulta la celda en la que está.
-  const cols = Math.ceil(sz.x / VIENTO_PASO) + 1, filas = Math.ceil(sz.y / VIENTO_PASO) + 1;
+  // Campo de viento en una retícula del canvas: se interpola una sola vez aquí
+  // y luego cada partícula solo consulta la celda en la que está. El canvas vive en las
+  // coordenadas del mapa (norte arriba), así que u/v se usan tal cual aunque el mapa esté girado.
+  const cols = Math.ceil(W / VIENTO_PASO) + 1, filas = Math.ceil(H / VIENTO_PASO) + 1;
   const U = new Float32Array(cols * filas), V = new Float32Array(cols * filas), OK = new Uint8Array(cols * filas);
   for(let j = 0; j < filas; j++){
     for(let i = 0; i < cols; i++){
-      const ll = map.containerPointToLatLng([i * VIENTO_PASO, j * VIENTO_PASO]);
+      const ll = map.layerPointToLatLng(L.point(x0 + i * VIENTO_PASO, y0 + j * VIENTO_PASO));
       const m = muestrearCuadricula(cuadricula, ll.lat, ll.lng);
       if(m && m.u != null && m.v != null){ const k = j * cols + i; U[k] = m.u; V[k] = m.v; OK[k] = 1; }
     }
   }
-  vientoCampo = { cols, filas, U, V, OK, W: sz.x, H: sz.y };
-  const n = Math.max(600, Math.min(2200, Math.round(sz.x * sz.y / 260)));
-  vientoParticulas = Array.from({ length: n }, () => { const p = {}; reiniciarParticula(p, sz.x, sz.y, true); return p; });
+  vientoCampo = { cols, filas, U, V, OK, W, H };
+  const n = Math.max(600, Math.min(2600, Math.round(W * H / 260)));
+  vientoParticulas = Array.from({ length: n }, () => { const p = {}; reiniciarParticula(p, W, H, true); return p; });
+  vientoRect = { x0, y0, x1: x0 + W, y1: y0 + H };
+  const o = map.getPixelOrigin();
+  vientoBase = { zoom: map.getZoom(), ox: o.x, oy: o.y, rumbo: rumboMapa(), cuadricula };
   vientoMoviendo = false;
   if(!vientoRaf) vientoRaf = requestAnimationFrame(pasoViento);
 }
@@ -1400,7 +1459,7 @@ function desactivarViento(){
   vientoVisible = false;
   if(vientoRaf){ cancelAnimationFrame(vientoRaf); vientoRaf = null; }
   if(vientoCanvas) vientoCanvas.style.display = 'none';
-  vientoCampo = null; vientoParticulas = [];
+  vientoCampo = null; vientoParticulas = []; vientoRect = null; vientoBase = null;
   document.getElementById('btnViento').classList.remove('active');
   actualizarLeyenda();
   actualizarAtribucionOpenMeteo();
@@ -1422,17 +1481,21 @@ map.on('zoomstart', () => { if(vientoVisible && vientoCanvas) vientoCanvas.style
 map.on('movestart', () => { if(vientoVisible) vientoMoviendo = true; });
 function alTerminarMovimiento(){
   if(!vientoVisible && !tempVisible) return;
-  if(vientoVisible && vientoCanvas){
-    // El canvas viaja con el mapa mientras lo arrastras; al terminar se
-    // realinea con la pantalla y se recalcula el campo de viento.
-    L.DomUtil.setPosition(vientoCanvas, map.containerPointToLayerPoint([0, 0]));
-    if(vientoCtx) vientoCtx.clearRect(0, 0, vientoCanvas.width, vientoCanvas.height);
-  }
+  // El canvas viaja con el mapa; solo se recalcula si ya no cubre la pantalla (ver vientoVigente).
   clearTimeout(temporizadorMovimiento);
   temporizadorMovimiento = setTimeout(() => { refrescarCapasCuadricula(); refrescarTemperaturas(); }, 300);
 }
 map.on('moveend', alTerminarMovimiento);
 map.on('resize', alTerminarMovimiento);
+// Al girar el mapa: el viento se recalcula solo si el giro ya fue grande (>10°) y las etiquetas
+// de temperatura se reacomodan al terminar de girar.
+map.on('rotate', () => {
+  if(vientoVisible && vientoBase && Math.abs(difAngulo(rumboMapa(), vientoBase.rumbo)) > 10){
+    clearTimeout(vientoRepTimer);
+    vientoRepTimer = setTimeout(() => prepararViento(true), 500);
+  }
+  if(tempVisible){ clearTimeout(tempRotTimer); tempRotTimer = setTimeout(refrescarTemperaturas, 700); }
+});
 
 /* ---------- "Lluvia ahora" en mi ubicación (Open-Meteo) ----------
    Respaldo del radar: el radar gratuito es de baja resolución y puede no
@@ -1756,7 +1819,7 @@ let listenerRumbo = null;
 let ultimoRumbo = 0;
 
 function iconoUbicacion(conRumbo){
-  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${ultimoRumbo}deg)"></div>` : '';
+  const cono = conRumbo ? `<div class="ubi-cono" style="transform:rotate(${(rumboSuave !== null ? rumboSuave : ultimoRumbo) + rumboMapa()}deg)"></div>` : '';
   return L.divIcon({
     className: 'ubi-divicon',
     html: `${cono}<div class="ubi-punto"></div>`,
@@ -1798,10 +1861,16 @@ function liberarWakeLock(){
   if(wakeLock){ wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 
-function salirModoUbicacion(){
+// Con "resetNorte" (tercer toque al botón) el mapa regresa con el norte arriba; si se sale por arrastrar
+// el mapa, se queda como esté (igual que Google Maps) y la brújula sigue disponible para enderezarlo.
+function salirModoUbicacion(resetNorte){
+  const eraAuto = rumboAuto;
+  rumboAuto = false; rumboSuave = null;
   detenerSeguimientoUbicacion();
   liberarWakeLock();
   modoUbicacion = 'apagado';
+  if(eraAuto && resetNorte === true) animarRumbo(0, 350);
+  actualizarBrujula();
   document.getElementById('btnLocate').classList.remove('active');
   if(userMarker) userMarker.setIcon(iconoUbicacion(false));
 }
@@ -1827,13 +1896,19 @@ function puntoDesplazadoPorRumbo(lat, lng, rumboDeg, distanciaMetros){
 function activarSeguimientoConRumbo(){
   modoUbicacion = 'siguiendo';
   document.getElementById('btnLocate').classList.add('active');
-  mostrarToast('Siguiendo tu ubicación y hacia dónde apunta el teléfono');
+  mostrarToast(ROTACION ? 'Siguiendo tu ubicación: el mapa gira hacia donde apuntas' : 'Siguiendo tu ubicación y hacia dónde apunta el teléfono');
   solicitarWakeLock();
+  rumboAuto = ROTACION;       // el mapa gira solo con el teléfono (se apaga si lo giras con los dedos)
+  rumboSuave = null;
+  ultimoAplicado = rumboMapa();
+  actualizarBrujula();
 
   watchIdUbicacion = navigator.geolocation.watchPosition(pos => {
     const { latitude, longitude } = pos.coords;
     ultimaUbicacionConocida = { lat: latitude, lng: longitude, ts: Date.now() };
-    const centro = puntoDesplazadoPorRumbo(latitude, longitude, ultimoRumbo, 120);
+    // Con el mapa girando contigo, tú quedas en el centro (el mapa gira alrededor de ti); sin giro, el
+    // centro se adelanta 120 m hacia donde apuntas para ver más camino por delante.
+    const centro = rumboAuto ? { lat: latitude, lng: longitude } : puntoDesplazadoPorRumbo(latitude, longitude, ultimoRumbo, 120);
     map.panTo([centro.lat, centro.lng], { animate: true });
     colocarMarcadorUbicacion(latitude, longitude, true);
   }, () => {}, { enableHighAccuracy: true });
@@ -1844,15 +1919,18 @@ function activarSeguimientoConRumbo(){
     else if(e.alpha != null) rumbo = 360 - e.alpha;
     if(rumbo == null) return;
     ultimoRumbo = rumbo;
-    if(userMarker) userMarker.setIcon(iconoUbicacion(true));
+    actualizarRumboMapa(rumbo);
   };
 
   // iOS exige pedir permiso explícito para el sensor de orientación,
   // y solo lo concede si se pide justo dentro de un toque del usuario.
   if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
     DeviceOrientationEvent.requestPermission()
-      .then(resp => { if(resp === 'granted') window.addEventListener('deviceorientation', listenerRumbo); })
-      .catch(() => {});
+      .then(resp => {
+        if(resp === 'granted') window.addEventListener('deviceorientation', listenerRumbo);
+        else { rumboAuto = false; actualizarBrujula(); mostrarToast('Sin permiso de brújula: el mapa no puede girar solo'); }
+      })
+      .catch(() => { rumboAuto = false; actualizarBrujula(); });
   } else {
     window.addEventListener('deviceorientationabsolute', listenerRumbo);
     window.addEventListener('deviceorientation', listenerRumbo);
@@ -1873,9 +1951,89 @@ document.getElementById('btnLocate').addEventListener('click', () => {
   } else if(modoUbicacion === 'centrado'){
     activarSeguimientoConRumbo();
   } else {
-    salirModoUbicacion();
+    salirModoUbicacion(true);
   }
 });
+
+/* ---------- Rotación del mapa: brújula, giro con el teléfono y giro con los dedos ----------
+   - Dos dedos: giras y haces zoom a la vez (plugin leaflet-rotate).
+   - Botón brújula: aparece cuando el mapa no está con el norte arriba; un toque lo endereza.
+   - Al "seguir" tu ubicación (segundo toque al botón de ubicación) el mapa gira según hacia
+     dónde apunta el teléfono, con suavizado y una zona muerta para que no tiemble.
+   Ojo: los nombres de calles vienen dibujados en las imágenes del mapa, así que giran con él. */
+const brujulaBtn = document.getElementById('btnBrujula');
+let rumboAuto = false;        // el mapa gira solo con el teléfono
+let aplicandoRumbo = false;   // para distinguir un giro propio de un giro con los dedos
+let ultimoAplicado = 0, ultimoAplicadoTs = 0;
+let animRumboId = null;
+
+function actualizarBrujula(){
+  if(!ROTACION){ brujulaBtn.hidden = true; return; }
+  const b = map.getBearing();
+  const inclinado = Math.abs(difAngulo(b, 0)) > 1.5;
+  brujulaBtn.hidden = !(inclinado || rumboAuto);
+  brujulaBtn.classList.toggle('active', rumboAuto);
+  document.getElementById('brujulaIcono').style.transform = `rotate(${b}deg)`;
+}
+
+function fijarRumbo(b){
+  aplicandoRumbo = true;
+  try{ map.setBearing(b); } finally { aplicandoRumbo = false; }
+}
+
+function animarRumbo(destino, ms){
+  if(!ROTACION) return;
+  if(animRumboId) cancelAnimationFrame(animRumboId);
+  const ini = map.getBearing(), delta = difAngulo(destino, ini), t0 = performance.now();
+  const paso = (t) => {
+    const k = Math.min(1, (t - t0) / ms), suave = 1 - Math.pow(1 - k, 3);
+    fijarRumbo(ini + delta * suave);
+    if(k < 1) animRumboId = requestAnimationFrame(paso); else { fijarRumbo(destino); animRumboId = null; }
+  };
+  animRumboId = requestAnimationFrame(paso);
+}
+
+function actualizarConoUbicacion(){
+  if(!userMarker) return;
+  const el = userMarker.getElement && userMarker.getElement();
+  const cono = el && el.querySelector('.ubi-cono');
+  if(cono) cono.style.transform = `rotate(${(rumboSuave !== null ? rumboSuave : ultimoRumbo) + rumboMapa()}deg)`;
+}
+
+// Llega cada vez que el sensor da un rumbo nuevo (grados desde el norte, en el sentido del reloj).
+function actualizarRumboMapa(rumbo){
+  rumboSuave = rumboSuave === null ? rumbo : (rumboSuave + 0.22 * difAngulo(rumbo, rumboSuave) + 360) % 360;
+  actualizarConoUbicacion();
+  if(!ROTACION || !rumboAuto) return;
+  const ahora = performance.now();
+  if(ahora - ultimoAplicadoTs < 80) return;                       // máximo ~12 giros por segundo
+  const objetivo = (360 - rumboSuave) % 360;                       // el rumbo del teléfono queda "arriba"
+  if(Math.abs(difAngulo(objetivo, ultimoAplicado)) < 1.5) return; // zona muerta: ignora temblores pequeños
+  ultimoAplicadoTs = ahora;
+  ultimoAplicado = objetivo;
+  fijarRumbo(objetivo);
+}
+
+if(ROTACION){
+  map.on('rotate', () => {
+    actualizarBrujula();
+    actualizarConoUbicacion();
+    // Si giras el mapa con los dedos mientras sigue al teléfono, el control pasa a ti.
+    if(!aplicandoRumbo && rumboAuto){
+      rumboAuto = false;
+      mostrarToast('Giro manual: el mapa ya no sigue al teléfono');
+      actualizarBrujula();
+    }
+  });
+  brujulaBtn.addEventListener('click', () => {
+    rumboAuto = false;
+    animarRumbo(0, 350);
+    actualizarBrujula();
+  });
+  actualizarBrujula();
+} else {
+  brujulaBtn.hidden = true;
+}
 
 // Manipular el mapa con el dedo (arrastrarlo) es la señal natural de que ya
 // no se quiere seguir centrado automáticamente en la ubicación.
