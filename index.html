@@ -139,6 +139,13 @@
   .drawer-item.active svg{ color:var(--teal); }
   .drawer-item.active .estado{ color:var(--teal); font-weight:700; }
   .drawer-item.active .estado::after{ content:'Activo'; }
+  .drawer-item .chev{ color:var(--text-dim); font-size:20px; line-height:1; transition:transform .2s; }
+  .drawer-item.abierto .chev{ transform:rotate(90deg); }
+  .drawer-submenu{ padding:0 0 6px; }
+  .drawer-submenu[hidden]{ display:none; }
+  .drawer-subitem{ padding:10px 18px 10px 54px; font-size:14px; }
+  .drawer-subitem .marca{ width:20px; text-align:right; color:var(--teal); font-weight:700; }
+  .drawer-subitem.sel .marca::after{ content:'✓'; }
   .drawer-sep{ height:1px; background:var(--line); margin:8px 0; }
 
   #map{ position:absolute; inset:0; }
@@ -502,7 +509,14 @@
   <div class="drawer-section">Clima</div>
   <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
-  <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Nubes (satélite)</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnNubes" data-mantener="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Satélite</span><span class="estado"></span><span class="chev">›</span></button>
+  <div class="drawer-submenu" id="satMenu" hidden>
+    <button class="drawer-item drawer-subitem" data-sat="rapida"><span class="txt">⚡ Rápida</span><span class="marca"></span></button>
+    <button class="drawer-item drawer-subitem" data-sat="visible"><span class="txt">🔍 Alta resolución (de día)</span><span class="marca"></span></button>
+    <button class="drawer-item drawer-subitem" data-sat="tormentas"><span class="txt">⛈️ Cimas de tormenta</span><span class="marca"></span></button>
+    <button class="drawer-item drawer-subitem" data-sat="nasa"><span class="txt">🛰️ NASA</span><span class="marca"></span></button>
+    <button class="drawer-item drawer-subitem" id="satApagar" hidden><span class="txt">✕ Ocultar satélite</span></button>
+  </div>
   <button class="drawer-item" id="btnRayos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg><span class="txt">Rayos y tormentas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
@@ -536,7 +550,7 @@
     <div class="nota">Por localidad · estimación de modelo (Open-Meteo), no de estación.</div>
   </div>
   <div id="leyNubes" hidden>
-    <div class="titulo">Nubes · satélite GOES-East</div>
+    <div class="titulo">Satélite · GOES-East</div>
     <div class="nota" id="nubesHora">Buscando imagen…</div>
   </div>
   <div id="leyRayos" hidden>
@@ -775,7 +789,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '21-sep · satélite rápido + rayos 3';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '21-sep · satélite 4';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -1022,6 +1036,7 @@ function actualizarLeyenda(){
   document.getElementById('leyViento').hidden = !vientoVisible;
   document.getElementById('leyTemp').hidden = !tempVisible;
   document.getElementById('leyRayos').hidden = !rayosVisible;
+  if(typeof pintarSatMenu === 'function') pintarSatMenu();
   // Sobre el satélite (oscuro de noche) el viento usa una paleta clara; la barra de la leyenda la sigue.
   document.querySelector('#leyViento .barra').classList.toggle('claro', nubesVisible);
   document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible || rayosVisible);
@@ -1162,12 +1177,39 @@ const FUENTES_NUBES = {
   ir:        { rt: 'G19-ABI-FD-BAND13-GRAD',   nombre: 'Infrarrojo mejorado',          op: 0.7 },
   nasa:      { nombre: 'NASA GIBS',                                                     op: 0.6 }
 };
-const NUBES_FUENTE_KEY = 'gc_nubes_fuente_v1';
+// v2: al reestrenar el menú, la fuente predeterminada pasó a NASA (siempre disponible); "Rápida" (RealEarth)
+// tiene un límite gratuito diario y puede mostrar una marca de agua si se agota.
+const NUBES_FUENTE_KEY = 'gc_nubes_fuente_v2';
 let nubesFuentePref = (() => {
   let v = null; try{ v = localStorage.getItem(NUBES_FUENTE_KEY); } catch(e){}
-  return FUENTES_NUBES[v] ? v : 'rapida';
+  return FUENTES_NUBES[v] ? v : 'nasa';
 })();
 const dormir = ms => new Promise(r => setTimeout(r, ms));
+
+/* Presupuesto de RealEarth. Su plan gratuito permite ~500 megapíxeles por cada 24 h (por conexión); al pasarse,
+   TODAS las teselas salen con la marca "Size limit exceeded". Se lleva la cuenta de lo que pide la app (cada
+   tesela de 256×256 = 0.066 MP) y, al llegar a ~60% del límite, el satélite pasa solo a NASA y los rayos se apagan. */
+const RT_USO_KEY = 'gc_rt_uso_v1';
+const RT_MP_TESELA = 256 * 256 / 1e6;
+const RT_MP_TOPE = 300;
+let rtPendiente = 0, rtFlushTimer = null;
+function rtUsoLeer(){ try{ return JSON.parse(localStorage.getItem(RT_USO_KEY) || '{}') || {}; } catch(e){ return {}; } }
+function rtUsoVaciar(){
+  rtFlushTimer = null;
+  if(!rtPendiente) return;
+  const u = rtUsoLeer(), h = Math.floor(Date.now() / 3600000);
+  u[h] = (u[h] || 0) + rtPendiente * RT_MP_TESELA;
+  rtPendiente = 0;
+  Object.keys(u).forEach(k => { if(Number(k) <= h - 24) delete u[k]; });
+  try{ localStorage.setItem(RT_USO_KEY, JSON.stringify(u)); } catch(e){}
+}
+function rtUsoSumar(n){ rtPendiente += n; if(!rtFlushTimer) rtFlushTimer = setTimeout(rtUsoVaciar, 4000); }
+function rtUsoMP(){
+  const h = Math.floor(Date.now() / 3600000);
+  return Object.entries(rtUsoLeer()).filter(([k]) => Number(k) > h - 24).reduce((t, [, v]) => t + v, 0) + rtPendiente * RT_MP_TESELA;
+}
+function rtPresupuestoAgotado(){ return rtUsoMP() >= RT_MP_TOPE; }
+function contarTeselasRT(capa){ capa.on('tileload', () => rtUsoSumar(1)); }
 const estadoSat = { nubes: 'sin usar todavía', rayos: 'sin usar todavía' };
 function textoEstadoSat(){ return `Nubes: ${escapeHtml(estadoSat.nubes)}<br>Rayos: ${escapeHtml(estadoSat.rayos)}`; }
 function setEstadoSat(clave, txt){
@@ -1183,11 +1225,20 @@ function parseHoraRT(texto){
   return { fecha: m[1] + m[2] + m[3], hora: m[4] + m[5] + m[6], ms: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) };
 }
 async function rtUltimaHora(id){
-  try{
-    const r = await fetch(`${RT}/api/latest?products=${encodeURIComponent(id)}`, { cache: 'no-store' });
-    if(!r.ok) return null;
-    return parseHoraRT(await r.text());
-  } catch(e){ return null; } // si el navegador no deja leer la respuesta, se usa "lo más reciente" sin hora exacta
+  // Se intenta con "latest" y, si no da una hora legible, con el catálogo (que trae solo el último paso de tiempo).
+  const urls = [`${RT}/api/latest?products=${encodeURIComponent(id)}`,
+                `${RT}/api/products?products=${encodeURIComponent(id)}&timespan=-1t`];
+  for(const u of urls){
+    try{
+      const r = await fetch(u, { cache: 'no-store' });
+      if(!r.ok) continue;
+      const texto = await r.text();
+      // Se toma la hora más reciente que aparezca en la respuesta.
+      const todas = (texto.match(/\d{4}-?\d{2}-?\d{2}[ T_+]?\d{2}:?\d{2}:?\d{2}/g) || []).map(parseHoraRT).filter(Boolean);
+      if(todas.length) return todas.sort((a, b) => b.ms - a.ms)[0];
+    } catch(e){ /* sin permiso para leer la respuesta: se usa "lo más reciente" sin hora exacta */ }
+  }
+  return null;
 }
 function rtPlantilla(id, h, conSello){
   if(h) return `${RT}/tiles/${id}/${h.fecha}/${h.hora}/{z}/{x}/{y}.png`;
@@ -1213,11 +1264,16 @@ function urlTesela(plantilla, z, lat, lng){
   return plantilla.replace('{z}', z).replace('{x}', t.x).replace('{y}', t.y);
 }
 // Zoom más alto en el que RealEarth tiene teselas (arriba de eso Leaflet solo agranda la imagen).
-async function rtZoomNativo(plantilla){
-  const zs = [9, 8, 7, 6, 5, 4];
+async function rtZoomNativo(plantilla, id){
+  const KEY = 'gc_rt_nz_v1', hoy = new Date().toLocaleDateString('en-CA');
+  let guardado = {}; try{ guardado = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch(e){}
+  if(id && guardado[id] && guardado[id].dia === hoy) return guardado[id].nz;
+  const zs = [8, 7, 6, 5];
   const ok = await Promise.all(zs.map(z => probarImagen(urlTesela(plantilla, z, 20.69, -88.2), 6000)));
   const i = ok.findIndex(Boolean);
-  return i >= 0 ? zs[i] : 5;
+  const nz = i >= 0 ? zs[i] : 5;
+  if(id){ guardado[id] = { dia: hoy, nz }; try{ localStorage.setItem(KEY, JSON.stringify(guardado)); } catch(e){} }
+  return nz;
 }
 // ¿El sol está al menos 8° sobre el horizonte? (aprox.; la banda visible sale negra de noche)
 function esDeDia(lat, lng, fecha){
@@ -1236,6 +1292,7 @@ function plantillaNubes(cfg, msEpoch){
 }
 
 function probarImagen(url, ms){
+  if(/realearth\.ssec\.wisc\.edu/.test(url)) rtUsoSumar(1);
   return new Promise(resolve => {
     const img = new Image();
     const t = setTimeout(() => { img.onload = img.onerror = null; resolve(false); }, ms || 7000);
@@ -1255,7 +1312,7 @@ async function buscarNubesRT(clave){
   const h = await rtUltimaHora(id);
   const plantilla = await rtPlantillaQueResponde(id, h, 4);
   if(!plantilla){ ultimoMotivoRT = `sin imágenes de ${id}` + (h ? '' : ' (y no se pudo leer la hora)'); return null; }
-  const nz = await rtZoomNativo(plantilla);
+  const nz = await rtZoomNativo(plantilla, id);
   return { url: plantilla, nz, tiempo: h ? h.ms : null, fuente: etiqueta, op: FUENTES_NUBES[clave].op,
            atrib: 'Nubes: NOAA GOES-19 · <a href="https://realearth.ssec.wisc.edu" target="_blank" rel="noopener">SSEC RealEarth</a>' };
 }
@@ -1278,7 +1335,9 @@ async function buscarNubesGIBS(){
 async function buscarImagenNubes(){
   if(nubesInfo && nubesInfo.pref === nubesFuentePref && (Date.now() - nubesInfo.ts) < 5 * 60 * 1000) return nubesInfo;
   let info = null, motivo = '';
-  if(nubesFuentePref !== 'nasa'){
+  if(nubesFuentePref !== 'nasa' && rtPresupuestoAgotado()){
+    motivo = 'se alcanzó el límite diario gratuito de RealEarth';
+  } else if(nubesFuentePref !== 'nasa'){
     info = await buscarNubesRT(nubesFuentePref);
     if(!info) motivo = ultimoMotivoRT;
     // De noche la banda visible no sirve: se pasa a la versión "Rápida" antes de recurrir a NASA.
@@ -1286,7 +1345,7 @@ async function buscarImagenNubes(){
   }
   if(!info){
     info = await buscarNubesGIBS();
-    if(info && nubesFuentePref !== 'nasa') info.fuente = 'NASA GIBS (respaldo)';
+    if(info && nubesFuentePref !== 'nasa') info.fuente = 'NASA (respaldo)';
   }
   if(!info){ setEstadoSat('nubes', 'ninguna fuente respondió' + (motivo ? ' · ' + motivo : '')); return null; }
   nubesInfo = { ...info, ts: Date.now(), pref: nubesFuentePref };
@@ -1301,8 +1360,10 @@ function aplicarCapaNubes(info){
   if(capaNubes){ quitarSuavizado(capaNubes); map.removeLayer(capaNubes); capaNubes = null; }
   capaNubes = L.tileLayer(info.url, {
     opacity:info.op || 0.6, maxZoom:18, maxNativeZoom:info.nz, zIndex:4, className:'capa-suave', ...ROT_TILE,
+    ...(/SSEC/.test(info.fuente) ? { updateWhenIdle: true, keepBuffer: 1 } : {}),
     attribution: info.atrib
   }).addTo(map);
+  if(/SSEC/.test(info.fuente)) contarTeselasRT(capaNubes);
   registrarSuavizado(capaNubes, info.nz);
   let txt = 'Imagen más reciente disponible';
   if(info.tiempo){ const { hora, min } = textoEdad(info.tiempo); txt = `Imagen de las ${hora} · hace ${min} min`; }
@@ -1322,13 +1383,13 @@ async function activarNubes(){
   mostrarToast('Buscando imagen de satélite…');
   try{
     const info = await buscarImagenNubes();
-    if(!info){ mostrarToast('No hay imagen de nubes disponible ahora'); return; }
+    if(!info){ mostrarToast('No hay imagen de satélite disponible ahora'); return; }
     aplicarCapaNubes(info);
     nubesVisible = true;
     document.getElementById('btnNubes').classList.add('active');
     actualizarLeyenda();
     if(nubesIntervalId) clearInterval(nubesIntervalId);
-    nubesIntervalId = setInterval(refrescarNubes, /SSEC/.test(info.fuente) ? 5 * 60 * 1000 : NUBES_REFRESCO_MS);
+    nubesIntervalId = setInterval(() => { if(!document.hidden) refrescarNubes(); }, /SSEC/.test(info.fuente) ? 10 * 60 * 1000 : NUBES_REFRESCO_MS);
   } finally {
     nubesBuscando = false;
   }
@@ -1342,29 +1403,41 @@ function desactivarNubes(){
   actualizarLeyenda();
 }
 
+/* Menú "Satélite": al tocarlo se despliegan las fuentes; elegir una enciende la capa (o cambia de fuente). */
+function pintarSatMenu(){
+  document.querySelectorAll('#satMenu [data-sat]').forEach(b => b.classList.toggle('sel', nubesVisible && b.dataset.sat === nubesFuentePref));
+  const off = document.getElementById('satApagar'); if(off) off.hidden = !nubesVisible;
+}
 document.getElementById('btnNubes').addEventListener('click', () => {
-  if(!navigator.onLine){ mostrarToast('Sin señal: las nubes necesitan conexión a internet'); return; }
-  if(nubesVisible) desactivarNubes(); else activarNubes();
+  const menu = document.getElementById('satMenu');
+  menu.hidden = !menu.hidden;
+  document.getElementById('btnNubes').classList.toggle('abierto', !menu.hidden);
+  pintarSatMenu();
 });
+document.querySelectorAll('#satMenu [data-sat]').forEach(b => {
+  b.addEventListener('click', () => {
+    if(!navigator.onLine){ mostrarToast('Sin señal: el satélite necesita conexión a internet'); return; }
+    const v = b.dataset.sat;
+    if(nubesVisible && v === nubesFuentePref) return; // ya está esa fuente: solo se cierra el menú
+    nubesFuentePref = v;
+    try{ localStorage.setItem(NUBES_FUENTE_KEY, v); } catch(e){}
+    nubesInfo = null;
+    if(nubesVisible) refrescarNubes(); else activarNubes();
+    pintarSatMenu();
+  });
+});
+document.getElementById('satApagar').addEventListener('click', () => { desactivarNubes(); pintarSatMenu(); });
 
 /* ---------- Rayos y tormentas: destellos de GOES (GLM) vía SSEC RealEarth ----------
    El sensor GLM del satélite detecta rayos (nube-nube y nube-tierra) y RealEarth los publica cada
    pocos minutos. Es una capa visual: no se pueden leer sus valores para decir "un rayo a X km de ti".
    Como el nombre exacto del producto puede cambiar, primero se busca en el catálogo de RealEarth y,
    si el navegador no deja leerlo, se prueban nombres conocidos. */
-const RAYOS_REFRESCO_MS = 2 * 60 * 1000;
-const RAYOS_ID_KEY = 'gc_rayos_id_v1';
-function rayosIdManual(){ try{ return (localStorage.getItem(RAYOS_ID_KEY) || '').trim(); } catch(e){ return ''; } }
-const RAYOS_ADIVINANZAS = ['G19-GLM-FED', 'G19-GLM-FED-5min', 'G19-GLM-FD-FED', 'G19-GLM-FED-1min', 'G19-GLM-FD', 'G19-GLM'];
+const RAYOS_REFRESCO_MS = 5 * 60 * 1000;
+const RAYOS_ADIVINANZAS = ['GOESEastGLMFEDRadF', 'G19-GLM-FED', 'G19-GLM-FED-5min', 'G19-GLM-FD-FED', 'G19-GLM-FED-1min'];
 let capaRayos = null, rayosVisible = false, rayosBuscando = false, rayosInfo = null, rayosTimer = null;
 
 async function rtBuscarGLM(){
-  const manual = rayosIdManual();
-  if(manual){
-    if(await rtPlantillaQueResponde(manual, null, 3)) return manual;
-    setEstadoSat('rayos', `el ID guardado "${manual}" no devolvió imágenes`);
-    return null;
-  }
   const candidatos = [];
   try{
     const r = await fetch(`${RT}/api/products?search=GLM&exclude=times`, { cache: 'no-store' });
@@ -1373,18 +1446,23 @@ async function rtBuscarGLM(){
       const pares = [];
       if(Array.isArray(j)) j.forEach(it => pares.push([it && (it.id || it.product || it.name), it]));
       else Object.entries(j).forEach(([k, v]) => pares.push([(v && v.id) || k, v]));
+      // Debe ser de GOES-East, en vivo (no archivo) y de disco completo: los productos "CONUS" o de mesoescala
+      // solo cubren EE. UU. o zonas móviles y no sirven para México.
       const puntos = ([id, it]) => {
         const t = (id + ' ' + JSON.stringify(it || '')).toLowerCase();
+        if(/archive|archivo/.test(t)) return -99;
+        if(/goes.?west|g18|g17/.test(t)) return -99;
         let p = 0;
-        if(/g19|goes-?19|goes.?east/.test(t)) p += 4;
+        if(/g19|goes.?19|goes.?east/.test(t)) p += 3;
         if(/flash extent|fed/.test(t)) p += 3;
+        if(/radf|full.?disk|fulldisk|\bfd\b/.test(t)) p += 5;
+        if(/radc|conus|radm|meso/.test(t)) p -= 8;
+        if(/group|energy|area|point|probab|lightningcast/.test(t)) p -= 3;
         if(/5.?min/.test(t)) p += 1;
-        if(/group|energy|area|point/.test(t)) p -= 2;
-        if(/goes.?west|g18/.test(t)) p -= 6;
         return p;
       };
       pares.filter(([id]) => typeof id === 'string')
-           .map(par => [par[0], puntos(par)]).filter(([, p]) => p > 0)
+           .map(par => [par[0], puntos(par)]).filter(([, p]) => p >= 5)
            .sort((a, b) => b[1] - a[1]).slice(0, 3).forEach(([id]) => candidatos.push(id));
     }
   } catch(e){ /* sin acceso al catálogo: se usan los nombres conocidos */ }
@@ -1392,7 +1470,7 @@ async function rtBuscarGLM(){
   for(const id of candidatos){
     if(await rtPlantillaQueResponde(id, null, 3)) return id;
   }
-  setEstadoSat('rayos', 'no se encontró un producto de rayos (probé: ' + candidatos.slice(0, 4).join(', ') + '…)');
+  setEstadoSat('rayos', 'no hay un producto de rayos en vivo que cubra México (probé: ' + candidatos.slice(0, 4).join(', ') + ')');
   return null;
 }
 
@@ -1402,9 +1480,10 @@ async function aplicarRayos(){
   const url = rtPlantilla(rayosInfo.id, h, true);
   if(!capaRayos){
     capaRayos = L.tileLayer(url, {
-      opacity:0.95, maxZoom:18, maxNativeZoom:7, zIndex:6, className:'capa-suave', ...ROT_TILE,
+      opacity:0.95, maxZoom:18, maxNativeZoom:7, zIndex:6, className:'capa-suave', ...ROT_TILE, updateWhenIdle: true, keepBuffer: 1,
       attribution:'Rayos: NOAA GOES GLM · <a href="https://realearth.ssec.wisc.edu" target="_blank" rel="noopener">SSEC RealEarth</a>'
     }).addTo(map);
+    contarTeselasRT(capaRayos);
   } else if(capaRayos._url !== url){
     capaRayos.setUrl(url);
   }
@@ -1419,15 +1498,20 @@ async function activarRayos(){
   rayosBuscando = true;
   mostrarToast('Buscando datos de rayos…');
   try{
+    if(rtPresupuestoAgotado()){ mostrarToast('Rayos no disponible por ahora: se alcanzó el límite diario gratuito de RealEarth'); return; }
     const id = await rtBuscarGLM();
-    if(!id){ mostrarToast('No se encontró la capa de rayos de RealEarth por ahora (mira Configuración › Nubes)'); return; }
+    if(!id){ mostrarToast('Los rayos en vivo para tu zona no están disponibles por ahora'); return; }
     rayosInfo = { id };
     rayosVisible = true;
     document.getElementById('btnRayos').classList.add('active');
     actualizarLeyenda();
     await aplicarRayos();
     if(rayosTimer) clearInterval(rayosTimer);
-    rayosTimer = setInterval(() => { if(rayosVisible) aplicarRayos(); }, RAYOS_REFRESCO_MS);
+    rayosTimer = setInterval(() => {
+      if(!rayosVisible || document.hidden) return;
+      if(rtPresupuestoAgotado()){ desactivarRayos(); mostrarToast('Rayos apagado: se alcanzó el límite diario gratuito de RealEarth'); return; }
+      aplicarRayos();
+    }, RAYOS_REFRESCO_MS);
   } finally {
     rayosBuscando = false;
   }
@@ -3630,59 +3714,29 @@ function renderAjustes(){
   ];
   sheetBody.innerHTML = `
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Aspecto</div>
-    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:22px;">
       ${opciones.map(o => `<button class="chip ${temaPref === o.valor ? 'active' : ''}" data-tema="${o.valor}">${o.label}</button>`).join('')}
-    </div>
-    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
-      El mapa de calles siempre se ve claro (es del proveedor de mapas); esto solo cambia el color de los menús y botones de la app.
     </div>
 
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Modo de mapa</div>
-    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:22px;">
       ${opcionesMapa.map(o => `<button class="chip ${modoMapa === o.valor ? 'active' : ''}" data-modo-mapa="${o.valor}">${o.label}</button>`).join('')}
-    </div>
-    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
-      "Agrupación" junta los prospectos muy cercanos en una burbuja con número (recomendado, más fluido). "Individual" los muestra todos sueltos, sin agrupar — útil para revisar todo de un vistazo, pero puede sentirse más lento con muchos registros a la vez. "Ocultar" quita todos los pines para ver solo el mapa, el radar y las nubes; es temporal: al volver a abrir la app regresa al modo anterior.
     </div>
 
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Mapa base</div>
-    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:${estadoBase.fase === 'fallo' ? '8px' : '22px'};">
       ${[['liberty', '🗺️ Vectorial'], ['positron', '◽ Vectorial claro'], ['clasico', '🖼️ Clásico']]
         .map(([v, t]) => `<button class="chip ${basePref === v ? 'active' : ''}" data-base-mapa="${v}">${t}</button>`).join('')}
     </div>
-    <div style="font-size:12px; margin-bottom:4px;" id="estadoBaseMapa">${textoEstadoBase()}</div>
-    <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">Versión de la app: ${APP_BUILD}</div>
-    <div class="chip-row" style="margin-bottom:10px;"><button class="chip" data-base-reintentar="1">↻ Reintentar mapa vectorial</button></div>
-    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
-      "Vectorial" dibuja los nombres de calles aparte: al girar el mapa siempre se leen y siguen la calle (necesita internet). "Vectorial claro" es lo mismo con colores más discretos, para que resalten tus pines. "Clásico" usa imágenes del mapa: es el que funciona sin señal en las zonas guardadas, pero al girar el mapa el texto también gira. Sin conexión la app cambia sola al clásico.
-    </div>
+    ${estadoBase.fase === 'fallo' ? `
+      <div style="font-size:12.5px; margin-bottom:8px;">⚠️ No se pudo cargar el mapa vectorial; se usa el clásico.</div>
+      <div class="chip-row" style="margin-bottom:22px;"><button class="chip" data-base-reintentar="1">↻ Reintentar</button></div>` : ''}
 
-    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Nubes (satélite)</div>
-    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
-      ${[['rapida', '⚡ Rápida'], ['visible', '🔍 Alta resolución (día)'], ['tormentas', '⛈️ Cimas de tormenta'], ['nasa', '🛰️ NASA']]
-        .map(([v, t]) => `<button class="chip ${nubesFuentePref === v ? 'active' : ''}" data-nubes-fuente="${v}">${t}</button>`).join('')}
-    </div>
-    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
-      <span id="estadoSat">${textoEstadoSat()}</span>
-      <div class="chip-row" style="margin:8px 0;"><button class="chip" data-sat-reintentar="1">↻ Reintentar satélite y rayos</button></div>
-      "Rápida" (SSEC/Universidad de Wisconsin) llega con pocos minutos de retraso. "Alta resolución" usa la banda visible de 0.5 km: se ve más nítida pero solo de día (de noche cambia sola a Rápida). "Cimas de tormenta" resalta con colores las nubes muy frías, típicas de tormentas fuertes (de noche usa infrarrojo). "NASA" tarda cerca de 40 minutos. Si la fuente elegida falla, la app usa NASA como respaldo.
-      <div style="margin-top:12px; font-weight:600; color:var(--text);">Capa de rayos: ID del producto (opcional)</div>
-      <input id="rayosIdInput" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Automático" value="${escapeHtml(rayosIdManual())}"
-             style="width:100%; box-sizing:border-box; margin:6px 0; padding:9px 11px; font-size:14px; border-radius:10px; border:1px solid rgba(128,128,128,.4); background:transparent; color:inherit;">
-      <div class="chip-row" style="margin-bottom:6px;">
-        <button class="chip" data-rayos-id-guardar="1">Guardar ID</button>
-        <button class="chip" data-rayos-id-auto="1">Automático</button>
-      </div>
-      Si la capa "Rayos" no encuentra el producto sola, abre realearth.ssec.wisc.edu, busca "GLM", toca ⓘ en el producto de Flash Extent Density de GOES-East y copia su ID aquí.
-    </div>
-
-    <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Importar datos</div>
-    <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">
-      Agrega otra lista de prospectos desde un archivo CSV o JSON.
-    </div>
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Importar datos</div>
     <div class="save-row">
       <button class="btn primary" id="btnImportarAjustes" style="flex:1">⭳ Importar CSV / JSON</button>
     </div>
+    <div style="font-size:11px; color:var(--text-dim); margin-top:22px; text-align:center;">Versión ${APP_BUILD}</div>
   `;
   sheetBody.querySelectorAll('[data-tema]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -3690,42 +3744,6 @@ function renderAjustes(){
       guardarTemaPreferido(temaPref);
       aplicarTema(temaPref);
       renderAjustes();
-    });
-  });
-  sheetBody.querySelectorAll('[data-nubes-fuente]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      nubesFuentePref = btn.dataset.nubesFuente;
-      try{ localStorage.setItem(NUBES_FUENTE_KEY, nubesFuentePref); } catch(e){}
-      nubesInfo = null;
-      if(nubesVisible) refrescarNubes();
-      renderAjustes();
-    });
-  });
-  sheetBody.querySelectorAll('[data-rayos-id-guardar]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const v = (document.getElementById('rayosIdInput').value || '').trim();
-      try{ if(v) localStorage.setItem(RAYOS_ID_KEY, v); else localStorage.removeItem(RAYOS_ID_KEY); } catch(e){}
-      rayosInfo = null;
-      setEstadoSat('rayos', v ? `ID guardado: ${v}` : 'automático');
-      if(rayosVisible){ desactivarRayos(); activarRayos(); }
-      mostrarToast(v ? 'ID de rayos guardado' : 'Rayos en modo automático');
-    });
-  });
-  sheetBody.querySelectorAll('[data-rayos-id-auto]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      try{ localStorage.removeItem(RAYOS_ID_KEY); } catch(e){}
-      rayosInfo = null;
-      setEstadoSat('rayos', 'automático');
-      if(rayosVisible){ desactivarRayos(); activarRayos(); }
-      renderAjustes();
-    });
-  });
-  sheetBody.querySelectorAll('[data-sat-reintentar]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      nubesInfo = null; rayosInfo = null;
-      setEstadoSat('nubes', 'reintentando…'); setEstadoSat('rayos', 'reintentando…');
-      if(nubesVisible) refrescarNubes(); else setEstadoSat('nubes', 'sin usar todavía');
-      if(rayosVisible){ desactivarRayos(); activarRayos(); } else setEstadoSat('rayos', 'sin usar todavía');
     });
   });
   sheetBody.querySelectorAll('[data-base-reintentar]').forEach(btn => {
@@ -5130,6 +5148,8 @@ function abrirDrawer(){
   drawerEl.setAttribute('aria-hidden', 'false');
 }
 function cerrarDrawer(){
+  const sm = document.getElementById('satMenu');
+  if(sm){ sm.hidden = true; document.getElementById('btnNubes').classList.remove('abierto'); }
   drawerScrim.classList.remove('open');
   drawerEl.classList.remove('open');
   drawerEl.setAttribute('aria-hidden', 'true');
@@ -5138,7 +5158,7 @@ document.getElementById('btnMenu').addEventListener('click', abrirDrawer);
 drawerScrim.addEventListener('click', cerrarDrawer);
 // Cada opción hace lo suyo (su propio handler) y luego el menú se esconde solo.
 drawerEl.addEventListener('click', (e) => {
-  if(e.target.closest('.drawer-item')) cerrarDrawer();
+  if(e.target.closest('.drawer-item') && !e.target.closest('[data-mantener]')) cerrarDrawer();
 });
 document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape') cerrarDrawer();
