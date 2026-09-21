@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v10';
+const CACHE_SHELL = 'rutas-gc-shell-v11';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -73,7 +73,7 @@ self.addEventListener('fetch', (event) => {
   // Mapa vectorial (mosaicos, estilos, tipografías) y su librería: directo a la red y a la caché HTTP del
   // navegador. Si pasaran por aquí se guardarían en el shell sin límite y con `cache:'reload'` irían más lentas.
   // Sin señal la app usa el mapa clásico, que sí trae sus mosaicos guardados.
-  if (/tiles\.openfreemap\.org|unpkg\.com\/maplibre-gl/.test(url)) return;
+  if (/tiles\.openfreemap\.org|unpkg\.com\/maplibre-gl|realearth\.ssec\.wisc\.edu/.test(url)) return; // RealEarth (satélite y rayos): siempre datos frescos de la red
 
   if (isTileRequest(url)) {
     // Tiles: cache-first, y se van guardando conforme el usuario navega el mapa
