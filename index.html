@@ -503,6 +503,7 @@
   <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Nubes (satélite)</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnRayos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg><span class="txt">Rayos y tormentas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnFronteras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V5l5-2 6 3 5-2v15l-5 2-6-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2"/></svg><span class="txt">Fronteras y estados</span><span class="estado"></span></button>
@@ -522,7 +523,7 @@
     <div class="titulo">Radar de lluvia · <span id="radarHora">…</span></div>
     <div class="barra"></div>
     <div class="rotulos"><span>Ligera</span><span>Moderada</span><span>Intensa</span></div>
-    <div class="nota">Resolución limitada por el proveedor gratuito; se ve más nítido alejado.</div>
+    <div class="nota">Resolución limitada por el proveedor gratuito; se ve más nítido alejado. <button type="button" class="mini-btn" id="btnRadarPlay">▶ Últimas 2 h</button></div>
   </div>
   <div id="leyViento" hidden>
     <div class="titulo">Viento · <span id="vientoHora">…</span></div>
@@ -537,6 +538,10 @@
   <div id="leyNubes" hidden>
     <div class="titulo">Nubes · satélite GOES-East</div>
     <div class="nota" id="nubesHora">Buscando imagen…</div>
+  </div>
+  <div id="leyRayos" hidden>
+    <div class="titulo">⚡ Rayos · satélite GOES</div>
+    <div class="nota" id="rayosNota">Buscando datos…</div>
   </div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
@@ -770,7 +775,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '20-sep · mapa vectorial 1';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '21-sep · satélite rápido + rayos 3';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -1016,9 +1021,10 @@ function actualizarLeyenda(){
   document.getElementById('leyNubes').hidden = !nubesVisible;
   document.getElementById('leyViento').hidden = !vientoVisible;
   document.getElementById('leyTemp').hidden = !tempVisible;
+  document.getElementById('leyRayos').hidden = !rayosVisible;
   // Sobre el satélite (oscuro de noche) el viento usa una paleta clara; la barra de la leyenda la sigue.
   document.querySelector('#leyViento .barra').classList.toggle('claro', nubesVisible);
-  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible);
+  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible || rayosVisible);
 }
 
 async function actualizarFrameRadar(){
@@ -1059,7 +1065,60 @@ async function activarRadar(){
   }
 }
 
+/* Animación de las últimas ~2 h del radar (cuadros de 10 min) para ver hacia dónde se mueven las celdas.
+   Se precargan todos los cuadros como capas invisibles y se van mostrando uno a uno; al terminar
+   (o al tocar "Detener") se regresa al cuadro más reciente. */
+let radarAnimando = false, radarAnimTimer = null, radarAnimCapas = [];
+function detenerRadarAnim(){
+  radarAnimando = false;
+  clearInterval(radarAnimTimer); radarAnimTimer = null;
+  radarAnimCapas.forEach(c => { quitarSuavizado(c); map.removeLayer(c); });
+  radarAnimCapas = [];
+  if(capaRadar) capaRadar.setOpacity(0.55);
+  const b = document.getElementById('btnRadarPlay'); if(b) b.textContent = '▶ Últimas 2 h';
+  if(radarInfoCache){
+    const frames = radarInfoCache.datos.radar && radarInfoCache.datos.radar.past;
+    if(frames && frames.length && radarVisible) mostrarHoraRadar(frames[frames.length - 1]);
+  }
+}
+async function reproducirRadar(){
+  if(radarAnimando){ detenerRadarAnim(); return; }
+  if(!radarVisible || !capaRadar) return;
+  let info;
+  try{ info = await obtenerInfoRadar(); } catch(e){ mostrarToast('No se pudo cargar el historial del radar'); return; }
+  const frames = info.radar && info.radar.past ? info.radar.past : [];
+  if(frames.length < 2){ mostrarToast('El radar no tiene historial disponible ahora'); return; }
+  radarAnimando = true;
+  document.getElementById('btnRadarPlay').textContent = '⏹ Detener';
+  capaRadar.setOpacity(0);
+  radarAnimCapas = frames.map(f => {
+    const c = L.tileLayer(urlFrameRadar(info, f), { opacity:0, maxZoom:18, maxNativeZoom:7, zIndex:5, className:'capa-suave', ...ROT_TILE }).addTo(map);
+    registrarSuavizado(c, 7);
+    return c;
+  });
+  await dormir(1800); // tiempo para que carguen los mosaicos de todos los cuadros
+  if(!radarAnimando) return;
+  let i = 0, vueltas = 0;
+  const mostrar = (k) => {
+    radarAnimCapas.forEach((c, n) => c.setOpacity(n === k ? 0.55 : 0));
+    mostrarHoraRadar(frames[k]);
+  };
+  mostrar(0);
+  radarAnimTimer = setInterval(() => {
+    i++;
+    if(i >= frames.length){
+      // pausa en el cuadro más reciente antes de repetir; tras 3 vueltas se detiene solo (cuida la batería)
+      vueltas++;
+      if(vueltas >= 3){ detenerRadarAnim(); return; }
+      i = 0;
+    }
+    mostrar(i);
+  }, 650);
+}
+document.getElementById('btnRadarPlay').addEventListener('click', reproducirRadar);
+
 function desactivarRadar(){
+  detenerRadarAnim();
   if(capaRadar){ quitarSuavizado(capaRadar); map.removeLayer(capaRadar); capaRadar = null; }
   radarVisible = false;
   document.getElementById('btnRadar').classList.remove('active');
@@ -1086,7 +1145,89 @@ let capaNubes = null;
 let nubesVisible = false;
 let nubesBuscando = false;
 let nubesIntervalId = null;
-let nubesInfo = null; // { ts, cfg, tiempo }
+let nubesInfo = null; // { ts, pref, url, nz, tiempo, fuente, atrib }
+
+/* ---------- SSEC RealEarth (Universidad de Wisconsin): satélite rápido y rayos ----------
+   GOES-19 (el satélite "East") en mosaicos gratuitos y sin llave, con un retraso de pocos minutos
+   (NASA GIBS tarda ~40). El servicio avisa que no garantiza disponibilidad, así que las nubes
+   caen solas a NASA GIBS si RealEarth no responde. Todas las consultas de imagen se hacen como
+   imágenes normales (no necesitan permisos especiales del navegador). */
+const RT = 'https://realearth.ssec.wisc.edu';
+const FUENTES_NUBES = {
+  rapida:    { rt: 'G19-ABI-FD-geo-color',     nombre: 'Rápida',                       op: 0.6 },
+  visible:   { rt: 'G19-ABI-FD-BAND02',        nombre: 'Alta resolución (solo de día)', op: 0.7 },
+  // IR Sandwich = visible + infrarrojo a color: resalta las cimas frías de las tormentas fuertes. De noche el
+  // visible sale negro, así que ahí se usa el infrarrojo mejorado (IR).
+  tormentas: { rt: 'G19-ABI-FD-ir-sandwich',   nombre: 'Cimas de tormenta',            op: 0.75 },
+  ir:        { rt: 'G19-ABI-FD-BAND13-GRAD',   nombre: 'Infrarrojo mejorado',          op: 0.7 },
+  nasa:      { nombre: 'NASA GIBS',                                                     op: 0.6 }
+};
+const NUBES_FUENTE_KEY = 'gc_nubes_fuente_v1';
+let nubesFuentePref = (() => {
+  let v = null; try{ v = localStorage.getItem(NUBES_FUENTE_KEY); } catch(e){}
+  return FUENTES_NUBES[v] ? v : 'rapida';
+})();
+const dormir = ms => new Promise(r => setTimeout(r, ms));
+const estadoSat = { nubes: 'sin usar todavía', rayos: 'sin usar todavía' };
+function textoEstadoSat(){ return `Nubes: ${escapeHtml(estadoSat.nubes)}<br>Rayos: ${escapeHtml(estadoSat.rayos)}`; }
+function setEstadoSat(clave, txt){
+  estadoSat[clave] = txt;
+  const el = document.getElementById('estadoSat');
+  if(el) el.innerHTML = textoEstadoSat();
+}
+
+// "20260920_215000", "2026-09-20 21:50:00", etc. → { fecha:'20260920', hora:'215000', ms }
+function parseHoraRT(texto){
+  const m = String(texto).match(/(\d{4})-?(\d{2})-?(\d{2})[ T_+]?(\d{2}):?(\d{2}):?(\d{2})/);
+  if(!m) return null;
+  return { fecha: m[1] + m[2] + m[3], hora: m[4] + m[5] + m[6], ms: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) };
+}
+async function rtUltimaHora(id){
+  try{
+    const r = await fetch(`${RT}/api/latest?products=${encodeURIComponent(id)}`, { cache: 'no-store' });
+    if(!r.ok) return null;
+    return parseHoraRT(await r.text());
+  } catch(e){ return null; } // si el navegador no deja leer la respuesta, se usa "lo más reciente" sin hora exacta
+}
+function rtPlantilla(id, h, conSello){
+  if(h) return `${RT}/tiles/${id}/${h.fecha}/${h.hora}/{z}/{x}/{y}.png`;
+  // Sin hora exacta se pide "lo más reciente". Con "sello" se añade un número que cambia cada 5 min para que el
+  // navegador no reutilice una copia vieja; se usa solo si el servidor lo acepta (se comprueba antes).
+  return conSello ? `${RT}/tiles/${id}/{z}/{x}/{y}.png?_=${Math.floor(Date.now() / 300000)}` : `${RT}/tiles/${id}/{z}/{x}/{y}.png`;
+}
+// Devuelve la primera plantilla que responde (con hora exacta, o con sello, o simple).
+async function rtPlantillaQueResponde(id, h, z){
+  // Si la hora exacta aún no tiene mosaicos listos, se prueba también con "lo más reciente".
+  const opciones = (h ? [rtPlantilla(id, h)] : []).concat([rtPlantilla(id, null, true), rtPlantilla(id, null, false)]);
+  for(const pl of opciones){
+    if(await probarImagen(urlTesela(pl, z, 20.69, -88.2), 7000)) return pl;
+  }
+  return null;
+}
+function tileXY(lat, lng, z){
+  const n = Math.pow(2, z), r = lat * Math.PI / 180;
+  return { x: Math.floor((lng + 180) / 360 * n), y: Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n) };
+}
+function urlTesela(plantilla, z, lat, lng){
+  const t = tileXY(lat, lng, z);
+  return plantilla.replace('{z}', z).replace('{x}', t.x).replace('{y}', t.y);
+}
+// Zoom más alto en el que RealEarth tiene teselas (arriba de eso Leaflet solo agranda la imagen).
+async function rtZoomNativo(plantilla){
+  const zs = [9, 8, 7, 6, 5, 4];
+  const ok = await Promise.all(zs.map(z => probarImagen(urlTesela(plantilla, z, 20.69, -88.2), 6000)));
+  const i = ok.findIndex(Boolean);
+  return i >= 0 ? zs[i] : 5;
+}
+// ¿El sol está al menos 8° sobre el horizonte? (aprox.; la banda visible sale negra de noche)
+function esDeDia(lat, lng, fecha){
+  const d = fecha || new Date(), rad = Math.PI / 180;
+  const dia = Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 0)) / 86400000);
+  const decl = -23.44 * Math.cos(rad * 360 / 365 * (dia + 10));
+  const angHor = ((d.getUTCHours() + d.getUTCMinutes() / 60) - 12) * 15 + lng;
+  const sinAlt = Math.sin(lat * rad) * Math.sin(decl * rad) + Math.cos(lat * rad) * Math.cos(decl * rad) * Math.cos(angHor * rad);
+  return Math.asin(sinAlt) / rad > 8;
+}
 
 function isoGibs(msEpoch){ return new Date(msEpoch).toISOString().slice(0, 19) + 'Z'; }
 
@@ -1104,8 +1245,22 @@ function probarImagen(url, ms){
   });
 }
 
-async function buscarImagenNubes(){
-  if(nubesInfo && (Date.now() - nubesInfo.ts) < 5 * 60 * 1000) return nubesInfo;
+let ultimoMotivoRT = '';
+async function buscarNubesRT(clave){
+  const c = map.getCenter();
+  let etiqueta = 'SSEC · GOES-19';
+  if(clave === 'visible' && !esDeDia(c.lat, c.lng)){ ultimoMotivoRT = 'la banda visible no sirve de noche'; return null; }
+  if(clave === 'tormentas' && !esDeDia(c.lat, c.lng)){ clave = 'ir'; etiqueta = 'SSEC · GOES-19 (infrarrojo, de noche)'; }
+  const id = FUENTES_NUBES[clave].rt;
+  const h = await rtUltimaHora(id);
+  const plantilla = await rtPlantillaQueResponde(id, h, 4);
+  if(!plantilla){ ultimoMotivoRT = `sin imágenes de ${id}` + (h ? '' : ' (y no se pudo leer la hora)'); return null; }
+  const nz = await rtZoomNativo(plantilla);
+  return { url: plantilla, nz, tiempo: h ? h.ms : null, fuente: etiqueta, op: FUENTES_NUBES[clave].op,
+           atrib: 'Nubes: NOAA GOES-19 · <a href="https://realearth.ssec.wisc.edu" target="_blank" rel="noopener">SSEC RealEarth</a>' };
+}
+
+async function buscarNubesGIBS(){
   // Se empieza 20 min atrás y se retrocede de 10 en 10 hasta ~100 min.
   const base = Math.floor((Date.now() - 20 * 60 * 1000) / NUBES_PASO_MS) * NUBES_PASO_MS;
   const tiempos = Array.from({ length: 9 }, (_, i) => base - i * NUBES_PASO_MS);
@@ -1114,20 +1269,44 @@ async function buscarImagenNubes(){
     const ok = await Promise.all(tiempos.map(t =>
       probarImagen(plantillaNubes(cfg, t).replace('{z}','3').replace('{y}','3').replace('{x}','2'))));
     const idx = ok.findIndex(Boolean);
-    if(idx >= 0){ nubesInfo = { ts: Date.now(), cfg, tiempo: tiempos[idx] }; return nubesInfo; }
+    if(idx >= 0) return { url: plantillaNubes(cfg, tiempos[idx]), nz: cfg.nz, tiempo: tiempos[idx], fuente: 'NASA GIBS', op: 0.6,
+                          atrib: 'Nubes: NASA GIBS · NOAA GOES-East' };
   }
   return null;
 }
 
+async function buscarImagenNubes(){
+  if(nubesInfo && nubesInfo.pref === nubesFuentePref && (Date.now() - nubesInfo.ts) < 5 * 60 * 1000) return nubesInfo;
+  let info = null, motivo = '';
+  if(nubesFuentePref !== 'nasa'){
+    info = await buscarNubesRT(nubesFuentePref);
+    if(!info) motivo = ultimoMotivoRT;
+    // De noche la banda visible no sirve: se pasa a la versión "Rápida" antes de recurrir a NASA.
+    if(!info && nubesFuentePref === 'visible'){ info = await buscarNubesRT('rapida'); if(info) info.fuente = 'SSEC · GOES-19 (color)'; }
+  }
+  if(!info){
+    info = await buscarNubesGIBS();
+    if(info && nubesFuentePref !== 'nasa') info.fuente = 'NASA GIBS (respaldo)';
+  }
+  if(!info){ setEstadoSat('nubes', 'ninguna fuente respondió' + (motivo ? ' · ' + motivo : '')); return null; }
+  nubesInfo = { ...info, ts: Date.now(), pref: nubesFuentePref };
+  let est = info.fuente;
+  if(info.tiempo){ const { hora, min } = textoEdad(info.tiempo); est += ` · imagen de las ${hora} (hace ${min} min)`; }
+  if(/respaldo/.test(info.fuente) && motivo) est += ` · RealEarth: ${motivo}`;
+  setEstadoSat('nubes', est);
+  return nubesInfo;
+}
+
 function aplicarCapaNubes(info){
   if(capaNubes){ quitarSuavizado(capaNubes); map.removeLayer(capaNubes); capaNubes = null; }
-  capaNubes = L.tileLayer(plantillaNubes(info.cfg, info.tiempo), {
-    opacity:0.6, maxZoom:18, maxNativeZoom:info.cfg.nz, zIndex:4, className:'capa-suave', ...ROT_TILE,
-    attribution:'Nubes: NASA GIBS · NOAA GOES-East'
+  capaNubes = L.tileLayer(info.url, {
+    opacity:info.op || 0.6, maxZoom:18, maxNativeZoom:info.nz, zIndex:4, className:'capa-suave', ...ROT_TILE,
+    attribution: info.atrib
   }).addTo(map);
-  registrarSuavizado(capaNubes, info.cfg.nz);
-  const { hora, min } = textoEdad(info.tiempo);
-  document.getElementById('nubesHora').textContent = `Imagen de las ${hora} · hace ${min} min`;
+  registrarSuavizado(capaNubes, info.nz);
+  let txt = 'Imagen más reciente disponible';
+  if(info.tiempo){ const { hora, min } = textoEdad(info.tiempo); txt = `Imagen de las ${hora} · hace ${min} min`; }
+  document.getElementById('nubesHora').textContent = `${txt} · ${info.fuente}`;
 }
 
 async function refrescarNubes(){
@@ -1149,7 +1328,7 @@ async function activarNubes(){
     document.getElementById('btnNubes').classList.add('active');
     actualizarLeyenda();
     if(nubesIntervalId) clearInterval(nubesIntervalId);
-    nubesIntervalId = setInterval(refrescarNubes, NUBES_REFRESCO_MS);
+    nubesIntervalId = setInterval(refrescarNubes, /SSEC/.test(info.fuente) ? 5 * 60 * 1000 : NUBES_REFRESCO_MS);
   } finally {
     nubesBuscando = false;
   }
@@ -1166,6 +1345,105 @@ function desactivarNubes(){
 document.getElementById('btnNubes').addEventListener('click', () => {
   if(!navigator.onLine){ mostrarToast('Sin señal: las nubes necesitan conexión a internet'); return; }
   if(nubesVisible) desactivarNubes(); else activarNubes();
+});
+
+/* ---------- Rayos y tormentas: destellos de GOES (GLM) vía SSEC RealEarth ----------
+   El sensor GLM del satélite detecta rayos (nube-nube y nube-tierra) y RealEarth los publica cada
+   pocos minutos. Es una capa visual: no se pueden leer sus valores para decir "un rayo a X km de ti".
+   Como el nombre exacto del producto puede cambiar, primero se busca en el catálogo de RealEarth y,
+   si el navegador no deja leerlo, se prueban nombres conocidos. */
+const RAYOS_REFRESCO_MS = 2 * 60 * 1000;
+const RAYOS_ID_KEY = 'gc_rayos_id_v1';
+function rayosIdManual(){ try{ return (localStorage.getItem(RAYOS_ID_KEY) || '').trim(); } catch(e){ return ''; } }
+const RAYOS_ADIVINANZAS = ['G19-GLM-FED', 'G19-GLM-FED-5min', 'G19-GLM-FD-FED', 'G19-GLM-FED-1min', 'G19-GLM-FD', 'G19-GLM'];
+let capaRayos = null, rayosVisible = false, rayosBuscando = false, rayosInfo = null, rayosTimer = null;
+
+async function rtBuscarGLM(){
+  const manual = rayosIdManual();
+  if(manual){
+    if(await rtPlantillaQueResponde(manual, null, 3)) return manual;
+    setEstadoSat('rayos', `el ID guardado "${manual}" no devolvió imágenes`);
+    return null;
+  }
+  const candidatos = [];
+  try{
+    const r = await fetch(`${RT}/api/products?search=GLM&exclude=times`, { cache: 'no-store' });
+    if(r.ok){
+      const j = await r.json();
+      const pares = [];
+      if(Array.isArray(j)) j.forEach(it => pares.push([it && (it.id || it.product || it.name), it]));
+      else Object.entries(j).forEach(([k, v]) => pares.push([(v && v.id) || k, v]));
+      const puntos = ([id, it]) => {
+        const t = (id + ' ' + JSON.stringify(it || '')).toLowerCase();
+        let p = 0;
+        if(/g19|goes-?19|goes.?east/.test(t)) p += 4;
+        if(/flash extent|fed/.test(t)) p += 3;
+        if(/5.?min/.test(t)) p += 1;
+        if(/group|energy|area|point/.test(t)) p -= 2;
+        if(/goes.?west|g18/.test(t)) p -= 6;
+        return p;
+      };
+      pares.filter(([id]) => typeof id === 'string')
+           .map(par => [par[0], puntos(par)]).filter(([, p]) => p > 0)
+           .sort((a, b) => b[1] - a[1]).slice(0, 3).forEach(([id]) => candidatos.push(id));
+    }
+  } catch(e){ /* sin acceso al catálogo: se usan los nombres conocidos */ }
+  RAYOS_ADIVINANZAS.forEach(id => { if(!candidatos.includes(id)) candidatos.push(id); });
+  for(const id of candidatos){
+    if(await rtPlantillaQueResponde(id, null, 3)) return id;
+  }
+  setEstadoSat('rayos', 'no se encontró un producto de rayos (probé: ' + candidatos.slice(0, 4).join(', ') + '…)');
+  return null;
+}
+
+async function aplicarRayos(){
+  if(!rayosInfo) return;
+  const h = await rtUltimaHora(rayosInfo.id);
+  const url = rtPlantilla(rayosInfo.id, h, true);
+  if(!capaRayos){
+    capaRayos = L.tileLayer(url, {
+      opacity:0.95, maxZoom:18, maxNativeZoom:7, zIndex:6, className:'capa-suave', ...ROT_TILE,
+      attribution:'Rayos: NOAA GOES GLM · <a href="https://realearth.ssec.wisc.edu" target="_blank" rel="noopener">SSEC RealEarth</a>'
+    }).addTo(map);
+  } else if(capaRayos._url !== url){
+    capaRayos.setUrl(url);
+  }
+  let txt = 'Datos más recientes disponibles';
+  if(h){ const { hora, min } = textoEdad(h.ms); txt = `Datos de las ${hora} · hace ${min} min`; }
+  document.getElementById('rayosNota').textContent = `${txt}. Las zonas de color son rayos detectados por satélite en los últimos minutos.`;
+  setEstadoSat('rayos', `${rayosInfo.id}` + (h ? ` · datos de las ${textoEdad(h.ms).hora} (hace ${textoEdad(h.ms).min} min)` : ' · lo más reciente disponible'));
+}
+
+async function activarRayos(){
+  if(rayosBuscando) return;
+  rayosBuscando = true;
+  mostrarToast('Buscando datos de rayos…');
+  try{
+    const id = await rtBuscarGLM();
+    if(!id){ mostrarToast('No se encontró la capa de rayos de RealEarth por ahora (mira Configuración › Nubes)'); return; }
+    rayosInfo = { id };
+    rayosVisible = true;
+    document.getElementById('btnRayos').classList.add('active');
+    actualizarLeyenda();
+    await aplicarRayos();
+    if(rayosTimer) clearInterval(rayosTimer);
+    rayosTimer = setInterval(() => { if(rayosVisible) aplicarRayos(); }, RAYOS_REFRESCO_MS);
+  } finally {
+    rayosBuscando = false;
+  }
+}
+
+function desactivarRayos(){
+  if(capaRayos){ map.removeLayer(capaRayos); capaRayos = null; }
+  rayosVisible = false;
+  document.getElementById('btnRayos').classList.remove('active');
+  if(rayosTimer){ clearInterval(rayosTimer); rayosTimer = null; }
+  actualizarLeyenda();
+}
+
+document.getElementById('btnRayos').addEventListener('click', () => {
+  if(!navigator.onLine){ mostrarToast('Sin señal: los rayos necesitan conexión a internet'); return; }
+  if(rayosVisible) desactivarRayos(); else activarRayos();
 });
 
 /* ---------- Fronteras, temperaturas y viento ----------
@@ -3379,6 +3657,25 @@ function renderAjustes(){
       "Vectorial" dibuja los nombres de calles aparte: al girar el mapa siempre se leen y siguen la calle (necesita internet). "Vectorial claro" es lo mismo con colores más discretos, para que resalten tus pines. "Clásico" usa imágenes del mapa: es el que funciona sin señal en las zonas guardadas, pero al girar el mapa el texto también gira. Sin conexión la app cambia sola al clásico.
     </div>
 
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Nubes (satélite)</div>
+    <div class="chip-row" style="flex-wrap:wrap; margin-bottom:8px;">
+      ${[['rapida', '⚡ Rápida'], ['visible', '🔍 Alta resolución (día)'], ['tormentas', '⛈️ Cimas de tormenta'], ['nasa', '🛰️ NASA']]
+        .map(([v, t]) => `<button class="chip ${nubesFuentePref === v ? 'active' : ''}" data-nubes-fuente="${v}">${t}</button>`).join('')}
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); margin-bottom:18px;">
+      <span id="estadoSat">${textoEstadoSat()}</span>
+      <div class="chip-row" style="margin:8px 0;"><button class="chip" data-sat-reintentar="1">↻ Reintentar satélite y rayos</button></div>
+      "Rápida" (SSEC/Universidad de Wisconsin) llega con pocos minutos de retraso. "Alta resolución" usa la banda visible de 0.5 km: se ve más nítida pero solo de día (de noche cambia sola a Rápida). "Cimas de tormenta" resalta con colores las nubes muy frías, típicas de tormentas fuertes (de noche usa infrarrojo). "NASA" tarda cerca de 40 minutos. Si la fuente elegida falla, la app usa NASA como respaldo.
+      <div style="margin-top:12px; font-weight:600; color:var(--text);">Capa de rayos: ID del producto (opcional)</div>
+      <input id="rayosIdInput" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Automático" value="${escapeHtml(rayosIdManual())}"
+             style="width:100%; box-sizing:border-box; margin:6px 0; padding:9px 11px; font-size:14px; border-radius:10px; border:1px solid rgba(128,128,128,.4); background:transparent; color:inherit;">
+      <div class="chip-row" style="margin-bottom:6px;">
+        <button class="chip" data-rayos-id-guardar="1">Guardar ID</button>
+        <button class="chip" data-rayos-id-auto="1">Automático</button>
+      </div>
+      Si la capa "Rayos" no encuentra el producto sola, abre realearth.ssec.wisc.edu, busca "GLM", toca ⓘ en el producto de Flash Extent Density de GOES-East y copia su ID aquí.
+    </div>
+
     <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Importar datos</div>
     <div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">
       Agrega otra lista de prospectos desde un archivo CSV o JSON.
@@ -3393,6 +3690,42 @@ function renderAjustes(){
       guardarTemaPreferido(temaPref);
       aplicarTema(temaPref);
       renderAjustes();
+    });
+  });
+  sheetBody.querySelectorAll('[data-nubes-fuente]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      nubesFuentePref = btn.dataset.nubesFuente;
+      try{ localStorage.setItem(NUBES_FUENTE_KEY, nubesFuentePref); } catch(e){}
+      nubesInfo = null;
+      if(nubesVisible) refrescarNubes();
+      renderAjustes();
+    });
+  });
+  sheetBody.querySelectorAll('[data-rayos-id-guardar]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = (document.getElementById('rayosIdInput').value || '').trim();
+      try{ if(v) localStorage.setItem(RAYOS_ID_KEY, v); else localStorage.removeItem(RAYOS_ID_KEY); } catch(e){}
+      rayosInfo = null;
+      setEstadoSat('rayos', v ? `ID guardado: ${v}` : 'automático');
+      if(rayosVisible){ desactivarRayos(); activarRayos(); }
+      mostrarToast(v ? 'ID de rayos guardado' : 'Rayos en modo automático');
+    });
+  });
+  sheetBody.querySelectorAll('[data-rayos-id-auto]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      try{ localStorage.removeItem(RAYOS_ID_KEY); } catch(e){}
+      rayosInfo = null;
+      setEstadoSat('rayos', 'automático');
+      if(rayosVisible){ desactivarRayos(); activarRayos(); }
+      renderAjustes();
+    });
+  });
+  sheetBody.querySelectorAll('[data-sat-reintentar]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      nubesInfo = null; rayosInfo = null;
+      setEstadoSat('nubes', 'reintentando…'); setEstadoSat('rayos', 'reintentando…');
+      if(nubesVisible) refrescarNubes(); else setEstadoSat('nubes', 'sin usar todavía');
+      if(rayosVisible){ desactivarRayos(); activarRayos(); } else setEstadoSat('rayos', 'sin usar todavía');
     });
   });
   sheetBody.querySelectorAll('[data-base-reintentar]').forEach(btn => {
