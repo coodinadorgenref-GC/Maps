@@ -263,6 +263,15 @@
   .venta-fila-item .vi-cant{ width:52px; }
   .venta-fila-item .vi-precio{ width:76px; }
   .venta-fila-item .vi-quitar{ background:none; border:none; color:var(--danger); font-size:18px; cursor:pointer; padding:4px; }
+  .vi-precio-wrap{ position:relative; width:76px; flex-shrink:0; }
+  .vi-precio-wrap::before{ content:"$"; position:absolute; left:8px; top:50%; transform:translateY(-50%); color:var(--text-dim); font-size:13.5px; pointer-events:none; }
+  .vi-precio-wrap .vi-precio{ width:100%; box-sizing:border-box; padding-left:17px; }
+  .alm-fila{ margin-bottom:8px; }
+  .alm-fila .venta-fila-item{ margin-bottom:4px; }
+  .alm-fila .vi-obs{
+    width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
+    color:var(--text); border-radius:8px; padding:6px 8px; font-size:12px; font-style:italic;
+  }
   .venta-agregar-item{
     width:100%; background:var(--surface-2); border:1px dashed var(--line); color:var(--text-dim);
     border-radius:10px; padding:9px; font-size:13.5px; cursor:pointer; margin-bottom:14px;
@@ -1020,7 +1029,11 @@ function iniciarFirebaseVentaRuta(){
   appVentaRuta.auth().signInAnonymously().then(function(){
     firebaseVentaRutaListo = true;
     actualizarVisibilidadBotonVenta();
-    cargarInventarioPropio();
+    // El admin no trae almacén propio (edita el de otros), así que no
+    // vale la pena esta consulta a Firestore al iniciar sesión —
+    // además solía fallar con "client is offline" porque se disparaba
+    // antes de que el canal de Firestore terminara de conectar.
+    if(!esAdmin) cargarInventarioPropio();
   }).catch(function(err){
     console.warn("No se pudo autenticar anónimamente en Firebase (venta en ruta):", err);
   });
@@ -1117,7 +1130,7 @@ function renderizarItemsVenta(){
       + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '" onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)">'
       + '<input class="vi-producto" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
       + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)">'
-      + '<input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '" onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)">'
+      + '<span class="vi-precio-wrap"><input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '" onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
       + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
       + '</div>';
   }).join("");
@@ -1433,9 +1446,19 @@ function pintarPantallaAlmacenAdmin(){
 
   document.getElementById('btnAlmNuevoGuardar').addEventListener('click', async function(){
     const nombre = document.getElementById('almNuevoNombre').value.trim();
-    const correo = document.getElementById('almNuevoCorreo').value.trim();
+    const correo = document.getElementById('almNuevoCorreo').value.trim().toLowerCase();
     if(!nombre || !correo){ mostrarToast('Escribe nombre y correo del vendedor'); return; }
-    if(listaVendedores.some(function(v){ return v.correo === correo; })){ mostrarToast('Ese correo ya está en la lista'); return; }
+    // Se recarga la lista antes de comparar para no fiarse de una copia
+    // en memoria que pudo quedar vieja (por ejemplo si se agregó desde
+    // otro dispositivo hace un momento), y la comparación es sin mayúsculas
+    // ni espacios para que "Correo@X.com" y "correo@x.com " no se traten
+    // como distintos.
+    await cargarListaVendedores();
+    if(listaVendedores.some(function(v){ return (v.correo || '').trim().toLowerCase() === correo; })){
+      mostrarToast('Ese correo ya está en la lista');
+      pintarPantallaAlmacenAdmin();
+      return;
+    }
     listaVendedores.push({ nombre: nombre, correo: correo });
     await guardarListaVendedoresFirestore();
     almacenEditandoCorreo = correo;
@@ -1470,7 +1493,7 @@ async function cargarAlmacenParaEdicion(correo){
     const items = (datos && datos.items) || {};
     almacenItemsEdicion = Object.entries(items).map(function(par){
       const sku = par[0], it = par[1];
-      return { sku: sku, producto: it.producto || '', precioUnitario: Number(it.precioUnitario) || 0, cantidad: Number(it.cantidad) || 0 };
+      return { sku: sku, producto: it.producto || '', precioUnitario: Number(it.precioUnitario) || 0, cantidad: Number(it.cantidad) || 0, observaciones: it.observaciones || '' };
     });
   } catch(err){
     almacenItemsEdicion = [];
@@ -1490,12 +1513,15 @@ function renderAlmacenListaEdicion(){
     + '<input type="file" id="almExcelInput" accept=".xlsx,.xls,.csv" style="display:none">'
     + '<div style="font-size:11.5px; color:var(--text-dim); margin:-4px 0 12px;">Descarga la plantilla, llénala (sku y cantidad obligatorias; producto/precio se toman solos de la hoja Precios si los dejas vacíos) y súbela aquí. Esto reemplaza la lista de abajo.</div>'
     + almacenItemsEdicion.map(function(it, idx){
-      return '<div class="venta-fila-item">'
+      return '<div class="alm-fila">'
+        + '<div class="venta-fila-item">'
         + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku) + '" onchange="almActualizarCampo(' + idx + ',\'sku\',this.value)">'
         + '<input class="vi-producto" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="almActualizarCampo(' + idx + ',\'producto\',this.value)">'
         + '<input class="vi-cant" type="number" min="0" placeholder="Cant" value="' + it.cantidad + '" onchange="almActualizarCampo(' + idx + ',\'cantidad\',this.value)">'
-        + '<input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precioUnitario + '" onchange="almActualizarCampo(' + idx + ',\'precioUnitario\',this.value)">'
+        + '<span class="vi-precio-wrap"><input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precioUnitario + '" onchange="almActualizarCampo(' + idx + ',\'precioUnitario\',this.value)"></span>'
         + '<button class="vi-quitar" onclick="almQuitarFila(' + idx + ')">✕</button>'
+        + '</div>'
+        + '<input class="vi-obs" placeholder="Observaciones (solo para ti, el vendedor no la ve)" value="' + escapeHtmlVenta(it.observaciones || '') + '" onchange="almActualizarCampo(' + idx + ',\'observaciones\',this.value)">'
         + '</div>';
     }).join('')
     + '<button class="venta-agregar-item" onclick="almAgregarFila()">+ Agregar línea</button>'
@@ -1511,8 +1537,8 @@ function renderAlmacenListaEdicion(){
 // de capturar con encabezados distintos o en el orden equivocado.
 function almDescargarPlantilla(){
   const datos = [
-    ['sku', 'producto', 'cantidad', 'precioUnitario'],
-    ['VM10010035', '(opcional si el SKU ya tiene precio en Precios)', 5, '']
+    ['sku', 'producto', 'cantidad', 'precioUnitario', 'observaciones'],
+    ['VM10010035', '(opcional si el SKU ya tiene precio en Precios)', 5, '', '(opcional, solo la ves tú)']
   ];
   const hoja = XLSX.utils.aoa_to_sheet(datos);
   const libro = XLSX.utils.book_new();
@@ -1520,7 +1546,7 @@ function almDescargarPlantilla(){
   XLSX.writeFile(libro, 'plantilla_almacen_movil.xlsx');
 }
 
-function almAgregarFila(){ almacenItemsEdicion.push({ sku: '', producto: '', precioUnitario: 0, cantidad: 0 }); renderAlmacenListaEdicion(); }
+function almAgregarFila(){ almacenItemsEdicion.push({ sku: '', producto: '', precioUnitario: 0, cantidad: 0, observaciones: '' }); renderAlmacenListaEdicion(); }
 function almQuitarFila(idx){ almacenItemsEdicion.splice(idx, 1); renderAlmacenListaEdicion(); }
 
 // Al capturar/cambiar el SKU a mano, se autocompleta producto y precio desde
@@ -1528,6 +1554,7 @@ function almQuitarFila(idx){ almacenItemsEdicion.splice(idx, 1); renderAlmacenLi
 // después, el autocompletado solo ahorra tecleo, no bloquea el campo.
 function almActualizarCampo(idx, campo, valor){
   if(campo === 'producto'){ almacenItemsEdicion[idx].producto = valor; return; }
+  if(campo === 'observaciones'){ almacenItemsEdicion[idx].observaciones = valor; return; }
   if(campo === 'sku'){
     almacenItemsEdicion[idx].sku = valor;
     const p = preciosCache[String(valor || '').trim()];
@@ -1566,6 +1593,7 @@ async function almImportarExcel(ev){
     const idxCant = encabezados.findIndex(function(h){ return h.indexOf('cant') !== -1; });
     const idxProd = encabezados.findIndex(function(h){ return h.indexOf('producto') !== -1 || h.indexOf('descripcion') !== -1; });
     const idxPrecio = encabezados.findIndex(function(h){ return h.indexOf('precio') !== -1; });
+    const idxObs = encabezados.findIndex(function(h){ return h.indexOf('observ') !== -1; });
     if(idxSku === -1 || idxCant === -1){
       mostrarToast('El archivo necesita al menos columnas "sku" y "cantidad"');
       return;
@@ -1580,7 +1608,8 @@ async function almImportarExcel(ev){
         ? String(fila[idxProd]).trim() : (cache ? (cache.producto || '') : '');
       const precioUnitario = (idxPrecio > -1 && fila[idxPrecio] !== '')
         ? (Number(fila[idxPrecio]) || 0) : (cache ? (Number(cache.precioUnitario) || 0) : 0);
-      nuevos.push({ sku: sku, producto: producto, precioUnitario: precioUnitario, cantidad: Number(fila[idxCant]) || 0 });
+      const observaciones = idxObs > -1 ? String(fila[idxObs] || '').trim() : '';
+      nuevos.push({ sku: sku, producto: producto, precioUnitario: precioUnitario, cantidad: Number(fila[idxCant]) || 0, observaciones: observaciones });
     });
     if(nuevos.length === 0){ mostrarToast('No se encontraron filas válidas en el archivo'); return; }
 
@@ -1598,7 +1627,7 @@ async function guardarAlmacenEdicion(){
   almacenItemsEdicion.forEach(function(it){
     const clave = (it.sku || '').trim();
     if(!clave) return;
-    items[clave] = { producto: it.producto || '', precioUnitario: it.precioUnitario || 0, cantidad: it.cantidad || 0 };
+    items[clave] = { producto: it.producto || '', precioUnitario: it.precioUnitario || 0, cantidad: it.cantidad || 0, observaciones: it.observaciones || '' };
   });
   try{
     await docInventarioVendedor(almacenEditandoCorreo).set({
@@ -3649,6 +3678,7 @@ let pickingLocation = false;
 let tempCoord = null;
 let tempLugar = null; // { municipio, localidad } detectado solo automáticamente
 let tempMarker = null;
+let tempFotoFachada = null; // data URL (JPEG comprimido) de la foto de fachada en edición
 
 /* ---------- Ubicación compartida (evita pedir el GPS una y otra vez) ----------
    Varias funciones necesitan "dónde estoy ahora" (el botón ◎, el filtro de
@@ -5803,6 +5833,7 @@ function abrirDetalle(id, origen){
 function renderFormAlta(){
   const p = editandoId ? prospectos.find(x => x.id === editandoId) : null;
   if(p){ tempCoord = { lat: p.lat, lng: p.lng }; }
+  tempFotoFachada = p ? (p.foto || null) : null;
 
   sheetBody.innerHTML = `
     <div class="loc-row">
@@ -5845,6 +5876,16 @@ function renderFormAlta(){
           Guarda primero para conservar el contacto. El mensaje se abre listo en WhatsApp para que lo revises antes de enviarlo.
         </div>
       </div>
+    </div>
+
+    <div class="field">
+      <label>Foto de la fachada</label>
+      <div id="fotoFachadaPreviewWrap" style="display:${tempFotoFachada ? 'block' : 'none'}; margin-bottom:8px;">
+        <img id="fotoFachadaPreview" src="${tempFotoFachada || ''}" style="max-width:100%; max-height:180px; border-radius:10px; display:block;">
+        <button class="btn" type="button" id="btnQuitarFotoFachada" style="margin-top:6px; color:var(--danger);">✕ Quitar foto</button>
+      </div>
+      <button class="btn" type="button" id="btnTomarFotoFachada" style="width:100%;">📷 ${tempFotoFachada ? 'Cambiar foto' : 'Tomar foto de la fachada'}</button>
+      <input type="file" id="fFotoFachada" accept="image/*" capture="environment" style="display:none">
     </div>
 
     <div class="field">
@@ -5940,8 +5981,67 @@ function renderFormAlta(){
     });
   });
   document.getElementById('btnGuardar').addEventListener('click', guardarDesdeForm);
+  document.getElementById('btnTomarFotoFachada').addEventListener('click', () => {
+    document.getElementById('fFotoFachada').click();
+  });
+  document.getElementById('fFotoFachada').addEventListener('change', manejarFotoFachadaSeleccionada);
+  document.getElementById('btnQuitarFotoFachada').addEventListener('click', () => {
+    tempFotoFachada = null;
+    document.getElementById('fotoFachadaPreviewWrap').style.display = 'none';
+    document.getElementById('btnTomarFotoFachada').textContent = '📷 Tomar foto de la fachada';
+  });
   const btnEliminar = document.getElementById('btnEliminar');
   if(btnEliminar) btnEliminar.addEventListener('click', eliminarActual);
+}
+
+// Comprime la foto en el propio navegador (sin backend) antes de guardarla:
+// las fotos de cámara pesan varios MB y una celda de Sheets solo admite
+// ~50,000 caracteres, así que se reduce a un ancho máximo razonable para
+// identificar la fachada y se baja la calidad JPEG hasta que quepa.
+async function manejarFotoFachadaSeleccionada(ev){
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if(!file) return;
+  mostrarToast('Procesando foto…');
+  try{
+    const dataUrl = await comprimirFotoFachada(file);
+    tempFotoFachada = dataUrl;
+    const wrap = document.getElementById('fotoFachadaPreviewWrap');
+    document.getElementById('fotoFachadaPreview').src = dataUrl;
+    wrap.style.display = 'block';
+    document.getElementById('btnTomarFotoFachada').textContent = '📷 Cambiar foto';
+  } catch(err){
+    mostrarToast('No se pudo procesar la foto: ' + err.message);
+  }
+}
+
+function comprimirFotoFachada(file){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const anchoMax = 640;
+      const escala = Math.min(1, anchoMax / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * escala);
+      canvas.height = Math.round(img.height * escala);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      // Baja la calidad hasta que quepa cómodo en una celda de Sheets
+      // (límite real 50,000 caracteres; se deja margen).
+      let calidad = 0.6;
+      let dataUrl = canvas.toDataURL('image/jpeg', calidad);
+      while(dataUrl.length > 45000 && calidad > 0.2){
+        calidad -= 0.1;
+        dataUrl = canvas.toDataURL('image/jpeg', calidad);
+      }
+      if(dataUrl.length > 45000){ reject(new Error('La imagen sigue pesando mucho, intenta con otra')); return; }
+      resolve(dataUrl);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen')); };
+    img.src = url;
+  });
 }
 
 // Abre WhatsApp con el mensaje ya escrito (no lo envía solo: se revisa antes
@@ -6012,13 +6112,13 @@ function guardarDesdeForm(){
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, fechaUltimaVisita, contactoNombre, contactoTel, lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, fechaUltimaVisita, contactoNombre, contactoTel, foto: tempFotoFachada || '', lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
     if(tempLugar){ p.municipio = tempLugar.municipio; p.localidad = tempLugar.localidad; }
   } else {
     prospectos.push({
       id: 'p_' + Date.now(),
       nombre, estatus, frecuencia, notas, prioridad,
-      contactoNombre, contactoTel,
+      contactoNombre, contactoTel, foto: tempFotoFachada || '',
       lat: tempCoord.lat, lng: tempCoord.lng,
       municipio: tempLugar ? tempLugar.municipio : '',
       localidad: tempLugar ? tempLugar.localidad : '',
@@ -6035,6 +6135,7 @@ function guardarDesdeForm(){
   if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
   tempCoord = null;
   tempLugar = null;
+  tempFotoFachada = null;
   editandoId = null;
   mostrarToast('Guardado localmente');
   volverTrasEditar();
