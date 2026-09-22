@@ -1056,6 +1056,7 @@ function abrirVentaRuta(){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
+  sincronizarPreciosRuta(); // trae el precio más reciente del Sheet antes de capturar
   document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
   document.getElementById("ventaCliente").value = "";
   document.getElementById("ventaMetodoPago").value = "efectivo";
@@ -1078,7 +1079,7 @@ function actualizarCamposPagoVenta(){
 }
  
 function agregarFilaItemVenta(){
-  ventaItemsActuales.push({ producto: "", cantidad: 1, precio: 0 });
+  ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0 });
   renderizarItemsVenta();
 }
 function quitarFilaItemVenta(idx){
@@ -1086,6 +1087,11 @@ function quitarFilaItemVenta(idx){
   renderizarItemsVenta();
 }
 function actualizarCampoItemVenta(idx, campo, valor){
+  if (campo === "sku") {
+    ventaItemsActuales[idx].sku = valor;
+    aplicarPrecioPorSku(idx, valor); // si el SKU existe en "precios", rellena producto y precio solos
+    return; // aplicarPrecioPorSku ya vuelve a renderizar y actualizar el total
+  }
   ventaItemsActuales[idx][campo] = (campo === "producto") ? valor : (Number(valor) || 0);
   actualizarTotalVenta();
 }
@@ -1093,7 +1099,8 @@ function renderizarItemsVenta(){
   const cont = document.getElementById("ventaItemsLista");
   cont.innerHTML = ventaItemsActuales.map(function(it, idx){
     return '<div class="venta-fila-item">'
-      + '<input class="vi-producto" placeholder="Producto / SKU" value="' + escapeHtmlVenta(it.producto) + '" onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
+      + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '" onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)">'
+      + '<input class="vi-producto" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
       + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)">'
       + '<input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '" onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)">'
       + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
@@ -1149,6 +1156,12 @@ async function confirmarVentaRuta(){
     // esto se resuelve al instante desde la caché local y se
     // sincroniza solo — el vendedor NO se queda esperando.
     await dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
+
+    // No se espera esta llamada (no "await"): si el Sheet tarda o no hay
+    // señal, la venta ya quedó a salvo en Firestore y el ticket se genera
+    // igual. sincronizarVentaRutaASheet() deja la venta en cola local si
+    // falla, y reintentarVentasRutaPendientes() la reintenta sola después.
+    sincronizarVentaRutaASheet(venta);
  
     const pdfBlob = generarPdfTicketVenta(venta);
     await compartirTicketVenta(venta, pdfBlob);
@@ -1335,6 +1348,12 @@ async function syncPendientes(){
     guardarProspectos(prospectos);
     renderMarcadores();
     if(currentTab === 'lista') renderLista();
+
+    // Reutiliza este mismo ciclo (carga, reconexión, cada 5 min) para la
+    // venta en ruta: refresca precios y reintenta ventas que no llegaron
+    // al Sheet la primera vez. No bloquea lo de prospectos si tarda.
+    sincronizarPreciosRuta();
+    reintentarVentasRutaPendientes();
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
     // próximo evento "online" o el siguiente intervalo.
@@ -1342,6 +1361,125 @@ async function syncPendientes(){
     sincronizando = false;
     actualizarHeader();
   }
+}
+
+/* ---------- Precios y ventas en ruta (recursos "precios" y "ventasRuta" del Sheet) ---------- */
+const PRECIOS_RUTA_KEY = 'gc_precios_ruta_v1';
+const VENTAS_SHEET_PENDIENTES_KEY = 'gc_ventas_pendientes_sheet_v1';
+let preciosCache = {}; // indexado por sku
+
+function cargarPreciosCacheLocal(){
+  try{
+    (JSON.parse(localStorage.getItem(PRECIOS_RUTA_KEY)) || []).forEach(function(p){ preciosCache[p.sku] = p; });
+  } catch(e){}
+}
+cargarPreciosCacheLocal();
+
+// Refleja preciosCache como <option> de un <datalist> para que el input de
+// SKU en la venta sugiera lo que ya existe en el Sheet mientras se escribe.
+function refrescarDatalistSkus(){
+  let dl = document.getElementById('listaSkusPrecios');
+  if(!dl){
+    dl = document.createElement('datalist');
+    dl.id = 'listaSkusPrecios';
+    document.body.appendChild(dl);
+  }
+  dl.innerHTML = Object.keys(preciosCache).map(function(sku){
+    return '<option value="' + escapeHtmlVenta(sku) + '">';
+  }).join('');
+}
+refrescarDatalistSkus();
+
+// Si el SKU capturado ya tiene precio guardado en el Sheet, autocompleta
+// producto y precio (el vendedor puede corregirlos a mano después).
+function aplicarPrecioPorSku(idx, sku){
+  const p = preciosCache[String(sku || '').trim()];
+  if(p){
+    ventaItemsActuales[idx].producto = p.producto || ventaItemsActuales[idx].producto;
+    ventaItemsActuales[idx].precio = Number(p.precioUnitario) || ventaItemsActuales[idx].precio;
+  }
+  renderizarItemsVenta();
+}
+
+async function sincronizarPreciosRuta(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  try{
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=precios`);
+    const lista = await resp.json();
+    preciosCache = {};
+    lista.forEach(function(p){ preciosCache[p.sku] = p; });
+    localStorage.setItem(PRECIOS_RUTA_KEY, JSON.stringify(lista));
+    refrescarDatalistSkus();
+  } catch(err){
+    // sin señal o el Web App no respondió: se sigue usando lo último en localStorage
+  }
+}
+
+function cargarVentasPendientesSheet(){
+  try{ return JSON.parse(localStorage.getItem(VENTAS_SHEET_PENDIENTES_KEY)) || []; }
+  catch(e){ return []; }
+}
+function guardarVentasPendientesSheet(lista){
+  localStorage.setItem(VENTAS_SHEET_PENDIENTES_KEY, JSON.stringify(lista));
+}
+// Una fila por SKU vendido, con id = folio + "::" + sku (así Codigo.gs no
+// duplica líneas si una misma venta se reintenta más de una vez).
+function filasVentaParaSheet(venta){
+  return venta.items.map(function(it, idx){
+    // Si no se capturó SKU, se usa el índice de la línea como respaldo
+    // para que el id nunca se repita dentro de una misma venta (si no,
+    // dos líneas sin SKU se pisarían entre sí en el Sheet).
+    const claveSku = (it.sku && String(it.sku).trim()) || ('sin-sku-' + idx);
+    return {
+      id: venta.folio + '::' + claveSku,
+      folio: venta.folio,
+      fecha: venta.fechaLocal,
+      vendedor: venta.vendedorNombre || venta.vendedor,
+      cliente: venta.cliente,
+      sku: it.sku || '',
+      producto: it.producto,
+      cantidad: it.cantidad,
+      precioUnitario: it.precio,
+      total: it.cantidad * it.precio,
+      metodoPago: venta.metodoPago,
+      referencia: venta.referencia,
+      mesesMsi: venta.mesesMsi,
+      ubicacion: venta.ubicacion || ''
+    };
+  });
+}
+// Manda la venta al Sheet sin bloquear el ticket: si falla (sin señal, Web
+// App caído, etc.) la deja en cola local y reintentarVentasRutaPendientes()
+// la reintenta sola en el siguiente ciclo de sync.
+async function sincronizarVentaRutaASheet(venta){
+  if(!SHEET_ENDPOINT) return;
+  try{
+    await fetch(SHEET_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({ recurso: 'ventasRuta', upserts: filasVentaParaSheet(venta) })
+    });
+  } catch(err){
+    const pendientes = cargarVentasPendientesSheet();
+    pendientes.push(venta);
+    guardarVentasPendientesSheet(pendientes);
+  }
+}
+async function reintentarVentasRutaPendientes(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  const pendientes = cargarVentasPendientesSheet();
+  if(pendientes.length === 0) return;
+  const siguenPendientes = [];
+  for(const venta of pendientes){
+    try{
+      await fetch(SHEET_ENDPOINT, {
+        method: 'POST',
+        body: JSON.stringify({ recurso: 'ventasRuta', upserts: filasVentaParaSheet(venta) })
+      });
+    } catch(err){
+      siguenPendientes.push(venta);
+    }
+  }
+  guardarVentasPendientesSheet(siguenPendientes);
 }
 
 const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
