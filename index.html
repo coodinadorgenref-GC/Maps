@@ -1209,17 +1209,23 @@ async function confirmarVentaRuta(){
     // por falta de señal — en ese caso el increment queda pendiente en la
     // cola offline de Firestore y se aplica solo en cuanto haya conexión.
     const actualizacionesInventario = {};
-    itemsValidos.forEach(function(it){
-      const clave = (it.sku || "").trim();
-      if(!clave) return;
-      actualizacionesInventario["items." + clave + ".cantidad"] = firebase.firestore.FieldValue.increment(-it.cantidad);
-      if(inventarioPropio[clave]) inventarioPropio[clave].cantidad -= it.cantidad;
-    });
-    if(Object.keys(actualizacionesInventario).length > 0){
-      docInventarioVendedor(usuarioActual).update(actualizacionesInventario).catch(function(err){
-        console.warn("No se pudo descontar el almacén móvil:", err);
-      });
-    }
+    // AHORA (Sheet):
+const filasADescontar = [];
+itemsValidos.forEach(function(it){
+  const clave = (it.sku || '').trim();
+  if(!clave || !inventarioPropio[clave]) return;
+  inventarioPropio[clave].cantidad -= it.cantidad;
+  filasADescontar.push({
+    id: idAlmacenMovil(usuarioActual, clave),
+    vendedor: usuarioActual, sku: clave,
+    producto: inventarioPropio[clave].producto || '',
+    cantidadAsignada: inventarioPropio[clave].cantidad,
+    precioUnitario: inventarioPropio[clave].precioUnitario || 0,
+    observaciones: inventarioPropio[clave].observaciones || '',
+    actualizadoEn: Date.now()
+  });
+});
+if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin await: no bloquea el ticket
 
     // No se espera esta llamada (no "await"): si el Sheet tarda o no hay
     // señal, la venta ya quedó a salvo en Firestore y el ticket se genera
@@ -1303,13 +1309,17 @@ function docInventarioVendedor(correo){
 let inventarioPropio = {}; // sku -> {producto, precioUnitario, cantidad}, del vendedor logueado
 
 async function cargarInventarioPropio(){
-  if(!usuarioActual || !firebaseVentaRutaListo) return;
+  if(!usuarioActual || !SHEET_ENDPOINT) return;
   try{
-    const snap = await docInventarioVendedor(usuarioActual).get();
-    const datos = snap.exists ? snap.data() : null;
-    inventarioPropio = (datos && datos.items) || {};
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=almacenMovil`);
+    const filas = await resp.json();
+    const propio = filas.filter(f => String(f.vendedor||'').trim().toLowerCase() === String(usuarioActual).trim().toLowerCase());
+    inventarioPropio = {};
+    propio.forEach(f => { inventarioPropio[String(f.sku).trim()] = filaAlmacenAObjeto(f); });
+    localStorage.setItem(ALMACEN_PROPIO_CACHE_KEY, JSON.stringify(inventarioPropio));
   } catch(err){
-    console.warn('No se pudo cargar el almacén móvil:', err);
+    try{ inventarioPropio = JSON.parse(localStorage.getItem(ALMACEN_PROPIO_CACHE_KEY)) || {}; } catch(e){ inventarioPropio = {}; }
+    console.warn('No se pudo cargar el almacén móvil (Sheet):', err);
   }
 }
 
@@ -1343,19 +1353,9 @@ let almacenEditandoCorreo = null; // solo admin: de qué vendedor se está viend
 let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
 
 async function renderAlmacen(){
-  if(!firebaseVentaRutaListo){
-    sheetBody.innerHTML = '<div class="empty">Conectando con el servidor…</div>';
-    let intentos = 0;
-    while(!firebaseVentaRutaListo && intentos < 40){ // hasta ~10s
-      await new Promise(r => setTimeout(r, 250));
-      intentos++;
-    }
-    if(!firebaseVentaRutaListo){
-      sheetBody.innerHTML = '<div class="empty">No se pudo conectar con el servidor. Revisa tu conexión y vuelve a intentar. <button class="btn primary" id="btnReintentarAlmacen" style="margin-top:10px;">Reintentar</button></div>';
-      const b = document.getElementById('btnReintentarAlmacen');
-      if(b) b.addEventListener('click', renderAlmacen);
-      return;
-    }
+  if(!SHEET_ENDPOINT){
+    sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
+    return;
   }
   if(esAdmin) await renderAlmacenAdmin();
   else await renderAlmacenPropio();
@@ -1404,25 +1404,43 @@ function docConfigVendedores(){
 }
 
 async function cargarListaVendedores(){
+  if(!SHEET_ENDPOINT){ listaVendedores = []; return; }
   try{
-    const snap = await docConfigVendedores().get();
-    const datos = snap.exists ? snap.data() : null;
-    listaVendedores = (datos && Array.isArray(datos.lista)) ? datos.lista : [];
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=vendedores`);
+    listaVendedores = (await resp.json()).map(v => ({ correo: v.correo, nombre: v.nombre }));
   } catch(err){
     listaVendedores = [];
-    mostrarToast('No se pudo cargar la lista de vendedores: ' + (err.code || err.message));
+    mostrarToast('No se pudo cargar la lista de vendedores (revisa tu señal)');
     console.error('cargarListaVendedores', err);
   }
 }
 
-async function guardarListaVendedoresFirestore(){
+// Ahora recibe el vendedor nuevo directamente (upsert), en vez de mandar
+// toda la lista completa cada vez.
+async function guardarVendedorEnSheet(vendedor){
   try{
-    await docConfigVendedores().set({ lista: listaVendedores });
+    await fetch(SHEET_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({ recurso: 'vendedores', upserts: [vendedor] })
+    });
     mostrarToast('Vendedor guardado y sincronizado');
   } catch(err){
-    mostrarToast('⚠️ No se guardó en el servidor (' + (err.code || err.message) + '). Revisa tu conexión o permisos.');
-    console.error('guardarListaVendedoresFirestore', err);
-    throw err; // para que quien llame sepa que falló
+    mostrarToast('⚠️ No se guardó en el servidor. Revisa tu conexión.');
+    console.error('guardarVendedorEnSheet', err);
+    throw err;
+  }
+}
+
+async function quitarVendedorDelSheet(correo){
+  try{
+    await fetch(SHEET_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({ recurso: 'vendedores', deletes: [correo] })
+    });
+  } catch(err){
+    mostrarToast('No se pudo quitar el vendedor (revisa tu señal)');
+    console.error('quitarVendedorDelSheet', err);
+    throw err;
   }
 }
 
@@ -1479,7 +1497,7 @@ function pintarPantallaAlmacenAdmin(){
       return;
     }
     listaVendedores.push({ nombre: nombre, correo: correo });
-    await guardarListaVendedoresFirestore();
+    await guardarVendedorEnSheet({ correo, nombre });   // antes: guardarListaVendedoresFirestore()
     almacenEditandoCorreo = correo;
     pintarPantallaAlmacenAdmin();
     await cargarAlmacenParaEdicion(correo);
@@ -1497,26 +1515,28 @@ function pintarPantallaAlmacenAdmin(){
     if(!correo || correo === '__nuevo__'){ mostrarToast('Elige primero un vendedor de la lista'); return; }
     if(!confirm('¿Quitar a este vendedor de la lista? No se borra su almacén, solo deja de aparecer aquí.')) return;
     listaVendedores = listaVendedores.filter(function(v){ return v.correo !== correo; });
-    await guardarListaVendedoresFirestore();
+    await quitarVendedorDelSheet(correo);                // antes: guardarListaVendedoresFirestore()
     if(almacenEditandoCorreo === correo) almacenEditandoCorreo = null;
     pintarPantallaAlmacenAdmin();
   });
 }
 
+let almacenSkusOriginales = new Set(); // para saber qué SKUs quitó el admin al guardar
+
 async function cargarAlmacenParaEdicion(correo){
   const wrap = document.getElementById('almListaWrap');
   if(wrap) wrap.innerHTML = '<div class="empty">Cargando…</div>';
   try{
-    const snap = await docInventarioVendedor(correo).get();
-    const datos = snap.exists ? snap.data() : null;
-    const items = (datos && datos.items) || {};
-    almacenItemsEdicion = Object.entries(items).map(function(par){
-      const sku = par[0], it = par[1];
-      return { sku: sku, producto: it.producto || '', precioUnitario: Number(it.precioUnitario) || 0, cantidad: Number(it.cantidad) || 0, observaciones: it.observaciones || '' };
-    });
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=almacenMovil`);
+    const filas = await resp.json();
+    almacenItemsEdicion = filas
+      .filter(f => String(f.vendedor||'').trim().toLowerCase() === String(correo).trim().toLowerCase())
+      .map(filaAlmacenAObjeto);
+    almacenSkusOriginales = new Set(almacenItemsEdicion.map(it => String(it.sku).trim()));
   } catch(err){
     almacenItemsEdicion = [];
-    mostrarToast('No se pudo cargar (revisa el correo o tu señal)');
+    almacenSkusOriginales = new Set();
+    mostrarToast('No se pudo cargar (revisa tu señal)');
   }
   if(currentTab === 'almacen') renderAlmacenListaEdicion();
 }
@@ -1642,19 +1662,30 @@ async function almImportarExcel(ev){
 
 async function guardarAlmacenEdicion(){
   if(!almacenEditandoCorreo){ mostrarToast('Falta el correo del vendedor'); return; }
-  const items = {};
+  const correo = almacenEditandoCorreo;
+  const vistos = new Set();
+  const upserts = [];
   almacenItemsEdicion.forEach(function(it){
-    const clave = (it.sku || '').trim();
-    if(!clave) return;
-    items[clave] = { producto: it.producto || '', precioUnitario: it.precioUnitario || 0, cantidad: it.cantidad || 0, observaciones: it.observaciones || '' };
-  });
-  try{
-    await docInventarioVendedor(almacenEditandoCorreo).set({
-      correo: almacenEditandoCorreo, items: items,
-      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    const sku = (it.sku || '').trim();
+    if(!sku) return;
+    vistos.add(sku);
+    upserts.push({
+      id: idAlmacenMovil(correo, sku),
+      vendedor: correo, sku: sku,
+      producto: it.producto || '',
+      cantidadAsignada: it.cantidad || 0,
+      precioUnitario: it.precioUnitario || 0,
+      observaciones: it.observaciones || '',
+      actualizadoEn: Date.now()
     });
-    mostrarToast('Almacén de ' + almacenEditandoCorreo + ' actualizado');
-    if(almacenEditandoCorreo === usuarioActual) cargarInventarioPropio();
+  });
+  const deletes = [...almacenSkusOriginales].filter(sku => !vistos.has(sku)).map(sku => idAlmacenMovil(correo, sku));
+
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'almacenMovil', upserts, deletes }) });
+    mostrarToast('Almacén de ' + correo + ' actualizado');
+    almacenSkusOriginales = vistos;
+    if(correo === usuarioActual) cargarInventarioPropio();
   } catch(err){
     mostrarToast('No se pudo guardar: ' + err.message);
   }
@@ -1818,6 +1849,7 @@ async function syncPendientes(){
     // al Sheet la primera vez. No bloquea lo de prospectos si tarda.
     sincronizarPreciosRuta();
     reintentarVentasRutaPendientes();
+    reintentarAlmacenPendientes();   // ← nuevo
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
     // próximo evento "online" o el siguiente intervalo.
@@ -1830,6 +1862,8 @@ async function syncPendientes(){
 /* ---------- Precios y ventas en ruta (recursos "precios" y "ventasRuta" del Sheet) ---------- */
 const PRECIOS_RUTA_KEY = 'gc_precios_ruta_v1';
 const VENTAS_SHEET_PENDIENTES_KEY = 'gc_ventas_pendientes_sheet_v1';
+const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
+const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1';  
 let preciosCache = {}; // indexado por sku
 
 function cargarPreciosCacheLocal(){
@@ -1864,7 +1898,21 @@ function aplicarPrecioPorSku(idx, sku){
   }
   renderizarItemsVenta();
 }
-
+  
+function idAlmacenMovil(vendedor, sku){
+  return String(vendedor || '').trim().toLowerCase() + '::' + String(sku || '').trim();
+}
+// El Sheet guarda "cantidadAsignada"; la UI usa "cantidad" — se traduce aquí.
+function filaAlmacenAObjeto(fila){
+  return {
+    sku: fila.sku,
+    producto: fila.producto || '',
+    precioUnitario: Number(fila.precioUnitario) || 0,
+    cantidad: Number(fila.cantidadAsignada) || 0,
+    observaciones: fila.observaciones || ''
+  };
+}
+  
 async function sincronizarPreciosRuta(){
   if(!SHEET_ENDPOINT || !navigator.onLine) return;
   try{
@@ -1946,6 +1994,24 @@ async function reintentarVentasRutaPendientes(){
   guardarVentasPendientesSheet(siguenPendientes);
 }
 
+async function sincronizarAlmacenASheet(filas){
+  if(!SHEET_ENDPOINT) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'almacenMovil', upserts: filas }) });
+  } catch(err){
+    const pendientes = JSON.parse(localStorage.getItem(ALMACEN_PENDIENTES_KEY) || '[]');
+    localStorage.setItem(ALMACEN_PENDIENTES_KEY, JSON.stringify(pendientes.concat(filas)));
+  }
+}
+async function reintentarAlmacenPendientes(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  const pendientes = JSON.parse(localStorage.getItem(ALMACEN_PENDIENTES_KEY) || '[]');
+  if(pendientes.length === 0) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'almacenMovil', upserts: pendientes }) });
+    localStorage.setItem(ALMACEN_PENDIENTES_KEY, '[]');
+  } catch(err){ /* se reintenta en el próximo ciclo */ }
+}
 const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
 const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
 const COLOR_ESTATUS = {
