@@ -624,6 +624,9 @@
   <button class="drawer-item" id="btnRutaActual" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg><span class="txt">Ruta actual</span></button>
   <button class="drawer-item" id="btnAgenda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg><span class="txt">Próximas rutas</span></button>
 
+  <div class="drawer-section">Ventas en ruta</div>
+  <button class="drawer-item" id="btnAlmacenMovil" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zM18 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg><span class="txt">Almacén móvil</span></button>
+
   <div class="drawer-section">Mapas</div>
   <button class="drawer-item" id="btnZonaOffline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span class="txt">Mapas descargados</span></button>
 
@@ -1004,6 +1007,7 @@ function iniciarFirebaseVentaRuta(){
   appVentaRuta.auth().signInAnonymously().then(function(){
     firebaseVentaRutaListo = true;
     actualizarVisibilidadBotonVenta();
+    cargarInventarioPropio();
   }).catch(function(err){
     console.warn("No se pudo autenticar anónimamente en Firebase (venta en ruta):", err);
   });
@@ -1021,6 +1025,8 @@ function puedeVenderEnRuta(){
 function actualizarVisibilidadBotonVenta(){
   const btn = document.getElementById("btnNuevaVenta");
   if (btn) btn.hidden = !(usuarioActual && puedeVenderEnRuta());
+  const btnAlm = document.getElementById("btnAlmacenMovil");
+  if (btnAlm) btnAlm.hidden = !(usuarioActual && (puedeVenderEnRuta() || esAdmin));
 }
  
 /* ---------- Folio: se genera en el dispositivo, nunca en el servidor ---------- */
@@ -1048,6 +1054,7 @@ function abrirVentaRuta(){
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
   sincronizarPreciosRuta(); // trae el precio más reciente del Sheet antes de capturar
+  cargarInventarioPropio(); // trae tus existencias actuales antes de capturar
   document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
   document.getElementById("ventaCliente").value = "";
   document.getElementById("ventaMetodoPago").value = "efectivo";
@@ -1061,6 +1068,10 @@ function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
 }
 document.getElementById("btnNuevaVenta").addEventListener("click", abrirVentaRuta);
+document.getElementById("btnAlmacenMovil").addEventListener("click", () => {
+  abrirSheet();
+  cambiarTab("almacen", "mapa");
+});
  
 function actualizarCamposPagoVenta(){
   const metodo = document.getElementById("ventaMetodoPago").value;
@@ -1118,6 +1129,25 @@ async function confirmarVentaRuta(){
   const itemsValidos = ventaItemsActuales.filter(function(it){ return it.producto.trim() && it.cantidad > 0; });
   if (!cliente){ errEl.innerText = "Ingresa el nombre del cliente."; errEl.style.display = "block"; return; }
   if (itemsValidos.length === 0){ errEl.innerText = "Agrega al menos un producto."; errEl.style.display = "block"; return; }
+
+  // Solo se valida contra el almacén móvil lo que trae SKU capturado; una
+  // línea sin SKU se vende igual que siempre (no hay forma de cruzarla).
+  const faltantes = [];
+  itemsValidos.forEach(function(it){
+    const clave = (it.sku || "").trim();
+    if(!clave) return;
+    const disponible = (inventarioPropio[clave] && inventarioPropio[clave].cantidad) || 0;
+    if (it.cantidad > disponible) faltantes.push({ sku: clave, producto: it.producto, cantidad: it.cantidad, disponible: disponible, faltan: it.cantidad - disponible });
+  });
+  if (faltantes.length > 0){
+    errEl.innerHTML = "No hay existencias suficientes en tu almacén móvil para: "
+      + faltantes.map(function(f){ return escapeHtmlVenta(f.producto || f.sku) + " (tienes " + f.disponible + ", faltan " + f.faltan + ")"; }).join(", ")
+      + '. <button type="button" id="btnGenerarPedidoFaltante" style="margin-top:8px;width:100%;background:var(--ochre);color:#0E1518;border:none;border-radius:8px;padding:8px;font-weight:700;cursor:pointer;">Generar pedido para la siguiente ruta</button>';
+    errEl.style.display = "block";
+    const btnPedido = document.getElementById("btnGenerarPedidoFaltante");
+    if(btnPedido) btnPedido.onclick = function(){ generarPedidosRestock(faltantes); };
+    return;
+  }
  
   const metodoPago = document.getElementById("ventaMetodoPago").value;
   const referencia = document.getElementById("ventaReferencia").value.trim();
@@ -1147,6 +1177,23 @@ async function confirmarVentaRuta(){
     // esto se resuelve al instante desde la caché local y se
     // sincroniza solo — el vendedor NO se queda esperando.
     await dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
+
+    // Descuenta del almacén móvil (Firestore + reflejo local inmediato). Ya
+    // se validó arriba que alcanza, así que esto no debería fallar salvo
+    // por falta de señal — en ese caso el increment queda pendiente en la
+    // cola offline de Firestore y se aplica solo en cuanto haya conexión.
+    const actualizacionesInventario = {};
+    itemsValidos.forEach(function(it){
+      const clave = (it.sku || "").trim();
+      if(!clave) return;
+      actualizacionesInventario["items." + clave + ".cantidad"] = firebase.firestore.FieldValue.increment(-it.cantidad);
+      if(inventarioPropio[clave]) inventarioPropio[clave].cantidad -= it.cantidad;
+    });
+    if(Object.keys(actualizacionesInventario).length > 0){
+      docInventarioVendedor(usuarioActual).update(actualizacionesInventario).catch(function(err){
+        console.warn("No se pudo descontar el almacén móvil:", err);
+      });
+    }
 
     // No se espera esta llamada (no "await"): si el Sheet tarda o no hay
     // señal, la venta ya quedó a salvo en Firestore y el ticket se genera
@@ -1214,6 +1261,206 @@ async function compartirTicketVenta(venta, pdfBlob){
   a.href = url; a.download = venta.folio + ".pdf"; a.click();
   URL.revokeObjectURL(url);
   window.open("https://wa.me/?text=" + encodeURIComponent(textoResumen + " (adjunta el PDF que se acaba de descargar)"), "_blank");
+}
+
+/* ════════════════════════════════════════════════════════════
+   ALMACÉN MÓVIL — lo que cada vendedor trae en su unidad.
+   Vive en Firestore: inventario_vendedor/{correo} = { items: { sku: {producto, precioUnitario, cantidad} } }
+   El admin asigna/edita cantidades por vendedor; al vender se descuenta
+   automático y, si no alcanza, se bloquea la venta y se puede generar
+   un "pedido_restock" para que el admin lo surta en la siguiente ruta.
+   ════════════════════════════════════════════════════════════ */
+function docInventarioVendedor(correo){
+  return dbVentaRuta.collection('inventario_vendedor').doc(correo);
+}
+
+let inventarioPropio = {}; // sku -> {producto, precioUnitario, cantidad}, del vendedor logueado
+
+async function cargarInventarioPropio(){
+  if(!usuarioActual || !firebaseVentaRutaListo) return;
+  try{
+    const snap = await docInventarioVendedor(usuarioActual).get();
+    const datos = snap.exists ? snap.data() : null;
+    inventarioPropio = (datos && datos.items) || {};
+  } catch(err){
+    console.warn('No se pudo cargar el almacén móvil:', err);
+  }
+}
+
+// Registra en "pedidos_restock" lo que faltó para que el admin lo surta en
+// la siguiente ruta — no descuenta nada, solo deja constancia de lo pedido.
+async function generarPedidosRestock(faltantes){
+  try{
+    for(const f of faltantes){
+      const ref = dbVentaRuta.collection('pedidos_restock').doc();
+      await ref.set({
+        id: ref.id,
+        vendedor: usuarioActual,
+        vendedorNombre: nombreActual,
+        sku: f.sku,
+        producto: f.producto,
+        cantidadSolicitada: f.faltan,
+        fecha: new Date().toISOString(),
+        estatus: 'pendiente'
+      });
+    }
+    mostrarToast('Pedido generado: se atenderá en la siguiente ruta.');
+    const errEl = document.getElementById('ventaError');
+    if(errEl) errEl.style.display = 'none';
+  } catch(err){
+    mostrarToast('No se pudo generar el pedido: ' + err.message);
+  }
+}
+
+/* ---------- Pantalla "Almacén móvil" ---------- */
+let almacenEditandoCorreo = null; // solo admin: de qué vendedor se está viendo/editando
+let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
+
+async function renderAlmacen(){
+  if(esAdmin) renderAlmacenAdmin();
+  else await renderAlmacenPropio();
+}
+
+async function renderAlmacenPropio(){
+  sheetBody.innerHTML = '<div class="empty">Cargando tu almacén móvil…</div>';
+  await cargarInventarioPropio();
+  if(currentTab !== 'almacen') return;
+  const entradas = Object.entries(inventarioPropio);
+  const filas = entradas.map(function(par){
+    const sku = par[0], it = par[1];
+    return '<div class="item"><div class="info"><div class="name">' + escapeHtml(it.producto || sku) + '</div>'
+      + '<div class="meta">SKU ' + escapeHtml(sku) + ' · $' + Number(it.precioUnitario || 0).toFixed(2) + '</div></div>'
+      + '<div style="font-weight:700; flex-shrink:0;">' + (it.cantidad || 0) + '</div></div>';
+  }).join('');
+  const pedidos = await cargarPedidosPropiosPendientes();
+  if(currentTab !== 'almacen') return;
+  const filasPedidos = pedidos.map(function(p){
+    return '<div class="item"><div class="info"><div class="name">' + escapeHtml(p.producto || p.sku) + '</div>'
+      + '<div class="meta">Pediste ' + p.cantidadSolicitada + ' · Pendiente</div></div></div>';
+  }).join('');
+  sheetBody.innerHTML =
+    '<div style="font-weight:700; font-size:14px; margin-bottom:10px;">Existencias que traes contigo</div>'
+    + (filas || '<div class="empty">Aún no tienes inventario asignado. Pídele a un admin que te lo cargue.</div>')
+    + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes</div>'
+    + (filasPedidos || '<div class="empty">No tienes pedidos pendientes.</div>');
+}
+
+async function cargarPedidosPropiosPendientes(){
+  try{
+    const snap = await dbVentaRuta.collection('pedidos_restock')
+      .where('vendedor', '==', usuarioActual).where('estatus', '==', 'pendiente').get();
+    return snap.docs.map(function(d){ return d.data(); });
+  } catch(err){ return []; }
+}
+
+function renderAlmacenAdmin(){
+  sheetBody.innerHTML =
+    '<div class="field"><label>Correo del vendedor</label>'
+    + '<input type="text" id="almCorreo" placeholder="vendedor@correo.com" value="' + escapeHtml(almacenEditandoCorreo || '') + '"></div>'
+    + '<div class="save-row" style="margin-bottom:14px;"><button class="btn primary" id="btnAlmCargar" style="flex:1;">Cargar almacén</button></div>'
+    + '<div id="almListaWrap"></div>'
+    + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes (todos los vendedores)</div>'
+    + '<div id="almPedidosWrap"><div class="empty">Cargando…</div></div>';
+
+  document.getElementById('btnAlmCargar').addEventListener('click', async function(){
+    const correo = document.getElementById('almCorreo').value.trim();
+    if(!correo){ mostrarToast('Escribe el correo del vendedor'); return; }
+    almacenEditandoCorreo = correo;
+    await cargarAlmacenParaEdicion(correo);
+  });
+  cargarPedidosPendientesAdmin();
+}
+
+async function cargarAlmacenParaEdicion(correo){
+  const wrap = document.getElementById('almListaWrap');
+  if(wrap) wrap.innerHTML = '<div class="empty">Cargando…</div>';
+  try{
+    const snap = await docInventarioVendedor(correo).get();
+    const datos = snap.exists ? snap.data() : null;
+    const items = (datos && datos.items) || {};
+    almacenItemsEdicion = Object.entries(items).map(function(par){
+      const sku = par[0], it = par[1];
+      return { sku: sku, producto: it.producto || '', precioUnitario: Number(it.precioUnitario) || 0, cantidad: Number(it.cantidad) || 0 };
+    });
+  } catch(err){
+    almacenItemsEdicion = [];
+    mostrarToast('No se pudo cargar (revisa el correo o tu señal)');
+  }
+  if(currentTab === 'almacen') renderAlmacenListaEdicion();
+}
+
+function renderAlmacenListaEdicion(){
+  const wrap = document.getElementById('almListaWrap');
+  if(!wrap) return;
+  wrap.innerHTML =
+    almacenItemsEdicion.map(function(it, idx){
+      return '<div class="venta-fila-item">'
+        + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku) + '" onchange="almActualizarCampo(' + idx + ',\'sku\',this.value)">'
+        + '<input class="vi-producto" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="almActualizarCampo(' + idx + ',\'producto\',this.value)">'
+        + '<input class="vi-cant" type="number" min="0" placeholder="Cant" value="' + it.cantidad + '" onchange="almActualizarCampo(' + idx + ',\'cantidad\',this.value)">'
+        + '<input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precioUnitario + '" onchange="almActualizarCampo(' + idx + ',\'precioUnitario\',this.value)">'
+        + '<button class="vi-quitar" onclick="almQuitarFila(' + idx + ')">✕</button>'
+        + '</div>';
+    }).join('')
+    + '<button class="venta-agregar-item" onclick="almAgregarFila()">+ Agregar línea</button>'
+    + '<div class="save-row" style="margin-top:10px;"><button class="btn primary" id="btnAlmGuardar" style="flex:1;">Guardar cambios</button></div>';
+  document.getElementById('btnAlmGuardar').addEventListener('click', guardarAlmacenEdicion);
+}
+
+function almAgregarFila(){ almacenItemsEdicion.push({ sku: '', producto: '', precioUnitario: 0, cantidad: 0 }); renderAlmacenListaEdicion(); }
+function almQuitarFila(idx){ almacenItemsEdicion.splice(idx, 1); renderAlmacenListaEdicion(); }
+function almActualizarCampo(idx, campo, valor){
+  if(campo === 'sku' || campo === 'producto') almacenItemsEdicion[idx][campo] = valor;
+  else almacenItemsEdicion[idx][campo] = Number(valor) || 0;
+}
+
+async function guardarAlmacenEdicion(){
+  if(!almacenEditandoCorreo){ mostrarToast('Falta el correo del vendedor'); return; }
+  const items = {};
+  almacenItemsEdicion.forEach(function(it){
+    const clave = (it.sku || '').trim();
+    if(!clave) return;
+    items[clave] = { producto: it.producto || '', precioUnitario: it.precioUnitario || 0, cantidad: it.cantidad || 0 };
+  });
+  try{
+    await docInventarioVendedor(almacenEditandoCorreo).set({
+      correo: almacenEditandoCorreo, items: items,
+      actualizadoEn: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    mostrarToast('Almacén de ' + almacenEditandoCorreo + ' actualizado');
+    if(almacenEditandoCorreo === usuarioActual) cargarInventarioPropio();
+  } catch(err){
+    mostrarToast('No se pudo guardar: ' + err.message);
+  }
+}
+
+async function cargarPedidosPendientesAdmin(){
+  const wrap = document.getElementById('almPedidosWrap');
+  try{
+    const snap = await dbVentaRuta.collection('pedidos_restock').where('estatus', '==', 'pendiente').get();
+    const pedidos = snap.docs.map(function(d){ return d.data(); });
+    if(!wrap) return;
+    wrap.innerHTML = pedidos.length ? pedidos.map(function(p){
+      return '<div class="item"><div class="info"><div class="name">' + escapeHtml(p.producto || p.sku) + '</div>'
+        + '<div class="meta">' + escapeHtml(p.vendedorNombre || p.vendedor) + ' · pidió ' + p.cantidadSolicitada + '</div></div>'
+        + '<button class="quitar-parada" data-id="' + p.id + '" title="Marcar como atendido">✓</button></div>';
+    }).join('') : '<div class="empty">No hay pedidos pendientes.</div>';
+    wrap.querySelectorAll('.quitar-parada').forEach(function(btn){
+      btn.addEventListener('click', function(){ marcarPedidoAtendido(btn.dataset.id); });
+    });
+  } catch(err){
+    if(wrap) wrap.innerHTML = '<div class="empty">No se pudieron cargar los pedidos (revisa tu señal).</div>';
+  }
+}
+
+async function marcarPedidoAtendido(id){
+  try{
+    await dbVentaRuta.collection('pedidos_restock').doc(id).update({ estatus: 'atendido' });
+    mostrarToast('Pedido marcado como atendido');
+    cargarPedidosPendientesAdmin();
+  } catch(err){
+    mostrarToast('No se pudo actualizar: ' + err.message);
+  }
 }
 
 /* ---------- Tema: claro / oscuro / sistema ---------- */
@@ -4077,6 +4324,7 @@ function cambiarTab(tab, origen){
     if(tab === 'ajustes') renderAjustes();
     if(tab === 'clima') renderClima();
     if(tab === 'agenda') renderAgenda();
+    if(tab === 'almacen') renderAlmacen();
   } catch(err){
     // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
     // bajo el título nuevo (justo lo que parecía "me sale la lista").
@@ -4134,7 +4382,8 @@ function renderSheetTabs(){
     zonas: 'Mapas descargados',
     ajustes: 'Configuración',
     clima: 'Clima',
-    agenda: 'Próximas rutas'
+    agenda: 'Próximas rutas',
+    almacen: 'Almacén móvil'
   };
   const destino = ETIQUETA_ORIGEN[origenNav] ? origenNav : 'mapa';
   tabsEl.innerHTML = `
