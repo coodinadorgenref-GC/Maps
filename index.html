@@ -114,12 +114,15 @@
     width:min(300px, 84vw); overflow-y:auto;
     background:var(--surface); color:var(--text);
     box-shadow:6px 0 24px rgba(0,0,0,.4);
-    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+    padding-bottom:env(safe-area-inset-bottom);
     transform:translateX(-105%); visibility:hidden;
     transition:transform .22s ease, visibility 0s linear .22s;
   }
   .drawer.open{ transform:translateX(0); visibility:visible; transition:transform .22s ease, visibility 0s; }
-  .drawer-head{ padding:18px 18px 14px; border-bottom:1px solid var(--line); }
+  .drawer-head{
+    padding:calc(18px + env(safe-area-inset-top)) 18px 14px; border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:2; background:var(--surface);
+  }
   .drawer-title{ font-size:17px; font-weight:700; letter-spacing:-0.2px; }
   .drawer-sub{ font-size:12px; color:var(--text-dim); margin-top:2px; }
   .drawer-head .sync-wrap{ margin-top:10px; }
@@ -390,6 +393,10 @@
   .pop-res .pop-dim{ color:#7d8891; }
   .pop-res .pop-nota{ margin-top:5px; font-size:12px; line-height:1.35; color:#4b5560; }
   .pop-res .pop-ficha{
+    margin-top:8px; width:100%; padding:7px 10px; border:none; border-radius:8px; cursor:pointer;
+    background:#C4D600; color:#0E1518; font-size:13px; font-weight:700;
+  }
+  .pop-simple .pop-venta{
     margin-top:8px; width:100%; padding:7px 10px; border:none; border-radius:8px; cursor:pointer;
     background:#C4D600; color:#0E1518; font-size:13px; font-weight:700;
   }
@@ -1055,14 +1062,14 @@ function generarFolioVenta(){
 let ventaItemsActuales = [];
 let ventaFolioActual = "";
  
-function abrirVentaRuta(){
+function abrirVentaRuta(nombreCliente){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
   sincronizarPreciosRuta(); // trae el precio más reciente del Sheet antes de capturar
   cargarInventarioPropio(); // trae tus existencias actuales antes de capturar
   document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
-  document.getElementById("ventaCliente").value = "";
+  document.getElementById("ventaCliente").value = nombreCliente || "";
   document.getElementById("ventaMetodoPago").value = "efectivo";
   document.getElementById("ventaError").style.display = "none";
   actualizarCamposPagoVenta();
@@ -1323,7 +1330,7 @@ let almacenEditandoCorreo = null; // solo admin: de qué vendedor se está viend
 let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
 
 async function renderAlmacen(){
-  if(esAdmin) renderAlmacenAdmin();
+  if(esAdmin) await renderAlmacenAdmin();
   else await renderAlmacenPropio();
 }
 
@@ -1359,23 +1366,99 @@ async function cargarPedidosPropiosPendientes(){
   } catch(err){ return []; }
 }
 
-function renderAlmacenAdmin(){
+/* ---------- Lista de vendedores (para el desplegable del almacén) ----------
+   Vive en Firestore: config/vendedores = { lista: [{correo, nombre}] }.
+   El admin la va llenando desde la propia pantalla de almacén — no hace
+   falta tocar el Código.gs ni el login para esto. */
+let listaVendedores = []; // [{correo, nombre}]
+
+function docConfigVendedores(){
+  return dbVentaRuta.collection('config').doc('vendedores');
+}
+
+async function cargarListaVendedores(){
+  try{
+    const snap = await docConfigVendedores().get();
+    const datos = snap.exists ? snap.data() : null;
+    listaVendedores = (datos && Array.isArray(datos.lista)) ? datos.lista : [];
+  } catch(err){
+    listaVendedores = [];
+  }
+}
+
+async function guardarListaVendedoresFirestore(){
+  try{
+    await docConfigVendedores().set({ lista: listaVendedores });
+  } catch(err){
+    mostrarToast('No se pudo guardar la lista de vendedores: ' + err.message);
+  }
+}
+
+async function renderAlmacenAdmin(){
   sincronizarPreciosRuta(); // trae el precio más reciente de la hoja Precios antes de editar
+  sheetBody.innerHTML = '<div class="empty">Cargando vendedores…</div>';
+  await cargarListaVendedores();
+  if(currentTab !== 'almacen') return;
+  pintarPantallaAlmacenAdmin();
+  cargarPedidosPendientesAdmin();
+}
+
+function pintarPantallaAlmacenAdmin(){
+  const opciones = listaVendedores.map(function(v){
+    return '<option value="' + escapeHtml(v.correo) + '"' + (v.correo === almacenEditandoCorreo ? ' selected' : '') + '>'
+      + escapeHtml(v.nombre || v.correo) + '</option>';
+  }).join('');
+
   sheetBody.innerHTML =
-    '<div class="field"><label>Correo del vendedor</label>'
-    + '<input type="text" id="almCorreo" placeholder="vendedor@correo.com" value="' + escapeHtml(almacenEditandoCorreo || '') + '"></div>'
-    + '<div class="save-row" style="margin-bottom:14px;"><button class="btn primary" id="btnAlmCargar" style="flex:1;">Cargar almacén</button></div>'
+    '<div class="field"><label>Vendedor</label>'
+    + '<select id="almVendedorSelect">'
+    + (listaVendedores.length ? opciones : '<option value="">— sin vendedores registrados —</option>')
+    + '<option value="__nuevo__">➕ Agregar vendedor nuevo…</option>'
+    + '</select></div>'
+    + '<div id="almNuevoVendedorWrap" hidden style="margin:-6px 0 12px;">'
+    + '<input type="text" id="almNuevoNombre" placeholder="Nombre del vendedor" style="margin-bottom:6px;">'
+    + '<input type="text" id="almNuevoCorreo" placeholder="correo@vendedor.com">'
+    + '<div class="save-row" style="margin-top:8px;"><button class="btn primary" id="btnAlmNuevoGuardar" style="flex:1;">Guardar vendedor</button></div>'
+    + '</div>'
+    + '<div class="save-row" style="margin-bottom:6px;"><button class="btn primary" id="btnAlmCargar" style="flex:1;">Cargar almacén</button></div>'
+    + '<div style="text-align:right; margin-bottom:14px;"><button type="button" id="btnAlmQuitarVendedor" style="background:none; border:none; color:var(--text-dim); font-size:11.5px; text-decoration:underline; cursor:pointer;">Quitar vendedor de la lista</button></div>'
     + '<div id="almListaWrap"></div>'
     + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes (todos los vendedores)</div>'
     + '<div id="almPedidosWrap"><div class="empty">Cargando…</div></div>';
 
+  const sel = document.getElementById('almVendedorSelect');
+  sel.addEventListener('change', function(){
+    document.getElementById('almNuevoVendedorWrap').hidden = (sel.value !== '__nuevo__');
+  });
+
+  document.getElementById('btnAlmNuevoGuardar').addEventListener('click', async function(){
+    const nombre = document.getElementById('almNuevoNombre').value.trim();
+    const correo = document.getElementById('almNuevoCorreo').value.trim();
+    if(!nombre || !correo){ mostrarToast('Escribe nombre y correo del vendedor'); return; }
+    if(listaVendedores.some(function(v){ return v.correo === correo; })){ mostrarToast('Ese correo ya está en la lista'); return; }
+    listaVendedores.push({ nombre: nombre, correo: correo });
+    await guardarListaVendedoresFirestore();
+    almacenEditandoCorreo = correo;
+    pintarPantallaAlmacenAdmin();
+    await cargarAlmacenParaEdicion(correo);
+  });
+
   document.getElementById('btnAlmCargar').addEventListener('click', async function(){
-    const correo = document.getElementById('almCorreo').value.trim();
-    if(!correo){ mostrarToast('Escribe el correo del vendedor'); return; }
+    const correo = sel.value;
+    if(!correo || correo === '__nuevo__'){ mostrarToast('Elige un vendedor de la lista'); return; }
     almacenEditandoCorreo = correo;
     await cargarAlmacenParaEdicion(correo);
   });
-  cargarPedidosPendientesAdmin();
+
+  document.getElementById('btnAlmQuitarVendedor').addEventListener('click', async function(){
+    const correo = sel.value;
+    if(!correo || correo === '__nuevo__'){ mostrarToast('Elige primero un vendedor de la lista'); return; }
+    if(!confirm('¿Quitar a este vendedor de la lista? No se borra su almacén, solo deja de aparecer aquí.')) return;
+    listaVendedores = listaVendedores.filter(function(v){ return v.correo !== correo; });
+    await guardarListaVendedoresFirestore();
+    if(almacenEditandoCorreo === correo) almacenEditandoCorreo = null;
+    pintarPantallaAlmacenAdmin();
+  });
 }
 
 async function cargarAlmacenParaEdicion(correo){
@@ -1401,10 +1484,11 @@ function renderAlmacenListaEdicion(){
   if(!wrap) return;
   wrap.innerHTML =
     '<div class="save-row" style="margin-bottom:10px;">'
+    + '<button class="btn" id="btnAlmPlantilla" style="flex:1;">⬇️ Plantilla</button>'
     + '<button class="btn" id="btnAlmExcel" style="flex:1;">📄 Cargar desde Excel/CSV</button>'
     + '</div>'
     + '<input type="file" id="almExcelInput" accept=".xlsx,.xls,.csv" style="display:none">'
-    + '<div style="font-size:11.5px; color:var(--text-dim); margin:-4px 0 12px;">Columnas esperadas: sku, cantidad (obligatorias) y opcionalmente producto, precioUnitario — si faltan producto/precio, se toman de la hoja Precios por SKU. Esto reemplaza la lista de abajo.</div>'
+    + '<div style="font-size:11.5px; color:var(--text-dim); margin:-4px 0 12px;">Descarga la plantilla, llénala (sku y cantidad obligatorias; producto/precio se toman solos de la hoja Precios si los dejas vacíos) y súbela aquí. Esto reemplaza la lista de abajo.</div>'
     + almacenItemsEdicion.map(function(it, idx){
       return '<div class="venta-fila-item">'
         + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku) + '" onchange="almActualizarCampo(' + idx + ',\'sku\',this.value)">'
@@ -1417,8 +1501,23 @@ function renderAlmacenListaEdicion(){
     + '<button class="venta-agregar-item" onclick="almAgregarFila()">+ Agregar línea</button>'
     + '<div class="save-row" style="margin-top:10px;"><button class="btn primary" id="btnAlmGuardar" style="flex:1;">Guardar cambios</button></div>';
   document.getElementById('btnAlmGuardar').addEventListener('click', guardarAlmacenEdicion);
+  document.getElementById('btnAlmPlantilla').addEventListener('click', almDescargarPlantilla);
   document.getElementById('btnAlmExcel').addEventListener('click', function(){ document.getElementById('almExcelInput').click(); });
   document.getElementById('almExcelInput').addEventListener('change', almImportarExcel);
+}
+
+// Genera y descarga un .xlsx en blanco con las columnas exactas que espera
+// almImportarExcel, más una fila de ejemplo — así se evita el error humano
+// de capturar con encabezados distintos o en el orden equivocado.
+function almDescargarPlantilla(){
+  const datos = [
+    ['sku', 'producto', 'cantidad', 'precioUnitario'],
+    ['VM10010035', '(opcional si el SKU ya tiene precio en Precios)', 5, '']
+  ];
+  const hoja = XLSX.utils.aoa_to_sheet(datos);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, 'AlmacenMovil');
+  XLSX.writeFile(libro, 'plantilla_almacen_movil.xlsx');
 }
 
 function almAgregarFila(){ almacenItemsEdicion.push({ sku: '', producto: '', precioUnitario: 0, cantidad: 0 }); renderAlmacenListaEdicion(); }
@@ -3445,6 +3544,19 @@ function numeroDeSeleccion(id){
   return [...seleccionRuta].indexOf(id) + 1;
 }
 
+// Contenido del popup simple (long-press sobre un pin) — nombre, estatus y
+// origen de siempre, más un botón "Registrar venta" cuando quien tiene la
+// sesión puede vender en ruta: así visitar el punto en el mapa y levantar
+// la venta de ese mismo cliente quedan en un solo toque.
+function contenidoPopupSimple(p, esPrioridad){
+  let html = `<div class="pop-simple"><b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`;
+  if(puedeVenderEnRuta()){
+    html += `<button type="button" class="pop-venta">🧾 Registrar venta</button>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
 function renderMarcadores(){
   markersLayer.clearLayers();
   marcadoresPorId.clear();
@@ -3460,8 +3572,12 @@ function renderMarcadores(){
       const esPrioridad = !!p.prioridad;
       const opciones = { esDenue, enRuta, idxRuta, seleccionado, esPrioridad, numeroSeleccion };
       const m = L.marker([p.lat, p.lng], { icon: crearIconoPin(p, opciones) })
-        .bindPopup(`<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`);
+        .bindPopup(contenidoPopupSimple(p, esPrioridad));
       m.prospectoEstatus = p.estatus;
+      m.on('popupopen', e => {
+        const b = e.popup.getElement() && e.popup.getElement().querySelector('.pop-venta');
+        if(b) b.onclick = () => { m.closePopup(); abrirVentaRuta(p.nombre); };
+      });
 
       // Mantener presionado ~3s muestra la etiqueta (popup) sin entrar a
       // editar; si se disparó, el "click" al soltar el dedo se ignora una
@@ -5395,15 +5511,6 @@ function quitarParadaDeRuta(id){
 // Google Maps no tiene turn-by-turn "embebido" gratis, pero sí acepta un
 // origen + varias paradas intermedias + destino por URL: le pasamos el
 // orden que ya calculamos y él se encarga de la navegación real por calles.
-// Abre un punto suelto (no una ruta) directo en la app de mapas del sistema.
-// En Android/iOS con Google Maps instalado, este mismo enlace abre la app
-// directo; si no, abre Google Maps en el navegador — funciona igual en PC.
-// Ya dentro de Google Maps, el usuario puede cambiar a Waze o Apple Maps si
-// lo prefiere (Google Maps no permite forzar "abrir con" desde un enlace web).
-function abrirUbicacionEnMaps(lat, lng){
-  location.href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-}
-
 function abrirEnGoogleMaps(){
   let { origen, paradas } = rutaCalculada;
   if(paradas.length === 0) return;
@@ -5707,8 +5814,7 @@ function renderFormAlta(){
     <div class="field">
       <div class="loc-row" style="margin-bottom:0;">
         <button class="btn" type="button" id="btnMostrarEnlaceMaps">🔗 Enlace</button>
-        <button class="btn" type="button" id="btnAbrirEnMaps">🧭 Abrir en Maps</button>
-        <button class="btn" type="button" id="btnCompartirUbicacion">📤 Compartir</button>
+        <button class="btn" type="button" id="btnAbrirEnMaps">📍 Abrir / compartir ubicación</button>
         <button class="btn" type="button" id="btnMostrarContacto">💬 Contacto</button>
       </div>
       <div id="bloqueEnlaceMaps" style="display:none; margin-top:10px;">
@@ -5827,11 +5933,7 @@ function renderFormAlta(){
   });
   document.getElementById('btnAbrirEnMaps').addEventListener('click', () => {
     if(!tempCoord){ mostrarToast('Primero define la ubicación (GPS, mapa o enlace)'); return; }
-    abrirUbicacionEnMaps(tempCoord.lat, tempCoord.lng);
-  });
-  document.getElementById('btnCompartirUbicacion').addEventListener('click', () => {
-    if(!tempCoord){ mostrarToast('Primero define la ubicación (GPS, mapa o enlace)'); return; }
-    compartirUbicacion({
+    abrirOCompartirUbicacion({
       nombre: document.getElementById('fNombre').value.trim() || 'Ubicación',
       lat: tempCoord.lat,
       lng: tempCoord.lng
@@ -5878,23 +5980,20 @@ function extraerCoordsDeGoogleMaps(texto){
   return null;
 }
 
-// Comparte la ubicación de un prospecto como enlace de Google Maps — usa el
-// panel nativo para compartir (WhatsApp, mensajes, etc.) cuando el teléfono
-// lo permite; si no, lo copia al portapapeles.
-async function compartirUbicacion(p){
+// Un solo botón para "ir ahí o mandarlo": abre el panel nativo de compartir
+// (el propio teléfono decide qué apps ofrecer — Google Maps, Waze si está
+// instalada y sabe leer el enlace, WhatsApp, Mensajes, etc.) para que el
+// vendedor elija ahí mismo. Si el navegador no tiene panel de compartir
+// (la mayoría de PCs), abre Google Maps directo como respaldo.
+async function abrirOCompartirUbicacion(p){
   const url = `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
   if(navigator.share){
     try{
       await navigator.share({ title: p.nombre, text: p.nombre, url });
-      return;
-    } catch(e){ /* el usuario canceló el panel de compartir: no hacer nada más */ return; }
+    } catch(e){ /* el usuario cerró el panel de compartir: no hacer nada más */ }
+    return;
   }
-  try{
-    await navigator.clipboard.writeText(url);
-    mostrarToast('Enlace copiado — pégalo donde quieras enviarlo');
-  } catch(e){
-    mostrarToast(url);
-  }
+  location.href = url;
 }
 
 function guardarDesdeForm(){
