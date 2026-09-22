@@ -148,6 +148,50 @@
   .drawer-subitem.sel .marca::after{ content:'✓'; }
   .drawer-sep{ height:1px; background:var(--line); margin:8px 0; }
 
+  /* ---------- Sesión (login) ---------- */
+  .login-overlay{
+    position:fixed; inset:0; z-index:5000;
+    background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; padding-top:calc(24px + env(safe-area-inset-top));
+    padding-bottom:calc(24px + env(safe-area-inset-bottom));
+  }
+  .login-overlay[hidden]{ display:none; }
+  .login-card{
+    width:100%; max-width:360px;
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:26px 22px;
+  }
+  .login-titulo{ font-size:19px; font-weight:700; letter-spacing:-0.2px; text-align:center; }
+  .login-sub{ font-size:12.5px; color:var(--text-dim); text-align:center; margin-top:4px; margin-bottom:20px; }
+  .login-campo{ margin-bottom:14px; }
+  .login-campo label{ font-size:12px; color:var(--text-dim); display:block; margin-bottom:6px; }
+  .login-campo input{
+    width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
+    color:var(--text); border-radius:10px; padding:11px 12px; font-size:15px; outline:none;
+  }
+  .login-campo input:focus{ border-color:var(--accent); }
+  .login-pin-wrap{ position:relative; }
+  .login-pin-wrap input{ padding-right:40px; }
+  .login-ojo{
+    position:absolute; right:10px; top:50%; transform:translateY(-50%);
+    background:none; border:none; color:var(--text-dim); cursor:pointer; padding:4px;
+  }
+  .login-recordarme{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim); margin-bottom:16px; }
+  .login-recordarme input{ width:16px; height:16px; }
+  .login-btn{
+    width:100%; background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px;
+    padding:12px; font-size:15px; font-weight:700; cursor:pointer;
+  }
+  .login-btn:disabled{ opacity:.6; cursor:default; }
+  .login-error{
+    display:none; background:rgba(214,95,95,.12); color:var(--danger); border:1px solid rgba(214,95,95,.35);
+    font-size:12.5px; font-weight:600; padding:9px 10px; border-radius:10px; margin-bottom:14px; text-align:center;
+  }
+  .sesion-badge{ font-size:11.5px; color:var(--text-dim); margin-top:2px; }
+  .sesion-badge b{ color:var(--text); }
+  .drawer-item.salir svg{ color:var(--danger); }
+
   #map{ position:absolute; inset:0; }
   .leaflet-control-attribution{ font-size:9px; }
 
@@ -459,6 +503,29 @@
 </head>
 <body>
 
+<div class="login-overlay" id="vistaLogin">
+  <div class="login-card">
+    <div class="login-titulo">Prospectos &amp; Rutas GC</div>
+    <div class="login-sub">Inicia sesión con tu cuenta del catálogo</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-campo">
+      <label for="loginCorreo">Correo o teléfono</label>
+      <input type="text" id="loginCorreo" autocomplete="username" inputmode="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPin').focus();">
+    </div>
+    <div class="login-campo">
+      <label for="loginPin">Código de acceso</label>
+      <div class="login-pin-wrap">
+        <input type="password" id="loginPin" autocomplete="current-password" onkeydown="if(event.key==='Enter')manejarInicioDeSesionMaps();">
+        <button type="button" class="login-ojo" id="loginOjo" onclick="alternarVisibilidadPinMaps()" aria-label="Mostrar código">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5C21.27 7.61 17 4.5 12 4.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+        </button>
+      </div>
+    </div>
+    <label class="login-recordarme"><input type="checkbox" id="loginRecordarme"> Recuérdame en este dispositivo</label>
+    <button class="login-btn" id="loginBtn" onclick="manejarInicioDeSesionMaps()">Entrar</button>
+  </div>
+</div>
+
 <div id="pickBanner" class="pick-banner">Toca un punto en el mapa para marcar la ubicación</div>
 <div id="routeBanner" class="route-banner">
   <span class="txt" id="routeBannerTxt">Toca los prospectos en el mapa para sumarlos a la ruta (0)</span>
@@ -488,6 +555,7 @@
   <div class="drawer-head">
     <div class="drawer-title">Prospectos &amp; Rutas</div>
     <div class="drawer-sub" id="headerSub">0 registrados</div>
+    <div class="sesion-badge" id="sesionBadge"></div>
     <div class="sync-wrap" id="syncWrap" title="Toca para buscar cambios de otros dispositivos">
       <span class="sync-dot" id="syncDot"></span>
       <span id="syncText">Local</span>
@@ -524,6 +592,9 @@
 
   <div class="drawer-sep"></div>
   <button class="drawer-item" id="btnAjustesHeader"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg><span class="txt">Configuración</span></button>
+
+  <div class="drawer-sep"></div>
+  <button class="drawer-item salir" id="btnCerrarSesion" onclick="cerrarSesionMaps()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L17.17 10H8v2h9.17l-1.58 1.59L17 15l4-4zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg><span class="txt">Cerrar sesión</span></button>
 </aside>
 <input type="file" id="fileImportarGlobal" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
 
@@ -574,6 +645,229 @@
 <script src="leaflet-rotate.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
+/* ════════════════════════════════════════════════════════════
+   SESIÓN (login) — reutiliza el MISMO backend (Worker + Código.gs)
+   que ya usa CATALOGO-DE-INVENTARIO, así que comparte la hoja
+   Usuarios_Autorizados, roles y expiración de sesión. Un usuario
+   con rol "vendedor" (columna F) entra aquí igual que uno normal
+   del catálogo; esAdmin (columna F === "admin") sigue siendo quien
+   más adelante vea el panel central de monitoreo.
+   ════════════════════════════════════════════════════════════ */
+const LOGIN_API_URL = "https://catalogo-labarata-proxy.catalogo-labarata.workers.dev";
+const SESION_MAPS_KEY = "sesion_maps_gc";
+const TIEMPO_EXPIRACION_SESION_MAPS_MS = 15 * 60 * 1000; // debe coincidir con el default del servidor
+const DURACION_RECORDARME_MAPS_MS = 60 * 60 * 1000; // debe coincidir con "Recuérdame" del servidor
+const HEARTBEAT_SESION_MAPS_MS = 3 * 60 * 1000;
+const EVENTOS_ACTIVIDAD_SESION_MAPS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+
+let usuarioActual = null;
+let tokenActual = null;
+let esAdmin = false;
+let rolActual = "";
+let nombreActual = "";
+let accesoOfflinePermitidoMaps = false;
+let duracionSesionActualMapsMs = TIEMPO_EXPIRACION_SESION_MAPS_MS;
+let temporizadorInactividadMaps = null;
+let intervaloHeartbeatSesionMaps = null;
+let appMapasIniciada = false; // evita arrancar el arranque de datos dos veces
+
+function alternarVisibilidadPinMaps(){
+  const input = document.getElementById("loginPin");
+  input.type = (input.type === "password") ? "text" : "password";
+}
+
+function mostrarErrorLoginMaps(msg){
+  const el = document.getElementById("loginError");
+  el.innerText = msg;
+  el.style.display = "block";
+}
+function ocultarErrorLoginMaps(){
+  document.getElementById("loginError").style.display = "none";
+}
+
+function pintarBadgeSesionMaps(){
+  const el = document.getElementById("sesionBadge");
+  if(!el) return;
+  el.innerHTML = nombreActual
+    ? ("<b>" + nombreActual + "</b>" + (rolActual ? " · " + rolActual : (esAdmin ? " · Admin" : "")))
+    : "";
+}
+
+async function manejarInicioDeSesionMaps(){
+  const correoEl = document.getElementById("loginCorreo");
+  const pinEl = document.getElementById("loginPin");
+  const btnEl = document.getElementById("loginBtn");
+  const identificador = correoEl.value.trim();
+  const pin = pinEl.value.trim();
+
+  ocultarErrorLoginMaps();
+  if(!identificador){ mostrarErrorLoginMaps("Ingresa tu correo o teléfono."); return; }
+  if(!pin){ mostrarErrorLoginMaps("Ingresa el código de acceso."); return; }
+
+  btnEl.disabled = true; btnEl.innerText = "Verificando...";
+  try{
+    const r = await fetch(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({
+        action:"login", correo: identificador, codigoAcceso: pin,
+        dispositivo: (navigator.userAgent||"").slice(0,180),
+        recordarme: document.getElementById("loginRecordarme")?.checked || false
+      })
+    });
+    const rs = await r.json();
+    if(rs.success){
+      usuarioActual = rs.correo || identificador;
+      tokenActual = rs.token;
+      esAdmin = rs.esAdmin || false;
+      rolActual = rs.rol || "";
+      nombreActual = rs.nombre || "";
+      accesoOfflinePermitidoMaps = rs.accesoOffline || false;
+      const recordarme = document.getElementById("loginRecordarme")?.checked || false;
+      duracionSesionActualMapsMs = recordarme ? DURACION_RECORDARME_MAPS_MS : TIEMPO_EXPIRACION_SESION_MAPS_MS;
+      guardarSesionMaps();
+      pintarBadgeSesionMaps();
+      document.getElementById("vistaLogin").hidden = true;
+      iniciarControlDeSesionMaps();
+      iniciarAppMapasSiHaceFalta();
+    } else {
+      mostrarErrorLoginMaps(rs.message || "No pudimos validar tus datos.");
+      btnEl.disabled = false; btnEl.innerText = "Entrar";
+    }
+  } catch(e){
+    mostrarErrorLoginMaps("Error de conexión con el servidor.");
+    btnEl.disabled = false; btnEl.innerText = "Entrar";
+  }
+}
+
+function guardarSesionMaps(){
+  localStorage.setItem(SESION_MAPS_KEY, JSON.stringify({
+    correo: usuarioActual, token: tokenActual, nombre: nombreActual, esAdmin, rol: rolActual || "",
+    accesoOffline: !!accesoOfflinePermitidoMaps,
+    duracionMs: duracionSesionActualMapsMs,
+    timestamp: new Date().getTime()
+  }));
+}
+function actualizarTimestampSesionMaps(){
+  const s = localStorage.getItem(SESION_MAPS_KEY);
+  if(s){ const o = JSON.parse(s); o.timestamp = new Date().getTime(); localStorage.setItem(SESION_MAPS_KEY, JSON.stringify(o)); }
+}
+
+function verificarSesionGuardadaMaps(){
+  const str = localStorage.getItem(SESION_MAPS_KEY);
+  if(!str) return; // se queda en la pantalla de login
+  const s = JSON.parse(str);
+  duracionSesionActualMapsMs = s.duracionMs || TIEMPO_EXPIRACION_SESION_MAPS_MS;
+
+  if(new Date().getTime() - s.timestamp > duracionSesionActualMapsMs){
+    if(!navigator.onLine && s.accesoOffline){
+      // Cuenta autorizada para trabajar offline: entra con lo que ya
+      // tenía guardado; el heartbeat normal confirma en cuanto haya señal.
+      usuarioActual = s.correo; tokenActual = s.token; esAdmin = s.esAdmin || false;
+      rolActual = s.rol || ""; nombreActual = s.nombre || ""; accesoOfflinePermitidoMaps = true;
+    } else {
+      try{
+        const payload = JSON.stringify({ action:"cerrarSesionServidor", correo:s.correo, token:s.token });
+        navigator.sendBeacon(LOGIN_API_URL, new Blob([payload], { type:"text/plain" }));
+      } catch(e){}
+      localStorage.removeItem(SESION_MAPS_KEY);
+      return; // se queda en la pantalla de login
+    }
+  }
+
+  accesoOfflinePermitidoMaps = s.accesoOffline || false;
+  usuarioActual = s.correo; tokenActual = s.token; esAdmin = s.esAdmin || false;
+  rolActual = s.rol || ""; nombreActual = s.nombre || "";
+  pintarBadgeSesionMaps();
+  document.getElementById("vistaLogin").hidden = true;
+  actualizarTimestampSesionMaps();
+  iniciarControlDeSesionMaps();
+  iniciarAppMapasSiHaceFalta();
+}
+
+function _liberarSesionMapsEnServidor(){
+  if(!usuarioActual || !tokenActual) return;
+  try{
+    const payload = JSON.stringify({ action:"cerrarSesionServidor", correo:usuarioActual, token:tokenActual });
+    navigator.sendBeacon(LOGIN_API_URL, new Blob([payload], { type:"text/plain" }));
+  } catch(e){}
+}
+
+function reiniciarTemporizadorInactividadMaps(){
+  actualizarTimestampSesionMaps();
+  clearTimeout(temporizadorInactividadMaps);
+  temporizadorInactividadMaps = setTimeout(cerrarSesionPorInactividadMaps, duracionSesionActualMapsMs);
+}
+
+function cerrarSesionPorInactividadMaps(){
+  if(!navigator.onLine && accesoOfflinePermitidoMaps){
+    temporizadorInactividadMaps = setTimeout(cerrarSesionPorInactividadMaps, HEARTBEAT_SESION_MAPS_MS);
+    return;
+  }
+  _liberarSesionMapsEnServidor();
+  detenerControlDeSesionMaps();
+  localStorage.removeItem(SESION_MAPS_KEY);
+  const minutos = Math.round(duracionSesionActualMapsMs / 60000);
+  alert("Tu sesión se cerró automáticamente por " + minutos + " minutos de inactividad.");
+  location.reload();
+}
+
+async function heartbeatSesionMaps(){
+  if(!usuarioActual || !tokenActual) return;
+  try{
+    const r = await fetch(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({ action:"validarSesion", correo:usuarioActual, token:tokenActual }) });
+    const rs = await r.json();
+    if(!rs.success) manejarSesionInvalidaMaps(rs.message);
+  } catch(e){ /* sin conexión: se reintenta en el siguiente ciclo */ }
+}
+
+function manejarSesionInvalidaMaps(motivo){
+  detenerControlDeSesionMaps();
+  localStorage.removeItem(SESION_MAPS_KEY);
+  alert(motivo || "Tu sesión ha sido cerrada. Vuelve a iniciar sesión.");
+  location.reload();
+}
+
+function iniciarControlDeSesionMaps(){
+  detenerControlDeSesionMaps();
+  reiniciarTemporizadorInactividadMaps();
+  document.addEventListener("scroll", reiniciarTemporizadorInactividadMaps, { passive:true, capture:true });
+  EVENTOS_ACTIVIDAD_SESION_MAPS.filter(ev => ev !== "scroll")
+    .forEach(ev => document.addEventListener(ev, reiniciarTemporizadorInactividadMaps, { passive:true }));
+  intervaloHeartbeatSesionMaps = setInterval(heartbeatSesionMaps, HEARTBEAT_SESION_MAPS_MS);
+  document.addEventListener("visibilitychange", _onVisibilidadSesionMaps);
+  window.addEventListener("focus", _onFocoSesionMaps);
+}
+function _onVisibilidadSesionMaps(){
+  if(document.visibilityState === "visible" && usuarioActual && tokenActual){
+    reiniciarTemporizadorInactividadMaps();
+    heartbeatSesionMaps();
+  }
+}
+function _onFocoSesionMaps(){
+  if(usuarioActual && tokenActual){
+    reiniciarTemporizadorInactividadMaps();
+    heartbeatSesionMaps();
+  }
+}
+
+function detenerControlDeSesionMaps(){
+  clearTimeout(temporizadorInactividadMaps);
+  clearInterval(intervaloHeartbeatSesionMaps);
+  document.removeEventListener("scroll", reiniciarTemporizadorInactividadMaps, { capture:true });
+  EVENTOS_ACTIVIDAD_SESION_MAPS.filter(ev => ev !== "scroll")
+    .forEach(ev => document.removeEventListener(ev, reiniciarTemporizadorInactividadMaps));
+  document.removeEventListener("visibilitychange", _onVisibilidadSesionMaps);
+  window.removeEventListener("focus", _onFocoSesionMaps);
+}
+
+function cerrarSesionMaps(){
+  if(!confirm("¿Cerrar sesión?")) return;
+  _liberarSesionMapsEnServidor();
+  detenerControlDeSesionMaps();
+  localStorage.removeItem(SESION_MAPS_KEY);
+  location.reload();
+}
+
 /* ---------- Tema: claro / oscuro / sistema ---------- */
 const TEMA_KEY = 'gc_tema_v1';
 function obtenerTemaGuardado(){
@@ -5176,17 +5470,28 @@ document.getElementById('btnRutaActual').addEventListener('click', () => {
   cambiarTab('ruta', 'mapa');
 });
 
-/* ---------- Arranque ---------- */
-cerrarSheet(); // estado conocido: nunca debe arrancar abierta de por sí
-renderSheetTabs();
-renderMarcadores();
-actualizarHeader();
-renderLista();
-if(prospectos.length > 0){ ajustarVistaATodos(); }
-cargarDenueCompartido();
-syncPendientes();
-setInterval(syncPendientes, 5 * 60 * 1000); // reintenta cada 5 min mientras la app siga abierta
-activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando solo lo cercano (100 km); el mapa sigue mostrando todo
+/* ---------- Arranque de datos (solo tras iniciar sesión) ----------
+   Antes corría de inmediato al cargar el script; ahora se retrasa
+   hasta que haya una sesión válida (nueva o restaurada), para que un
+   dispositivo sin sesión no llegue a pintar prospectos ni sincronizar
+   nada contra el servidor. */
+function iniciarAppMapasSiHaceFalta(){
+  if(appMapasIniciada) return;
+  appMapasIniciada = true;
+  cerrarSheet(); // estado conocido: nunca debe arrancar abierta de por sí
+  renderSheetTabs();
+  renderMarcadores();
+  actualizarHeader();
+  renderLista();
+  if(prospectos.length > 0){ ajustarVistaATodos(); }
+  cargarDenueCompartido();
+  syncPendientes();
+  setInterval(syncPendientes, 5 * 60 * 1000); // reintenta cada 5 min mientras la app siga abierta
+  activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando solo lo cercano (100 km); el mapa sigue mostrando todo
+}
+
+/* ---------- Arranque de sesión ---------- */
+verificarSesionGuardadaMaps(); // si hay sesión guardada y vigente, entra directo; si no, se queda en el login
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
