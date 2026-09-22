@@ -259,6 +259,7 @@
   }
   .venta-fila-item{ display:flex; gap:6px; margin-bottom:8px; align-items:center; }
   .venta-fila-item input{ background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px; font-size:13.5px; }
+  .venta-fila-item input[readonly]{ opacity:.65; }
   .venta-fila-item .vi-producto{ flex:2; min-width:0; }
   .venta-fila-item .vi-cant{ width:52px; }
   .venta-fila-item .vi-precio{ width:76px; }
@@ -1093,7 +1094,7 @@ function abrirVentaRuta(nombreCliente){
 function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
 }
-document.getElementById("btnNuevaVenta").addEventListener("click", abrirVentaRuta);
+document.getElementById("btnNuevaVenta").addEventListener("click", function(){ abrirVentaRuta(); });
 document.getElementById("btnAlmacenMovil").addEventListener("click", () => {
   abrirSheet();
   cambiarTab("almacen", "mapa");
@@ -1125,12 +1126,21 @@ function actualizarCampoItemVenta(idx, campo, valor){
 }
 function renderizarItemsVenta(){
   const cont = document.getElementById("ventaItemsLista");
+  // El vendedor solo captura SKU y cantidad; producto y precio siempre
+  // vienen del catálogo (preciosCache) y se muestran de solo lectura para
+  // que no se puedan escribir "a mano" y desincronizarse del precio real.
+  // El admin sí puede editarlos directo (por si hace una venta de prueba
+  // o algo fuera de catálogo).
+  const soloLectura = !esAdmin;
+  const roAttr = soloLectura ? ' readonly' : '';
   cont.innerHTML = ventaItemsActuales.map(function(it, idx){
     return '<div class="venta-fila-item">'
-      + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '" onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)">'
-      + '<input class="vi-producto" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
-      + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)">'
-      + '<span class="vi-precio-wrap"><input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '" onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
+      + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '"'
+      + ' onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)"'
+      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
+      + '<input class="vi-producto" placeholder="' + (soloLectura ? 'Se llena solo con el SKU' : 'Producto') + '" value="' + escapeHtmlVenta(it.producto) + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
+      + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
+      + '<span class="vi-precio-wrap"><input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
       + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
       + '</div>';
   }).join("");
@@ -1233,11 +1243,19 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     // falla, y reintentarVentasRutaPendientes() la reintenta sola después.
     sincronizarVentaRutaASheet(venta);
  
+    // La venta YA quedó guardada arriba (Firestore) — de aquí en adelante
+    // es solo generar el PDF y ofrecerlo por WhatsApp. Eso no debe bloquear
+    // el cierre del formulario: compartirTicketVenta() espera a que el
+    // vendedor cierre el share sheet nativo del sistema, y si esa ventana
+    // tarda o no se cierra, antes se quedaba pegado en "Guardando..."
+    // aunque la venta ya estuviera a salvo. Por eso ya no se hace await
+    // aquí — se cierra el formulario de inmediato y compartir corre aparte.
     const pdfBlob = generarPdfTicketVenta(venta);
-    await compartirTicketVenta(venta, pdfBlob);
- 
     cerrarVentaRuta();
     mostrarToast && mostrarToast("Venta " + venta.folio + " registrada.");
+    compartirTicketVenta(venta, pdfBlob).catch(function(err){
+      console.warn("No se pudo compartir el ticket automáticamente:", err);
+    });
   } catch (err) {
     errEl.innerText = "No se pudo guardar la venta: " + err.message;
     errEl.style.display = "block";
