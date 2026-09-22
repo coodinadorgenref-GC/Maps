@@ -1026,8 +1026,8 @@ let firebaseVentaRutaListo = false;
  *  Firestore tengan un request.auth != null que verificar. El
  *  verdadero control de acceso sigue siendo tu login normal. */
 function iniciarFirebaseVentaRuta(){
-  appVentaRuta.auth().signInAnonymously().then(function(){
-    firebaseVentaRutaListo = true;
+    appVentaRuta.auth().signInAnonymously().then(function(){
+      firebaseVentaRutaListo = true;
     actualizarVisibilidadBotonVenta();
     // El admin no trae almacén propio (edita el de otros), así que no
     // vale la pena esta consulta a Firestore al iniciar sesión —
@@ -1035,7 +1035,7 @@ function iniciarFirebaseVentaRuta(){
     // antes de que el canal de Firestore terminara de conectar.
     if(!esAdmin) cargarInventarioPropio();
   }).catch(function(err){
-    console.warn("No se pudo autenticar anónimamente en Firebase (venta en ruta):", err);
+    console.warn("No se pudo autenticar anónimamente...", err);
   });
 }
     
