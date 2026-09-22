@@ -1930,12 +1930,24 @@ refrescarDatalistSkus();
 // existe todavía en el catálogo, NO bloquea nada — el vendedor puede
 // escribir producto y precio a mano para no perder la venta, y la fila
 // queda marcada como "manual" para revisar después.
+// producto y precio y bloquea esos campos (fuente confiable). Si el SKU no
+// está en "Precios" pero sí está en el almacén móvil propio del vendedor
+// (se lo cargaron con producto y precio capturados en ese momento), se usa
+// eso como respaldo — también se bloquea, porque igual viene de una fuente
+// capturada por el admin, no tecleada por el vendedor al vuelo. Solo si no
+// aparece en NINGUNA de las dos se desbloquea para captura manual, y la
+// fila queda marcada como "manual" para revisar después.
 function aplicarPrecioPorSku(idx, sku){
-  const p = preciosCache[String(sku || '').trim()];
   const skuLimpio = String(sku || '').trim();
+  const p = preciosCache[skuLimpio];
+  const propio = inventarioPropio[skuLimpio];
   if(p){
     ventaItemsActuales[idx].producto = p.producto || ventaItemsActuales[idx].producto;
     ventaItemsActuales[idx].precio = Number(p.precioUnitario) || ventaItemsActuales[idx].precio;
+    ventaItemsActuales[idx].manual = false;
+  } else if(propio && (propio.producto || propio.precioUnitario)){
+    ventaItemsActuales[idx].producto = propio.producto || ventaItemsActuales[idx].producto;
+    ventaItemsActuales[idx].precio = Number(propio.precioUnitario) || ventaItemsActuales[idx].precio;
     ventaItemsActuales[idx].manual = false;
   } else {
     ventaItemsActuales[idx].manual = !!skuLimpio; // sin SKU aún, no se marca nada
