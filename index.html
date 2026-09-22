@@ -1666,7 +1666,7 @@ async function guardarAlmacenEdicion(){
   const vistos = new Set();
   const upserts = [];
   almacenItemsEdicion.forEach(function(it){
-    const sku = (it.sku || '').trim();
+    const sku = String(it.sku || '').trim();
     if(!sku) return;
     vistos.add(sku);
     upserts.push({
@@ -1905,7 +1905,7 @@ function idAlmacenMovil(vendedor, sku){
 // El Sheet guarda "cantidadAsignada"; la UI usa "cantidad" — se traduce aquí.
 function filaAlmacenAObjeto(fila){
   return {
-    sku: fila.sku,
+    sku: String(fila.sku || '').trim(),
     producto: fila.producto || '',
     precioUnitario: Number(fila.precioUnitario) || 0,
     cantidad: Number(fila.cantidadAsignada) || 0,
