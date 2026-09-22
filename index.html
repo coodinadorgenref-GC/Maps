@@ -989,7 +989,7 @@ function cerrarSesionMaps(){
 const appVentaRuta = firebase.initializeApp(firebaseConfig, "venta-ruta");
 const dbVentaRuta = appVentaRuta.firestore();
 
-dbVentaRuta.enablePersistence({ synchronizeTabs: true }).catch(err => {
+const dbVentaRuta.enablePersistence({ synchronizeTabs: true }).catch(err => {
     console.warn("Persistencia offline no disponible:", err.code);
 }); 
 const dbVentaRuta = appVentaRuta.firestore();
