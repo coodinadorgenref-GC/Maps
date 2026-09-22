@@ -989,19 +989,10 @@ function cerrarSesionMaps(){
 const appVentaRuta = firebase.initializeApp(firebaseConfig, "venta-ruta");
 const dbVentaRuta = appVentaRuta.firestore();
 
-const dbVentaRuta.enablePersistence({ synchronizeTabs: true }).catch(err => {
-    console.warn("Persistencia offline no disponible:", err.code);
-}); 
-const dbVentaRuta = appVentaRuta.firestore();
-let firebaseVentaRutaListo = false;
-  
- 
-// Persistencia offline: de aquí en adelante, escribir una venta sin
-// señal la deja en cola local automáticamente y sincroniza sola en
-// cuanto haya conexión — no hace falta programar ninguna cola a mano.
-db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+dbVentaRuta.enablePersistence({ synchronizeTabs: true }).catch(err => {
     console.warn("Persistencia offline no disponible:", err.code);
 });
+let firebaseVentaRutaListo = false;
  
 /** Llamar justo después de que el login de Código.gs sea exitoso
  *  (tanto en manejarInicioDeSesionMaps como en
