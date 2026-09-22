@@ -223,6 +223,58 @@
     background:#3B82F6; border:3px solid #FFFFFF;
     box-shadow:0 0 0 2px rgba(59,130,246,.35);
   }
+
+  /* ---------- Venta en ruta ---------- */
+  .venta-fab{
+    position:fixed; left:16px; bottom:calc(20px + env(safe-area-inset-bottom)); z-index:1200;
+    width:56px; height:56px; border-radius:50%;
+    background:var(--teal); color:#0E1518; border:none;
+    font-size:24px; box-shadow:0 6px 18px rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .venta-fab[hidden]{ display:none; }
+  .venta-fab:active{ transform:scale(.95); }
+ 
+  .venta-overlay{
+    position:fixed; inset:0; z-index:5100; background:rgba(0,0,0,.5);
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  .venta-overlay[hidden]{ display:none; }
+  .venta-card{
+    width:100%; max-width:480px; max-height:90vh; overflow-y:auto;
+    background:var(--surface); border-radius:18px 18px 0 0;
+    padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+  }
+  .venta-titulo{ font-size:17px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
+  .venta-titulo button{ background:none; border:none; color:var(--text-dim); font-size:22px; cursor:pointer; }
+  .venta-folio{ font-size:12px; color:var(--text-dim); margin-top:2px; margin-bottom:14px; }
+  .venta-campo{ margin-bottom:12px; }
+  .venta-campo label{ font-size:12px; color:var(--text-dim); display:block; margin-bottom:5px; }
+  .venta-campo input, .venta-campo select{
+    width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
+    color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; outline:none;
+  }
+  .venta-fila-item{ display:flex; gap:6px; margin-bottom:8px; align-items:center; }
+  .venta-fila-item input{ background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px; font-size:13.5px; }
+  .venta-fila-item .vi-producto{ flex:2; min-width:0; }
+  .venta-fila-item .vi-cant{ width:52px; }
+  .venta-fila-item .vi-precio{ width:76px; }
+  .venta-fila-item .vi-quitar{ background:none; border:none; color:var(--danger); font-size:18px; cursor:pointer; padding:4px; }
+  .venta-agregar-item{
+    width:100%; background:var(--surface-2); border:1px dashed var(--line); color:var(--text-dim);
+    border-radius:10px; padding:9px; font-size:13.5px; cursor:pointer; margin-bottom:14px;
+  }
+  .venta-total{ display:flex; justify-content:space-between; font-size:15px; font-weight:700; margin:10px 0 16px; }
+  .venta-btn{
+    width:100%; background:var(--teal); color:#0E1518; border:none; border-radius:10px;
+    padding:13px; font-size:15px; font-weight:700; cursor:pointer;
+  }
+  .venta-btn:disabled{ opacity:.6; }
+  .venta-error{
+    display:none; background:rgba(214,95,95,.12); color:var(--danger); border:1px solid rgba(214,95,95,.35);
+    font-size:12.5px; font-weight:600; padding:9px 10px; border-radius:10px; margin-bottom:14px; text-align:center;
+  }
+
   /* Cono de dirección: abanico de ~90° que nace en el punto azul y se desvanece con la distancia
      (como en Google Maps). Gira alrededor del centro, que es donde está el punto. */
   .ubi-cono{
@@ -499,6 +551,7 @@
     padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
     font-size:13.5px; font-weight:600; display:none;
   }
+  
 </style>
 </head>
 <body>
@@ -630,7 +683,48 @@
   </div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
-
+<button class="venta-fab" id="btnNuevaVenta" title="Registrar venta" hidden>🧾</button>
+ 
+<div class="venta-overlay" id="ventaOverlay" hidden>
+  <div class="venta-card">
+    <div class="venta-titulo">
+      <span>Nueva venta</span>
+      <button onclick="cerrarVentaRuta()" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="venta-folio" id="ventaFolioPreview"></div>
+    <div class="venta-error" id="ventaError"></div>
+ 
+    <div class="venta-campo">
+      <label for="ventaCliente">Cliente / prospecto</label>
+      <input type="text" id="ventaCliente" placeholder="Nombre del cliente">
+    </div>
+ 
+    <div id="ventaItemsLista"></div>
+    <button class="venta-agregar-item" onclick="agregarFilaItemVenta()">+ Agregar producto</button>
+ 
+    <div class="venta-campo">
+      <label for="ventaMetodoPago">Método de pago</label>
+      <select id="ventaMetodoPago" onchange="actualizarCamposPagoVenta()">
+        <option value="efectivo">Efectivo</option>
+        <option value="transferencia">Transferencia</option>
+        <option value="msi">MSI (terminal)</option>
+      </select>
+    </div>
+    <div class="venta-campo" id="ventaCampoReferencia" style="display:none">
+      <label for="ventaReferencia" id="ventaReferenciaLabel">Referencia</label>
+      <input type="text" id="ventaReferencia">
+    </div>
+    <div class="venta-campo" id="ventaCampoMeses" style="display:none">
+      <label for="ventaMeses">Meses (MSI)</label>
+      <input type="number" id="ventaMeses" min="1" max="24" value="3">
+    </div>
+ 
+    <div class="venta-total"><span>Total</span><span id="ventaTotalMostrado">$0.00</span></div>
+ 
+    <button class="venta-btn" id="ventaBtnGuardar" onclick="confirmarVentaRuta()">Generar ticket y enviar</button>
+  </div>
+</div>
+  
 <div class="sheet" id="sheet">
   <div class="sheet-handle" id="sheetHandle">
     <div class="bar"></div>
@@ -644,6 +738,11 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="leaflet-rotate.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<!-- jsPDF, para generar el ticket en PDF sin backend -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>  
 <script>
 /* ════════════════════════════════════════════════════════════
    SESIÓN (login) — reutiliza el MISMO backend (Worker + Código.gs)
@@ -862,10 +961,255 @@ function detenerControlDeSesionMaps(){
 
 function cerrarSesionMaps(){
   if(!confirm("¿Cerrar sesión?")) return;
+  appVentaRuta.auth().signOut();
   _liberarSesionMapsEnServidor();
   detenerControlDeSesionMaps();
   localStorage.removeItem(SESION_MAPS_KEY);
   location.reload();
+}
+
+/* ════════════════════════════════════════════════════════════
+   FIREBASE — mismo proyecto que Libro Diario. Pega aquí el
+   firebaseConfig REAL (cópialo del index.html de Libro Diario:
+   apiKey, authDomain, projectId, etc.)
+   ════════════════════════════════════════════════════════════ */
+  const firebaseConfig = {
+    apiKey: "AIzaSyAdEFx0Vyv0im_FW_rBEw8aH6gDj7yHoS4",
+    authDomain: "prospectos-y-rutas-gc.firebaseapp.com",
+    projectId: "prospectos-y-rutas-gc",
+    storageBucket: "prospectos-y-rutas-gc.firebasestorage.app",
+    messagingSenderId: "975558524205",
+    appId: "1:975558524205:web:b31f606c4175ef2ed6a7a4"
+    // measurementId omitido: no vamos a usar Analytics
+  };
+ 
+// Usamos una app secundaria con nombre propio ("venta-ruta") para
+// NO chocar si en algún momento este mismo archivo también carga el
+// Firebase de otra parte. Así conviven sin pisarse.
+const appVentaRuta = firebase.initializeApp(firebaseConfig, "venta-ruta");
+const dbVentaRuta = appVentaRuta.firestore();
+
+dbVentaRuta.enablePersistence({ synchronizeTabs: true }).catch(err => {
+    console.warn("Persistencia offline no disponible:", err.code);
+}); 
+const dbVentaRuta = appVentaRuta.firestore();
+let firebaseVentaRutaListo = false;
+  
+ 
+// Persistencia offline: de aquí en adelante, escribir una venta sin
+// señal la deja en cola local automáticamente y sincroniza sola en
+// cuanto haya conexión — no hace falta programar ninguna cola a mano.
+db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+    console.warn("Persistencia offline no disponible:", err.code);
+});
+ 
+/** Llamar justo después de que el login de Código.gs sea exitoso
+ *  (tanto en manejarInicioDeSesionMaps como en
+ *  verificarSesionGuardadaMaps) — ver PASO 5. Autentica de forma
+ *  anónima ante Firebase SOLO para que las reglas de seguridad de
+ *  Firestore tengan un request.auth != null que verificar. El
+ *  verdadero control de acceso sigue siendo tu login normal. */
+function iniciarFirebaseVentaRuta(){
+  appVentaRuta.auth().signInAnonymously().then(function(){
+    firebaseVentaRutaListo = true;
+    actualizarVisibilidadBotonVenta();
+  }).catch(function(err){
+    console.warn("No se pudo autenticar anónimamente en Firebase (venta en ruta):", err);
+  });
+}
+    
+/** Muestra el botón de "Nueva venta" solo si el usuario puede vender.
+ *  Usa esVendedor si tu Código.gs ya lo regresa en el login (columna
+ *  F = "vendedor"); si no, cae a esAdmin o al texto de rol como
+ *  respaldo, para que puedas probar antes de agregar ese flag. */
+function puedeVenderEnRuta(){
+  if (typeof window.esVendedorSesion === "boolean") return window.esVendedorSesion;
+  if (esAdmin) return true;
+  return (rolActual || "").toLowerCase().indexOf("vendedor") !== -1;
+}
+function actualizarVisibilidadBotonVenta(){
+  const btn = document.getElementById("btnNuevaVenta");
+  if (btn) btn.hidden = !(usuarioActual && puedeVenderEnRuta());
+}
+ 
+/* ---------- Folio: se genera en el dispositivo, nunca en el servidor ---------- */
+function _codigoCortoVendedor(){
+  const local = String(usuarioActual || "vend").split("@")[0];
+  return local.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6) || "VEND";
+}
+function _fechaCompactaHoy(){
+  const d = new Date();
+  return d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+}
+function generarFolioVenta(){
+  const clave = "folio_consecutivo_" + _codigoCortoVendedor() + "_" + _fechaCompactaHoy();
+  let n = Number(localStorage.getItem(clave) || "0") + 1;
+  localStorage.setItem(clave, String(n));
+  return "V-" + _codigoCortoVendedor() + "-" + _fechaCompactaHoy() + "-" + String(n).padStart(3, "0");
+}
+ 
+/* ---------- Estado del formulario de venta ---------- */
+let ventaItemsActuales = [];
+let ventaFolioActual = "";
+ 
+function abrirVentaRuta(){
+  if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
+  ventaItemsActuales = [];
+  ventaFolioActual = generarFolioVenta();
+  document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
+  document.getElementById("ventaCliente").value = "";
+  document.getElementById("ventaMetodoPago").value = "efectivo";
+  document.getElementById("ventaError").style.display = "none";
+  actualizarCamposPagoVenta();
+  renderizarItemsVenta();
+  agregarFilaItemVenta(); // arranca con una fila vacía lista para llenar
+  document.getElementById("ventaOverlay").hidden = false;
+}
+function cerrarVentaRuta(){
+  document.getElementById("ventaOverlay").hidden = true;
+}
+document.getElementById("btnNuevaVenta").addEventListener("click", abrirVentaRuta);
+ 
+function actualizarCamposPagoVenta(){
+  const metodo = document.getElementById("ventaMetodoPago").value;
+  document.getElementById("ventaCampoReferencia").style.display = (metodo === "transferencia") ? "block" : "none";
+  document.getElementById("ventaCampoMeses").style.display = (metodo === "msi") ? "block" : "none";
+  if (metodo === "transferencia") document.getElementById("ventaReferenciaLabel").innerText = "Referencia bancaria";
+}
+ 
+function agregarFilaItemVenta(){
+  ventaItemsActuales.push({ producto: "", cantidad: 1, precio: 0 });
+  renderizarItemsVenta();
+}
+function quitarFilaItemVenta(idx){
+  ventaItemsActuales.splice(idx, 1);
+  renderizarItemsVenta();
+}
+function actualizarCampoItemVenta(idx, campo, valor){
+  ventaItemsActuales[idx][campo] = (campo === "producto") ? valor : (Number(valor) || 0);
+  actualizarTotalVenta();
+}
+function renderizarItemsVenta(){
+  const cont = document.getElementById("ventaItemsLista");
+  cont.innerHTML = ventaItemsActuales.map(function(it, idx){
+    return '<div class="venta-fila-item">'
+      + '<input class="vi-producto" placeholder="Producto / SKU" value="' + escapeHtmlVenta(it.producto) + '" onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
+      + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)">'
+      + '<input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '" onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)">'
+      + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
+      + '</div>';
+  }).join("");
+  actualizarTotalVenta();
+}
+function actualizarTotalVenta(){
+  const total = ventaItemsActuales.reduce(function(s, it){ return s + (it.cantidad * it.precio); }, 0);
+  document.getElementById("ventaTotalMostrado").innerText = "$" + total.toFixed(2);
+  return total;
+}
+function escapeHtmlVenta(s){
+  return String(s || "").replace(/[&<>"']/g, function(c){
+    return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
+  });
+}
+ 
+async function confirmarVentaRuta(){
+  const errEl = document.getElementById("ventaError");
+  errEl.style.display = "none";
+ 
+  const cliente = document.getElementById("ventaCliente").value.trim();
+  const itemsValidos = ventaItemsActuales.filter(function(it){ return it.producto.trim() && it.cantidad > 0; });
+  if (!cliente){ errEl.innerText = "Ingresa el nombre del cliente."; errEl.style.display = "block"; return; }
+  if (itemsValidos.length === 0){ errEl.innerText = "Agrega al menos un producto."; errEl.style.display = "block"; return; }
+ 
+  const metodoPago = document.getElementById("ventaMetodoPago").value;
+  const referencia = document.getElementById("ventaReferencia").value.trim();
+  const meses = Number(document.getElementById("ventaMeses").value) || null;
+  const total = actualizarTotalVenta();
+ 
+  const venta = {
+    folio: ventaFolioActual,
+    vendedor: usuarioActual,
+    vendedorNombre: nombreActual,
+    cliente: cliente,
+    items: itemsValidos,
+    total: total,
+    metodoPago: metodoPago,
+    referencia: metodoPago === "transferencia" ? referencia : "",
+    mesesMsi: metodoPago === "msi" ? meses : null,
+    tipo: "venta",
+    fechaLocal: new Date().toISOString(),
+    creadoServidor: firebase.firestore.FieldValue.serverTimestamp()
+  };
+ 
+  const btn = document.getElementById("ventaBtnGuardar");
+  btn.disabled = true; btn.innerText = "Guardando...";
+ 
+  try {
+    // .set() con persistencia offline habilitada: si no hay señal,
+    // esto se resuelve al instante desde la caché local y se
+    // sincroniza solo — el vendedor NO se queda esperando.
+    await dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
+ 
+    const pdfBlob = generarPdfTicketVenta(venta);
+    await compartirTicketVenta(venta, pdfBlob);
+ 
+    cerrarVentaRuta();
+    mostrarToast && mostrarToast("Venta " + venta.folio + " registrada.");
+  } catch (err) {
+    errEl.innerText = "No se pudo guardar la venta: " + err.message;
+    errEl.style.display = "block";
+  } finally {
+    btn.disabled = false; btn.innerText = "Generar ticket y enviar";
+  }
+}
+ 
+/* ---------- PDF del ticket (jsPDF, sin backend) ---------- */
+function generarPdfTicketVenta(venta){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: [80, 150] }); // formato angosto tipo ticket
+  let y = 10;
+  doc.setFontSize(11); doc.setFont(undefined, "bold");
+  doc.text("Nota de venta", 40, y, { align: "center" }); y += 6;
+  doc.setFontSize(8.5); doc.setFont(undefined, "normal");
+  doc.text("Folio: " + venta.folio, 5, y); y += 4.5;
+  doc.text("Fecha: " + new Date(venta.fechaLocal).toLocaleString("es-MX"), 5, y); y += 4.5;
+  doc.text("Vendedor: " + (venta.vendedorNombre || venta.vendedor), 5, y); y += 4.5;
+  doc.text("Cliente: " + venta.cliente, 5, y); y += 6;
+  doc.setFont(undefined, "bold"); doc.text("Cant  Producto              Precio", 5, y); doc.setFont(undefined, "normal"); y += 4;
+  venta.items.forEach(function(it){
+    const linea = String(it.cantidad).padEnd(5) + it.producto.slice(0,20).padEnd(21) + "$" + (it.cantidad*it.precio).toFixed(2);
+    doc.text(linea, 5, y); y += 4.2;
+  });
+  y += 2;
+  doc.setFont(undefined, "bold"); doc.setFontSize(10);
+  doc.text("Total: $" + venta.total.toFixed(2), 5, y); y += 5;
+  doc.setFontSize(8.5); doc.setFont(undefined, "normal");
+  doc.text("Forma de pago: " + venta.metodoPago + (venta.mesesMsi ? " (" + venta.mesesMsi + " msi)" : ""), 5, y);
+  return doc.output("blob");
+}
+ 
+/* ---------- Compartir por WhatsApp ---------- */
+async function compartirTicketVenta(venta, pdfBlob){
+  const archivo = new File([pdfBlob], venta.folio + ".pdf", { type: "application/pdf" });
+  const textoResumen = "Ticket " + venta.folio + " — " + venta.cliente + " — $" + venta.total.toFixed(2);
+ 
+  // Android Chrome / apps compatibles: comparte el PDF directo al
+  // WhatsApp del cliente desde el share sheet nativo.
+  if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+    try {
+      await navigator.share({ files: [archivo], title: "Ticket " + venta.folio, text: textoResumen });
+      return;
+    } catch (e) { /* el usuario canceló el share sheet: sigue al respaldo */ }
+  }
+ 
+  // Respaldo (iOS Safari y navegadores sin Web Share con archivos):
+  // descarga el PDF y abre WhatsApp solo con el texto — el vendedor
+  // adjunta el PDF ya descargado manualmente en el chat.
+  const url = URL.createObjectURL(pdfBlob);
+  const a = document.createElement("a");
+  a.href = url; a.download = venta.folio + ".pdf"; a.click();
+  URL.revokeObjectURL(url);
+  window.open("https://wa.me/?text=" + encodeURIComponent(textoResumen + " (adjunta el PDF que se acaba de descargar)"), "_blank");
 }
 
 /* ---------- Tema: claro / oscuro / sistema ---------- */
@@ -5478,6 +5822,8 @@ document.getElementById('btnRutaActual').addEventListener('click', () => {
 function iniciarAppMapasSiHaceFalta(){
   if(appMapasIniciada) return;
   appMapasIniciada = true;
+  iniciarFirebaseVentaRuta();
+  actualizarVisibilidadBotonVenta();
   cerrarSheet(); // estado conocido: nunca debe arrancar abierta de por sí
   renderSheetTabs();
   renderMarcadores();
