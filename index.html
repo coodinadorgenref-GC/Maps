@@ -820,6 +820,7 @@ async function manejarInicioDeSesionMaps(){
       usuarioActual = rs.correo || identificador;
       tokenActual = rs.token;
       esAdmin = rs.esAdmin || false;
+      window.esVendedorSesion = rs.esVendedor || false; // NUEVO — columna F = "vendedor"
       rolActual = rs.rol || "";
       nombreActual = rs.nombre || "";
       accesoOfflinePermitidoMaps = rs.accesoOffline || false;
@@ -842,7 +843,8 @@ async function manejarInicioDeSesionMaps(){
 
 function guardarSesionMaps(){
   localStorage.setItem(SESION_MAPS_KEY, JSON.stringify({
-    correo: usuarioActual, token: tokenActual, nombre: nombreActual, esAdmin, rol: rolActual || "",
+    correo: usuarioActual, token: tokenActual, nombre: nombreActual, esAdmin,
+    esVendedor: !!window.esVendedorSesion, rol: rolActual || "",
     accesoOffline: !!accesoOfflinePermitidoMaps,
     duracionMs: duracionSesionActualMapsMs,
     timestamp: new Date().getTime()
@@ -864,6 +866,7 @@ function verificarSesionGuardadaMaps(){
       // Cuenta autorizada para trabajar offline: entra con lo que ya
       // tenía guardado; el heartbeat normal confirma en cuanto haya señal.
       usuarioActual = s.correo; tokenActual = s.token; esAdmin = s.esAdmin || false;
+      window.esVendedorSesion = s.esVendedor || false;
       rolActual = s.rol || ""; nombreActual = s.nombre || ""; accesoOfflinePermitidoMaps = true;
     } else {
       try{
@@ -877,6 +880,7 @@ function verificarSesionGuardadaMaps(){
 
   accesoOfflinePermitidoMaps = s.accesoOffline || false;
   usuarioActual = s.correo; tokenActual = s.token; esAdmin = s.esAdmin || false;
+  window.esVendedorSesion = s.esVendedor || false;
   rolActual = s.rol || ""; nombreActual = s.nombre || "";
   pintarBadgeSesionMaps();
   document.getElementById("vistaLogin").hidden = true;
