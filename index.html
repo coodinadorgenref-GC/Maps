@@ -1343,6 +1343,20 @@ let almacenEditandoCorreo = null; // solo admin: de qué vendedor se está viend
 let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
 
 async function renderAlmacen(){
+  if(!firebaseVentaRutaListo){
+    sheetBody.innerHTML = '<div class="empty">Conectando con el servidor…</div>';
+    let intentos = 0;
+    while(!firebaseVentaRutaListo && intentos < 40){ // hasta ~10s
+      await new Promise(r => setTimeout(r, 250));
+      intentos++;
+    }
+    if(!firebaseVentaRutaListo){
+      sheetBody.innerHTML = '<div class="empty">No se pudo conectar con el servidor. Revisa tu conexión y vuelve a intentar. <button class="btn primary" id="btnReintentarAlmacen" style="margin-top:10px;">Reintentar</button></div>';
+      const b = document.getElementById('btnReintentarAlmacen');
+      if(b) b.addEventListener('click', renderAlmacen);
+      return;
+    }
+  }
   if(esAdmin) await renderAlmacenAdmin();
   else await renderAlmacenPropio();
 }
@@ -1396,19 +1410,24 @@ async function cargarListaVendedores(){
     listaVendedores = (datos && Array.isArray(datos.lista)) ? datos.lista : [];
   } catch(err){
     listaVendedores = [];
+    mostrarToast('No se pudo cargar la lista de vendedores: ' + (err.code || err.message));
+    console.error('cargarListaVendedores', err);
   }
 }
 
 async function guardarListaVendedoresFirestore(){
   try{
     await docConfigVendedores().set({ lista: listaVendedores });
+    mostrarToast('Vendedor guardado y sincronizado');
   } catch(err){
-    mostrarToast('No se pudo guardar la lista de vendedores: ' + err.message);
+    mostrarToast('⚠️ No se guardó en el servidor (' + (err.code || err.message) + '). Revisa tu conexión o permisos.');
+    console.error('guardarListaVendedoresFirestore', err);
+    throw err; // para que quien llame sepa que falló
   }
 }
 
 async function renderAlmacenAdmin(){
-  sincronizarPreciosRuta(); // trae el precio más reciente de la hoja Precios antes de editar
+  sincronizarPreciosRuta();
   sheetBody.innerHTML = '<div class="empty">Cargando vendedores…</div>';
   await cargarListaVendedores();
   if(currentTab !== 'almacen') return;
