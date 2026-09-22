@@ -260,6 +260,10 @@
   .venta-fila-item{ display:flex; gap:6px; margin-bottom:8px; align-items:center; }
   .venta-fila-item input{ background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px; font-size:13.5px; }
   .venta-fila-item input[readonly]{ opacity:.65; }
+  .venta-fila-item-wrap{ margin-bottom:8px; }
+  .venta-fila-item-wrap .venta-fila-item{ margin-bottom:0; }
+  .venta-fila-item input.vi-manual{ border-color:var(--ochre); }
+  .vi-aviso-manual{ font-size:10.5px; color:var(--ochre); margin:3px 0 0 2px; }
   .venta-fila-item .vi-producto{ flex:2; min-width:0; }
   .venta-fila-item .vi-cant{ width:52px; }
   .venta-fila-item .vi-precio{ width:76px; }
@@ -1108,7 +1112,7 @@ function actualizarCamposPagoVenta(){
 }
  
 function agregarFilaItemVenta(){
-  ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0 });
+  ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0, manual: false });
   renderizarItemsVenta();
 }
 function quitarFilaItemVenta(idx){
@@ -1126,22 +1130,33 @@ function actualizarCampoItemVenta(idx, campo, valor){
 }
 function renderizarItemsVenta(){
   const cont = document.getElementById("ventaItemsLista");
-  // El vendedor solo captura SKU y cantidad; producto y precio siempre
-  // vienen del catálogo (preciosCache) y se muestran de solo lectura para
-  // que no se puedan escribir "a mano" y desincronizarse del precio real.
-  // El admin sí puede editarlos directo (por si hace una venta de prueba
-  // o algo fuera de catálogo).
-  const soloLectura = !esAdmin;
-  const roAttr = soloLectura ? ' readonly' : '';
+  // El vendedor solo captura SKU y cantidad; producto y precio se llenan
+  // solos desde el catálogo (preciosCache) y se muestran de solo lectura,
+  // fila por fila, para que no se puedan escribir "a mano" y desincronizarse
+  // del precio real — EXCEPTO cuando el SKU no existe todavía en el
+  // catálogo (producto nuevo que el admin no ha capturado en "Precios"):
+  // ahí se desbloquean solo esos dos campos de esa fila para que el
+  // vendedor pueda cerrar la venta de todos modos, sin quedarse frenado
+  // esperando al admin. Esa fila se manda marcada como "manual" para que
+  // se pueda revisar y corregir el precio después.
+  // El admin sí puede editar todo directo siempre (por si hace una venta
+  // de prueba o algo fuera de catálogo).
   cont.innerHTML = ventaItemsActuales.map(function(it, idx){
-    return '<div class="venta-fila-item">'
+    const bloqueado = !esAdmin && !it.manual;
+    const roAttr = bloqueado ? ' readonly' : '';
+    const avisoManual = (!esAdmin && it.manual)
+      ? '<div class="vi-aviso-manual">SKU no está en catálogo — captura manual, se marcará para revisión</div>' : '';
+    return '<div class="venta-fila-item-wrap">'
+      + '<div class="venta-fila-item">'
       + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '"'
       + ' onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)"'
       + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
-      + '<input class="vi-producto" placeholder="' + (soloLectura ? 'Se llena solo con el SKU' : 'Producto') + '" value="' + escapeHtmlVenta(it.producto) + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
+      + '<input class="vi-producto' + (it.manual ? ' vi-manual' : '') + '" placeholder="' + (bloqueado ? 'Se llena solo con el SKU' : 'Producto') + '" value="' + escapeHtmlVenta(it.producto) + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
       + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
-      + '<span class="vi-precio-wrap"><input class="vi-precio" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
+      + '<span class="vi-precio-wrap"><input class="vi-precio' + (it.manual ? ' vi-manual' : '') + '" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
       + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
+      + '</div>'
+      + avisoManual
       + '</div>';
   }).join("");
   actualizarTotalVenta();
@@ -1252,7 +1267,11 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     // aquí — se cierra el formulario de inmediato y compartir corre aparte.
     const pdfBlob = generarPdfTicketVenta(venta);
     cerrarVentaRuta();
-    mostrarToast && mostrarToast("Venta " + venta.folio + " registrada.");
+    const skusManuales = itemsValidos.filter(function(it){ return it.manual; }).map(function(it){ return it.sku || it.producto; });
+    mostrarToast && mostrarToast(
+      "Venta " + venta.folio + " registrada."
+      + (skusManuales.length ? " Ojo: " + skusManuales.join(", ") + " se capturó sin precio de catálogo." : "")
+    );
     compartirTicketVenta(venta, pdfBlob).catch(function(err){
       console.warn("No se pudo compartir el ticket automáticamente:", err);
     });
@@ -1907,12 +1926,19 @@ function refrescarDatalistSkus(){
 refrescarDatalistSkus();
 
 // Si el SKU capturado ya tiene precio guardado en el Sheet, autocompleta
-// producto y precio (el vendedor puede corregirlos a mano después).
+// producto y precio y bloquea esos campos (fuente confiable). Si el SKU no
+// existe todavía en el catálogo, NO bloquea nada — el vendedor puede
+// escribir producto y precio a mano para no perder la venta, y la fila
+// queda marcada como "manual" para revisar después.
 function aplicarPrecioPorSku(idx, sku){
   const p = preciosCache[String(sku || '').trim()];
+  const skuLimpio = String(sku || '').trim();
   if(p){
     ventaItemsActuales[idx].producto = p.producto || ventaItemsActuales[idx].producto;
     ventaItemsActuales[idx].precio = Number(p.precioUnitario) || ventaItemsActuales[idx].precio;
+    ventaItemsActuales[idx].manual = false;
+  } else {
+    ventaItemsActuales[idx].manual = !!skuLimpio; // sin SKU aún, no se marca nada
   }
   renderizarItemsVenta();
 }
@@ -1974,7 +2000,8 @@ function filasVentaParaSheet(venta){
       metodoPago: venta.metodoPago,
       referencia: venta.referencia,
       mesesMsi: venta.mesesMsi,
-      ubicacion: venta.ubicacion || ''
+      ubicacion: venta.ubicacion || '',
+      precioManual: it.manual ? 'SI' : ''
     };
   });
 }
