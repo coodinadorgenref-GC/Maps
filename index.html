@@ -1224,10 +1224,33 @@ async function confirmarVentaRuta(){
   btn.disabled = true; btn.innerText = "Guardando...";
  
   try {
-    // .set() con persistencia offline habilitada: si no hay señal,
-    // esto se resuelve al instante desde la caché local y se
-    // sincroniza solo — el vendedor NO se queda esperando.
-    await dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
+    // .set() con persistencia offline habilitada: en teoría se resuelve al
+    // instante desde la caché local sin señal. PERO si la persistencia no
+    // llegó a activarse (varias pestañas abiertas, modo privado, navegador
+    // sin soporte, etc. — enablePersistence() solo deja un console.warn si
+    // falla, no avisa a la UI) esta promesa se puede quedar colgada
+    // indefinidamente sin señal real, y el botón se queda pegado en
+    // "Guardando..." para siempre sin llegar a generar el ticket. Por eso
+    // se limita con un timeout: si Firestore no confirma rápido, seguimos
+    // igual (el ticket de aquí en adelante ya no depende de esto) y la
+    // venta se deja en una cola local de respaldo que se reintenta sola en
+    // cuanto haya señal — igual que ya se hace con el Sheet.
+    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
+    const confirmoATiempo = await Promise.race([
+      escrituraVenta.then(function(){ return true; }),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(false); }, 4000); })
+    ]);
+    if (!confirmoATiempo) {
+      encolarVentaFirestorePendiente(venta);
+    }
+    // Si en realidad sí se llega a guardar (solo iba lento, no perdida), se
+    // quita sola de la cola de respaldo para no reintentarla doble; si de
+    // plano truena (permiso, cuota, etc.) se deja en cola por si acaso.
+    escrituraVenta.then(function(){ quitarVentaFirestorePendiente(venta.folio); })
+      .catch(function(err){
+        console.warn("No se pudo confirmar el guardado en Firestore, se reintentará:", err);
+        encolarVentaFirestorePendiente(venta);
+      });
 
     // Descuenta del almacén móvil (Firestore + reflejo local inmediato). Ya
     // se validó arriba que alcanza, así que esto no debería fallar salvo
@@ -1887,6 +1910,7 @@ async function syncPendientes(){
     sincronizarPreciosRuta();
     reintentarVentasRutaPendientes();
     reintentarAlmacenPendientes();   // ← nuevo
+    reintentarVentasFirestorePendientes();   // ← nuevo: venta misma, no solo su reflejo en Sheet
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
     // próximo evento "online" o el siguiente intervalo.
@@ -1899,6 +1923,7 @@ async function syncPendientes(){
 /* ---------- Precios y ventas en ruta (recursos "precios" y "ventasRuta" del Sheet) ---------- */
 const PRECIOS_RUTA_KEY = 'gc_precios_ruta_v1';
 const VENTAS_SHEET_PENDIENTES_KEY = 'gc_ventas_pendientes_sheet_v1';
+const VENTAS_FIRESTORE_PENDIENTES_KEY = 'gc_ventas_pendientes_firestore_v1';
 const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
 const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1';  
 let preciosCache = {}; // indexado por sku
@@ -1980,6 +2005,38 @@ async function sincronizarPreciosRuta(){
     refrescarDatalistSkus();
   } catch(err){
     // sin señal o el Web App no respondió: se sigue usando lo último en localStorage
+  }
+}
+
+// Cola de respaldo SOLO para el guardado en Firestore de la venta misma
+// (colección ventas_ruta) — separada de la cola del Sheet de arriba, que es
+// para el reflejo secundario en VentasRuta. Ver el timeout en
+// confirmarVentaRuta(): si Firestore no confirma rápido, la venta cae aquí
+// para no perderla y se reintenta sola cuando vuelva la señal.
+function cargarVentasFirestorePendientes(){
+  try{ return JSON.parse(localStorage.getItem(VENTAS_FIRESTORE_PENDIENTES_KEY)) || []; }
+  catch(e){ return []; }
+}
+function guardarVentasFirestorePendientes(lista){
+  localStorage.setItem(VENTAS_FIRESTORE_PENDIENTES_KEY, JSON.stringify(lista));
+}
+function encolarVentaFirestorePendiente(venta){
+  const lista = cargarVentasFirestorePendientes();
+  if(!lista.some(function(v){ return v.folio === venta.folio; })) lista.push(venta);
+  guardarVentasFirestorePendientes(lista);
+}
+function quitarVentaFirestorePendiente(folio){
+  guardarVentasFirestorePendientes(cargarVentasFirestorePendientes().filter(function(v){ return v.folio !== folio; }));
+}
+async function reintentarVentasFirestorePendientes(){
+  if(!navigator.onLine) return;
+  const pendientes = cargarVentasFirestorePendientes();
+  if(pendientes.length === 0) return;
+  for(const venta of pendientes){
+    try{
+      await dbVentaRuta.collection('ventas_ruta').doc(venta.folio).set(venta);
+      quitarVentaFirestorePendiente(venta.folio);
+    } catch(err){ /* se reintenta en el siguiente ciclo de sync */ }
   }
 }
 
