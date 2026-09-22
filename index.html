@@ -746,6 +746,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <!-- jsPDF, para generar el ticket en PDF sin backend -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>  
+<script src="https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js"></script>
+
 <script>
 /* ════════════════════════════════════════════════════════════
    SESIÓN (login) — reutiliza el MISMO backend (Worker + Código.gs)
@@ -1358,6 +1360,7 @@ async function cargarPedidosPropiosPendientes(){
 }
 
 function renderAlmacenAdmin(){
+  sincronizarPreciosRuta(); // trae el precio más reciente de la hoja Precios antes de editar
   sheetBody.innerHTML =
     '<div class="field"><label>Correo del vendedor</label>'
     + '<input type="text" id="almCorreo" placeholder="vendedor@correo.com" value="' + escapeHtml(almacenEditandoCorreo || '') + '"></div>'
@@ -1397,7 +1400,12 @@ function renderAlmacenListaEdicion(){
   const wrap = document.getElementById('almListaWrap');
   if(!wrap) return;
   wrap.innerHTML =
-    almacenItemsEdicion.map(function(it, idx){
+    '<div class="save-row" style="margin-bottom:10px;">'
+    + '<button class="btn" id="btnAlmExcel" style="flex:1;">📄 Cargar desde Excel/CSV</button>'
+    + '</div>'
+    + '<input type="file" id="almExcelInput" accept=".xlsx,.xls,.csv" style="display:none">'
+    + '<div style="font-size:11.5px; color:var(--text-dim); margin:-4px 0 12px;">Columnas esperadas: sku, cantidad (obligatorias) y opcionalmente producto, precioUnitario — si faltan producto/precio, se toman de la hoja Precios por SKU. Esto reemplaza la lista de abajo.</div>'
+    + almacenItemsEdicion.map(function(it, idx){
       return '<div class="venta-fila-item">'
         + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku) + '" onchange="almActualizarCampo(' + idx + ',\'sku\',this.value)">'
         + '<input class="vi-producto" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="almActualizarCampo(' + idx + ',\'producto\',this.value)">'
@@ -1409,13 +1417,80 @@ function renderAlmacenListaEdicion(){
     + '<button class="venta-agregar-item" onclick="almAgregarFila()">+ Agregar línea</button>'
     + '<div class="save-row" style="margin-top:10px;"><button class="btn primary" id="btnAlmGuardar" style="flex:1;">Guardar cambios</button></div>';
   document.getElementById('btnAlmGuardar').addEventListener('click', guardarAlmacenEdicion);
+  document.getElementById('btnAlmExcel').addEventListener('click', function(){ document.getElementById('almExcelInput').click(); });
+  document.getElementById('almExcelInput').addEventListener('change', almImportarExcel);
 }
 
 function almAgregarFila(){ almacenItemsEdicion.push({ sku: '', producto: '', precioUnitario: 0, cantidad: 0 }); renderAlmacenListaEdicion(); }
 function almQuitarFila(idx){ almacenItemsEdicion.splice(idx, 1); renderAlmacenListaEdicion(); }
+
+// Al capturar/cambiar el SKU a mano, se autocompleta producto y precio desde
+// la hoja Precios (fuente única de precio) — el admin puede corregirlos
+// después, el autocompletado solo ahorra tecleo, no bloquea el campo.
 function almActualizarCampo(idx, campo, valor){
-  if(campo === 'sku' || campo === 'producto') almacenItemsEdicion[idx][campo] = valor;
-  else almacenItemsEdicion[idx][campo] = Number(valor) || 0;
+  if(campo === 'producto'){ almacenItemsEdicion[idx].producto = valor; return; }
+  if(campo === 'sku'){
+    almacenItemsEdicion[idx].sku = valor;
+    const p = preciosCache[String(valor || '').trim()];
+    if(p){
+      almacenItemsEdicion[idx].producto = p.producto || almacenItemsEdicion[idx].producto;
+      almacenItemsEdicion[idx].precioUnitario = Number(p.precioUnitario) || almacenItemsEdicion[idx].precioUnitario;
+      renderAlmacenListaEdicion(); // refleja el autocompletado en los otros campos de esta fila
+    }
+    return;
+  }
+  almacenItemsEdicion[idx][campo] = Number(valor) || 0;
+}
+
+// Carga masiva del almacén de un vendedor desde un archivo .xlsx/.xls/.csv.
+// Reemplaza por completo almacenItemsEdicion (el admin revisa y da "Guardar
+// cambios" para que quede en Firestore, igual que si lo hubiera tecleado).
+async function almImportarExcel(ev){
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if(!file) return;
+  if(!almacenEditandoCorreo){ mostrarToast('Primero escribe el correo y da clic en "Cargar almacén"'); return; }
+  try{
+    let filas;
+    if(/\.csv$/i.test(file.name)){
+      filas = parseCSV(await file.text());
+    } else {
+      const buf = await file.arrayBuffer();
+      const libro = XLSX.read(buf, { type: 'array' });
+      const hoja = libro.Sheets[libro.SheetNames[0]];
+      filas = XLSX.utils.sheet_to_json(hoja, { header: 1, raw: true, defval: '' });
+    }
+    if(!filas || filas.length < 2){ mostrarToast('El archivo no tiene datos'); return; }
+
+    const encabezados = filas[0].map(function(h){ return String(h || '').trim().toLowerCase(); });
+    const idxSku = encabezados.findIndex(function(h){ return h.indexOf('sku') !== -1; });
+    const idxCant = encabezados.findIndex(function(h){ return h.indexOf('cant') !== -1; });
+    const idxProd = encabezados.findIndex(function(h){ return h.indexOf('producto') !== -1 || h.indexOf('descripcion') !== -1; });
+    const idxPrecio = encabezados.findIndex(function(h){ return h.indexOf('precio') !== -1; });
+    if(idxSku === -1 || idxCant === -1){
+      mostrarToast('El archivo necesita al menos columnas "sku" y "cantidad"');
+      return;
+    }
+
+    const nuevos = [];
+    filas.slice(1).forEach(function(fila){
+      const sku = String(fila[idxSku] || '').trim();
+      if(!sku) return;
+      const cache = preciosCache[sku];
+      const producto = (idxProd > -1 && String(fila[idxProd] || '').trim())
+        ? String(fila[idxProd]).trim() : (cache ? (cache.producto || '') : '');
+      const precioUnitario = (idxPrecio > -1 && fila[idxPrecio] !== '')
+        ? (Number(fila[idxPrecio]) || 0) : (cache ? (Number(cache.precioUnitario) || 0) : 0);
+      nuevos.push({ sku: sku, producto: producto, precioUnitario: precioUnitario, cantidad: Number(fila[idxCant]) || 0 });
+    });
+    if(nuevos.length === 0){ mostrarToast('No se encontraron filas válidas en el archivo'); return; }
+
+    almacenItemsEdicion = nuevos;
+    renderAlmacenListaEdicion();
+    mostrarToast('Se cargaron ' + nuevos.length + ' productos del archivo — revisa y da "Guardar cambios"');
+  } catch(err){
+    mostrarToast('No se pudo leer el archivo: ' + err.message);
+  }
 }
 
 async function guardarAlmacenEdicion(){
