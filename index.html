@@ -1128,7 +1128,7 @@ function generarFolioVenta(){
 let ventaItemsActuales = [];
 let ventaFolioActual = "";
  
-function abrirVentaRuta(nombreCliente){
+function abrirVentaRuta(nombreCliente, telefonoCliente){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
