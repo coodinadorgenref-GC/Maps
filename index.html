@@ -3808,8 +3808,14 @@ function numeroDeSeleccion(id){
 // origen de siempre, más un botón "Registrar venta" cuando quien tiene la
 // sesión puede vender en ruta: así visitar el punto en el mapa y levantar
 // la venta de ese mismo cliente quedan en un solo toque.
+// Foto de la fachada (la que se toma en "Editar prospecto") para los popups del mapa.
+function fotoPopup(p){
+  if(!p.foto) return '';
+  return '<img src="' + escapeHtml(p.foto) + '" alt="Fachada" style="width:100%; max-height:140px; object-fit:cover; border-radius:8px; margin-bottom:8px; display:block;">';
+}
+
 function contenidoPopupSimple(p, esPrioridad){
-  let html = `<div class="pop-simple"><b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`;
+  let html = `<div class="pop-simple">${fotoPopup(p)}<b>${escapeHtml(p.nombre)}</b>${esPrioridad ? ' ⚠️' : ''}<br>${p.estatus} · ${p.frecuencia}<br><span style="color:#9AA4AE">${p.origen}${p.municipio ? ' · ' + escapeHtml(p.municipio) : ''}</span>`;
   if(puedeVenderEnRuta()){
     html += `<button type="button" class="pop-venta">🧾 Registrar venta</button>`;
   }
@@ -6548,7 +6554,7 @@ function contenidoPopupResaltado(p){
   const lugar = [p.municipio, p.localidad && p.localidad !== p.municipio ? p.localidad : ''].filter(Boolean).map(escapeHtml).join(' · ');
   const notas = p.notas ? String(p.notas) : '';
   const notasCorta = notas.length > 160 ? notas.slice(0, 157) + '…' : notas;
-  return `<div class="pop-res">
+  return `<div class="pop-res">${fotoPopup(p)}
     <b>${escapeHtml(p.nombre)}</b>${p.prioridad ? ' ⚠️' : ''}<br>
     ${estado}<br>
     <span class="pop-dim">${escapeHtml(p.origen)}${lugar ? ' · ' + lugar : ''}</span>
