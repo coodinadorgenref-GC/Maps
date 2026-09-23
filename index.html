@@ -6717,13 +6717,18 @@ let flyoutAbierto = null;
 function posicionarFlyout(panel, btn){
   const r = btn.getBoundingClientRect();
   const anchoDrawer = document.getElementById('drawer').getBoundingClientRect().right;
-  panel.style.left = Math.round(anchoDrawer - 8) + 'px';
+  const ancho = panel.offsetWidth || 240;
+  let left = anchoDrawer - 8;
+  const maxLeft = window.innerWidth - ancho - 10;
+  if(left > maxLeft) left = Math.max(10, maxLeft);
+  panel.style.left = Math.round(left) + 'px';
   const alto = panel.offsetHeight || 260;
   let top = r.top;
   const maxTop = window.innerHeight - alto - 10;
   if(top > maxTop) top = Math.max(10, maxTop);
   panel.style.top = Math.round(top) + 'px';
 }
+
 
 function abrirFlyout(id, btn){
   cerrarFlyout();
