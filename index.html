@@ -151,6 +151,25 @@
   .drawer-subitem.sel .marca::after{ content:'✓'; }
   .drawer-sep{ height:1px; background:var(--line); margin:8px 0; }
 
+  /* ---------- Menús con vista previa (flyout), estilo "Configuración" de Firebase ---------- */
+  .drawer-item.con-flyout .chev{ margin-left:auto; font-size:20px; color:var(--text-dim); }
+  .flyout-scrim{ position:fixed; inset:0; z-index:1470; background:transparent; display:none; }
+  .flyout-scrim.open{ display:block; }
+  .drawer-flyout{
+    position:fixed; z-index:1480; width:min(240px, 62vw);
+    background:var(--surface); color:var(--text);
+    border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.45);
+    border:1px solid var(--line);
+    padding:6px 0; max-height:70vh; overflow-y:auto;
+    display:none;
+  }
+  .drawer-flyout.open{ display:block; }
+  .drawer-flyout-header{
+    padding:10px 16px 8px; font-size:11px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.4px; color:var(--text-dim); border-bottom:1px solid var(--line); margin-bottom:4px;
+  }
+  .drawer-flyout .drawer-item{ padding:11px 16px; font-size:14px; }
+
   /* ---------- Sesión (login) ---------- */
   .login-overlay{
     position:fixed; inset:0; z-index:5000;
@@ -228,15 +247,6 @@
   }
 
   /* ---------- Venta en ruta ---------- */
-  .venta-fab{
-    position:fixed; left:16px; bottom:calc(20px + env(safe-area-inset-bottom)); z-index:1200;
-    width:56px; height:56px; border-radius:50%;
-    background:var(--teal); color:#0E1518; border:none;
-    font-size:24px; box-shadow:0 6px 18px rgba(0,0,0,.4);
-    display:flex; align-items:center; justify-content:center;
-  }
-  .venta-fab[hidden]{ display:none; }
-  .venta-fab:active{ transform:scale(.95); }
  
   .venta-overlay{
     position:fixed; inset:0; z-index:5100; background:rgba(0,0,0,.5);
@@ -645,13 +655,48 @@
   <button class="drawer-item" id="btnRutaActual" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg><span class="txt">Ruta actual</span></button>
   <button class="drawer-item" id="btnAgenda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg><span class="txt">Próximas rutas</span></button>
 
-  <div class="drawer-section">Ventas en ruta</div>
-  <button class="drawer-item" id="btnAlmacenMovil" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zM18 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg><span class="txt">Almacén móvil</span></button>
-
+    <div class="drawer-section">Ventas en ruta</div>
+  <button class="drawer-item con-flyout" id="btnVentasFlyout" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zM18 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+    <span class="txt">Ventas en ruta</span><span class="chev">›</span>
+  </button>
+  
   <div class="drawer-section">Mapas</div>
   <button class="drawer-item" id="btnZonaOffline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span class="txt">Mapas descargados</span></button>
 
   <div class="drawer-section">Clima</div>
+  <button class="drawer-item con-flyout" id="btnClimaFlyout">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
+    <span class="txt">Clima</span><span class="chev">›</span>
+  </button>
+
+  <div class="drawer-sep"></div>
+  <button class="drawer-item" id="btnAjustesHeader"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg><span class="txt">Configuración</span></button>
+
+  <div class="drawer-sep"></div>
+  <button class="drawer-item salir" id="btnCerrarSesion" onclick="cerrarSesionMaps()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L17.17 10H8v2h9.17l-1.58 1.59L17 15l4-4zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg><span class="txt">Cerrar sesión</span></button>
+</aside>
+
+<div class="flyout-scrim" id="flyoutScrim"></div>
+
+<div class="drawer-flyout" id="flyoutVentas">
+  <div class="drawer-flyout-header">Ventas en ruta</div>
+  <button class="drawer-item" id="btnRegistrarVentaMenu">
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 6h-2.18c.11-.31.18-.65.18-1a2 2 0 0 0-2-2c-1.11 0-2 .9-2 2 0-1.1-.89-2-2-2s-2 .9-2 2c0 .35.07.69.18 1H8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg>
+    <span class="txt">Registrar venta</span>
+  </button>
+  <button class="drawer-item" id="btnMisVentas">
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM7 13h5v2H7v-2zm0 4h10v2H7v-2zm7-8V3.5L18.5 8H14z"/></svg>
+    <span class="txt">Mis ventas</span>
+  </button>
+  <button class="drawer-item" id="btnAlmacenMovil">
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zM18 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+    <span class="txt">Almacén móvil</span>
+  </button>
+</div>
+
+<div class="drawer-flyout" id="flyoutClima">
+  <div class="drawer-flyout-header">Clima</div>
   <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnNubes" data-mantener="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Satélite</span><span class="estado"></span><span class="chev">›</span></button>
@@ -666,15 +711,9 @@
   <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnFronteras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V5l5-2 6 3 5-2v15l-5 2-6-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2"/></svg><span class="txt">Fronteras y estados</span><span class="estado"></span></button>
+</div>
 
-  <div class="drawer-sep"></div>
-  <button class="drawer-item" id="btnAjustesHeader"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg><span class="txt">Configuración</span></button>
-
-  <div class="drawer-sep"></div>
-  <button class="drawer-item salir" id="btnCerrarSesion" onclick="cerrarSesionMaps()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7l-1.41 1.41L17.17 10H8v2h9.17l-1.58 1.59L17 15l4-4zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg><span class="txt">Cerrar sesión</span></button>
-</aside>
 <input type="file" id="fileImportarGlobal" accept=".csv,.json,text/csv,application/json,application/vnd.ms-excel,text/plain" style="display:none">
-
 <div id="map"></div>
 
 <button class="locate-fab" id="btnLocate" title="Toca para centrar; toca de nuevo para seguir tu rumbo" aria-label="Mi ubicación"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg></button>
@@ -707,7 +746,6 @@
   </div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
-<button class="venta-fab" id="btnNuevaVenta" title="Registrar venta" hidden>🧾</button>
  
 <div class="venta-overlay" id="ventaOverlay" hidden>
   <div class="venta-card">
