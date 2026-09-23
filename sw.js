@@ -3,12 +3,13 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v19';
+const CACHE_SHELL = 'rutas-gc-shell-v20';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
   './',
   './index.html',
+  './nota-venta.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
