@@ -169,7 +169,11 @@
     letter-spacing:.4px; color:var(--text-dim); border-bottom:1px solid var(--line); margin-bottom:4px;
   }
   .drawer-flyout .drawer-item{ padding:11px 16px; font-size:14px; }
-
+  .drawer-flyout.movil{
+    left:0 !important; right:0; bottom:0; top:auto !important;
+    width:auto; max-width:none; border-radius:16px 16px 0 0;
+    max-height:60vh; padding-bottom:calc(6px + env(safe-area-inset-bottom));
+  }
   /* ---------- Sesión (login) ---------- */
   .login-overlay{
     position:fixed; inset:0; z-index:5000;
@@ -6715,6 +6719,13 @@ const flyoutScrim = document.getElementById('flyoutScrim');
 let flyoutAbierto = null;
 
 function posicionarFlyout(panel, btn){
+  if(window.innerWidth < 640){
+    panel.classList.add('movil');
+    panel.style.top = '';
+    panel.style.left = '';
+    return;
+  }
+  panel.classList.remove('movil');
   const r = btn.getBoundingClientRect();
   const anchoDrawer = document.getElementById('drawer').getBoundingClientRect().right;
   const ancho = panel.offsetWidth || 240;
