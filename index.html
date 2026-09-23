@@ -1092,10 +1092,11 @@ function puedeVenderEnRuta(){
   return (rolActual || "").toLowerCase().indexOf("vendedor") !== -1;
 }
 function actualizarVisibilidadBotonVenta(){
-  const btn = document.getElementById("btnNuevaVenta");
-  if (btn) btn.hidden = !(usuarioActual && puedeVenderEnRuta());
-  const btnAlm = document.getElementById("btnAlmacenMovil");
-  if (btnAlm) btnAlm.hidden = !(usuarioActual && (puedeVenderEnRuta() || esAdmin));
+  const puede = usuarioActual && (puedeVenderEnRuta() || esAdmin);
+  const btnFly = document.getElementById('btnVentasFlyout');
+  if (btnFly) btnFly.hidden = !puede;
+  const btnRegistrar = document.getElementById('btnRegistrarVentaMenu');
+  if (btnRegistrar) btnRegistrar.hidden = !(usuarioActual && puedeVenderEnRuta());
 }
  
 /* ---------- Folio: se genera en el dispositivo, nunca en el servidor ---------- */
@@ -1136,8 +1137,7 @@ function abrirVentaRuta(nombreCliente){
 function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
 }
-document.getElementById("btnNuevaVenta").addEventListener("click", function(){ abrirVentaRuta(); });
-document.getElementById("btnAlmacenMovil").addEventListener("click", () => {
+document.getElementById('btnAlmacenMovil').addEventListener('click', () => {
   abrirSheet();
   cambiarTab("almacen", "mapa");
 });
@@ -4787,6 +4787,7 @@ function cambiarTab(tab, origen){
     if(tab === 'clima') renderClima();
     if(tab === 'agenda') renderAgenda();
     if(tab === 'almacen') renderAlmacen();
+    if(tab === 'misventas') renderMisVentas();
   } catch(err){
     // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
     // bajo el título nuevo (justo lo que parecía "me sale la lista").
@@ -4845,7 +4846,8 @@ function renderSheetTabs(){
     ajustes: 'Configuración',
     clima: 'Clima',
     agenda: 'Próximas rutas',
-    almacen: 'Almacén móvil'
+    almacen: 'Almacén móvil',
+    misventas: 'Mis ventas'
   };
   const destino = ETIQUETA_ORIGEN[origenNav] ? origenNav : 'mapa';
   tabsEl.innerHTML = `
@@ -6680,6 +6682,7 @@ function abrirDrawer(){
   drawerEl.setAttribute('aria-hidden', 'false');
 }
 function cerrarDrawer(){
+  cerrarFlyout();
   const sm = document.getElementById('satMenu');
   if(sm){ sm.hidden = true; document.getElementById('btnNubes').classList.remove('abierto'); }
   drawerScrim.classList.remove('open');
@@ -6707,7 +6710,138 @@ drawerEl.addEventListener('touchend', (e) => {
 document.getElementById('btnRutaActual').addEventListener('click', () => {
   cambiarTab('ruta', 'mapa');
 });
+/* ---------- Menús con vista previa (flyout), estilo "Configuración" de Firebase ---------- */
+const flyoutScrim = document.getElementById('flyoutScrim');
+let flyoutAbierto = null;
 
+function posicionarFlyout(panel, btn){
+  const r = btn.getBoundingClientRect();
+  const anchoDrawer = document.getElementById('drawer').getBoundingClientRect().right;
+  panel.style.left = Math.round(anchoDrawer - 8) + 'px';
+  const alto = panel.offsetHeight || 260;
+  let top = r.top;
+  const maxTop = window.innerHeight - alto - 10;
+  if(top > maxTop) top = Math.max(10, maxTop);
+  panel.style.top = Math.round(top) + 'px';
+}
+
+function abrirFlyout(id, btn){
+  cerrarFlyout();
+  const panel = document.getElementById(id);
+  if(!panel) return;
+  panel.classList.add('open');
+  flyoutScrim.classList.add('open');
+  posicionarFlyout(panel, btn);
+  flyoutAbierto = id;
+}
+function cerrarFlyout(){
+  if(!flyoutAbierto) return;
+  const panel = document.getElementById(flyoutAbierto);
+  if(panel) panel.classList.remove('open');
+  flyoutScrim.classList.remove('open');
+  flyoutAbierto = null;
+}
+flyoutScrim.addEventListener('click', cerrarFlyout);
+
+document.getElementById('btnVentasFlyout').addEventListener('click', (e) => {
+  abrirFlyout('flyoutVentas', e.currentTarget);
+});
+document.getElementById('btnClimaFlyout').addEventListener('click', (e) => {
+  abrirFlyout('flyoutClima', e.currentTarget);
+});
+
+// Cualquier botón del flyout cierra el flyout y el menú lateral al usarse,
+// salvo el que expande el acordeón de Satélite (data-mantener).
+['flyoutVentas','flyoutClima'].forEach(id => {
+  document.getElementById(id).addEventListener('click', (e) => {
+    if(e.target.closest('[data-mantener]')) return;
+    cerrarFlyout();
+    cerrarDrawer();
+  });
+});
+
+document.getElementById('btnRegistrarVentaMenu').addEventListener('click', () => abrirVentaRuta());
+document.getElementById('btnMisVentas').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('misventas', 'mapa');
+});
+
+/* ---------- Mis ventas: historial propio + reenvío de ticket ----------
+   Junta las líneas de VentasRuta (una por SKU) agrupándolas por folio para
+   reconstruir cada venta completa, y permite volver a generar el PDF y
+   reabrir el panel de compartir (WhatsApp) por si la primera vez no se
+   pudo enviar. */
+function agruparFilasVentaEnVentas(filas){
+  const porFolio = {};
+  filas.forEach(f => {
+    if(!porFolio[f.folio]){
+      porFolio[f.folio] = {
+        folio: f.folio, fechaLocal: f.fecha, vendedor: f.vendedor, vendedorNombre: f.vendedor,
+        cliente: f.cliente, metodoPago: f.metodoPago, referencia: f.referencia,
+        mesesMsi: f.mesesMsi || null, items: [], total: 0
+      };
+    }
+    porFolio[f.folio].items.push({
+      sku: f.sku, producto: f.producto, cantidad: Number(f.cantidad) || 0, precio: Number(f.precioUnitario) || 0
+    });
+    porFolio[f.folio].total += Number(f.total) || 0;
+  });
+  return Object.values(porFolio).sort((a, b) => new Date(b.fechaLocal) - new Date(a.fechaLocal));
+}
+
+async function renderMisVentas(){
+  if(!SHEET_ENDPOINT){
+    sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
+    return;
+  }
+  sheetBody.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
+  let ventas = [];
+  try{
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=ventasRuta`);
+    const filas = await resp.json();
+    const clave = String(usuarioActual || '').trim().toLowerCase();
+    const claveNombre = String(nombreActual || '').trim().toLowerCase();
+    const propias = filas.filter(f => {
+      const v = String(f.vendedor || '').trim().toLowerCase();
+      return esAdmin ? true : (v === clave || (claveNombre && v === claveNombre));
+    });
+    ventas = agruparFilasVentaEnVentas(propias);
+  } catch(err){
+    sheetBody.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
+    return;
+  }
+  if(currentTab !== 'misventas') return;
+  if(ventas.length === 0){
+    sheetBody.innerHTML = '<div class="empty">Aún no tienes ventas registradas.</div>';
+    return;
+  }
+  sheetBody.innerHTML = ventas.map(v => `
+    <div class="item">
+      <div class="info">
+        <div class="name">${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
+        <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
+      </div>
+      <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.folio)}">↻ Reenviar</button>
+    </div>
+  `).join('');
+
+  sheetBody.querySelectorAll('[data-reenviar]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const venta = ventas.find(v => v.folio === btn.dataset.reenviar);
+      if(venta) reenviarTicketVenta(venta);
+    });
+  });
+}
+
+async function reenviarTicketVenta(venta){
+  try{
+    const pdfBlob = generarPdfTicketVenta(venta);
+    mostrarToast('Abriendo para reenviar…');
+    await compartirTicketVenta(venta, pdfBlob);
+  } catch(err){
+    mostrarToast('No se pudo generar el ticket: ' + err.message);
+  }
+}
 /* ---------- Arranque de datos (solo tras iniciar sesión) ----------
    Antes corría de inmediato al cargar el script; ahora se retrasa
    hasta que haya una sesión válida (nueva o restaurada), para que un
