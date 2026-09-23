@@ -763,6 +763,10 @@
     <div class="venta-campo">
       <label for="ventaCliente">Cliente / prospecto</label>
       <input type="text" id="ventaCliente" placeholder="Nombre del cliente">
+      <div class="venta-campo">
+      <label for="ventaTelefono">Teléfono del cliente</label>
+      <input type="tel" inputmode="numeric" id="ventaTelefono" placeholder="Ej. 9851234567">
+    </div>
     </div>
  
     <div id="ventaItemsLista"></div>
@@ -808,6 +812,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <!-- jsPDF, para generar el ticket en PDF sin backend -->
+<script src="nota-venta.js"></script>  
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>  
 <script src="https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js"></script>
 
@@ -1131,6 +1136,7 @@ function abrirVentaRuta(nombreCliente){
   cargarInventarioPropio(); // trae tus existencias actuales antes de capturar
   document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
   document.getElementById("ventaCliente").value = nombreCliente || "";
+  document.getElementById("ventaTelefono").value = telefonoCliente || "";
   document.getElementById("ventaMetodoPago").value = "efectivo";
   document.getElementById("ventaError").style.display = "none";
   actualizarCamposPagoVenta();
@@ -1204,7 +1210,7 @@ function renderizarItemsVenta(){
   actualizarTotalVenta();
 }
 function actualizarTotalVenta(){
-  const total = ventaItemsActuales.reduce(function(s, it){ return s + (it.cantidad * it.precio); }, 0);
+  const total = totalRedondeado(ventaItemsActuales);
   document.getElementById("ventaTotalMostrado").innerText = "$" + total.toFixed(2);
   return total;
 }
@@ -1241,7 +1247,10 @@ async function confirmarVentaRuta(){
     if(btnPedido) btnPedido.onclick = function(){ generarPedidosRestock(faltantes); };
     return;
   }
- 
+ itemsValidos.forEach(function(it){
+  const k = (it.sku || "").trim();
+  it.existencia = (k && inventarioPropio[k]) ? "movil" : "";
+});
   const metodoPago = document.getElementById("ventaMetodoPago").value;
   const referencia = document.getElementById("ventaReferencia").value.trim();
   const meses = Number(document.getElementById("ventaMeses").value) || null;
@@ -1252,6 +1261,7 @@ async function confirmarVentaRuta(){
     vendedor: usuarioActual,
     vendedorNombre: nombreActual,
     cliente: cliente,
+    telefono: document.getElementById("ventaTelefono").value.trim(),
     items: itemsValidos,
     total: total,
     metodoPago: metodoPago,
@@ -1350,27 +1360,7 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
  
 /* ---------- PDF del ticket (jsPDF, sin backend) ---------- */
 function generarPdfTicketVenta(venta){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: "mm", format: [80, 150] }); // formato angosto tipo ticket
-  let y = 10;
-  doc.setFontSize(11); doc.setFont(undefined, "bold");
-  doc.text("Nota de venta", 40, y, { align: "center" }); y += 6;
-  doc.setFontSize(8.5); doc.setFont(undefined, "normal");
-  doc.text("Folio: " + venta.folio, 5, y); y += 4.5;
-  doc.text("Fecha: " + new Date(venta.fechaLocal).toLocaleString("es-MX"), 5, y); y += 4.5;
-  doc.text("Vendedor: " + (venta.vendedorNombre || venta.vendedor), 5, y); y += 4.5;
-  doc.text("Cliente: " + venta.cliente, 5, y); y += 6;
-  doc.setFont(undefined, "bold"); doc.text("Cant  Producto              Precio", 5, y); doc.setFont(undefined, "normal"); y += 4;
-  venta.items.forEach(function(it){
-    const linea = String(it.cantidad).padEnd(5) + it.producto.slice(0,20).padEnd(21) + "$" + (it.cantidad*it.precio).toFixed(2);
-    doc.text(linea, 5, y); y += 4.2;
-  });
-  y += 2;
-  doc.setFont(undefined, "bold"); doc.setFontSize(10);
-  doc.text("Total: $" + venta.total.toFixed(2), 5, y); y += 5;
-  doc.setFontSize(8.5); doc.setFont(undefined, "normal");
-  doc.text("Forma de pago: " + venta.metodoPago + (venta.mesesMsi ? " (" + venta.mesesMsi + " msi)" : ""), 5, y);
-  return doc.output("blob");
+  return generarPdfNotaVenta(venta).output("blob");
 }
  
 /* ---------- Compartir por WhatsApp ---------- */
@@ -3846,7 +3836,7 @@ function renderMarcadores(){
       m.prospectoEstatus = p.estatus;
       m.on('popupopen', e => {
         const b = e.popup.getElement() && e.popup.getElement().querySelector('.pop-venta');
-        if(b) b.onclick = () => { m.closePopup(); abrirVentaRuta(p.nombre); };
+        if(b) b.onclick = () => { m.closePopup(); abrirVentaRuta(p.nombre, p.contactoTel); };
       });
 
       // Mantener presionado ~3s muestra la etiqueta (popup) sin entrar a
