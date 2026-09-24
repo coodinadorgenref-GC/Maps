@@ -214,8 +214,14 @@
     display:none; background:rgba(214,95,95,.12); color:var(--danger); border:1px solid rgba(214,95,95,.35);
     font-size:12.5px; font-weight:600; padding:9px 10px; border-radius:10px; margin-bottom:14px; text-align:center;
   }
-  .sesion-badge{ font-size:11.5px; color:var(--text-dim); margin-top:2px; }
+  .sesion-badge{ font-size:11.5px; color:var(--text-dim); margin-top:2px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
   .sesion-badge b{ color:var(--text); }
+  .sesion-rol-chip{
+    display:inline-block; font-size:10px; font-weight:700; letter-spacing:.03em;
+    padding:2px 7px; border-radius:99px; line-height:1.5;
+  }
+  .sesion-rol-chip.rol-admin{ background:rgba(176,22,34,.15); color:#d65f5f; border:1px solid rgba(176,22,34,.35); }
+  .sesion-rol-chip.rol-vendedor{ background:rgba(20,157,143,.15); color:var(--teal); border:1px solid rgba(20,157,143,.35); }
   .drawer-item.salir svg{ color:var(--danger); }
 
   #map{ position:absolute; inset:0; }
@@ -665,9 +671,6 @@
     <span class="txt">Ventas en ruta</span><span class="chev">›</span>
   </button>
   
-  <div class="drawer-section">Mapas</div>
-  <button class="drawer-item" id="btnZonaOffline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span class="txt">Mapas descargados</span></button>
-
   <div class="drawer-section">Clima</div>
   <button class="drawer-item con-flyout" id="btnClimaFlyout" data-mantener="1">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
@@ -798,7 +801,25 @@
     <button class="venta-btn" id="ventaBtnGuardar" onclick="confirmarVentaRuta()">Generar ticket y enviar</button>
   </div>
 </div>
-  
+
+<div class="venta-overlay" id="notaVentaOverlay" hidden>
+  <div class="venta-card" style="padding-top:16px;">
+    <div class="venta-titulo">
+      <span id="notaVentaTitulo">Nota de venta</span>
+      <button onclick="cerrarNotaVentaModal()" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="venta-folio" id="notaVentaFolio"></div>
+    <iframe id="notaVentaFrame" style="width:100%; height:62vh; border:1px solid var(--line); border-radius:10px; background:#fff;" title="Nota de venta"></iframe>
+    <div style="text-align:center; margin:8px 0 4px;">
+      <a href="#" id="notaVentaAbrirAparte" target="_blank" style="font-size:11.5px; color:var(--text-dim); text-decoration:underline;">¿No se ve bien? Ábrela aparte</a>
+    </div>
+    <div class="save-row" style="margin-top:10px;">
+      <button class="btn teal" id="notaVentaBtnCopiar" style="flex:1;">📋 Copiar información</button>
+      <button class="btn teal" id="notaVentaBtnReenviar" style="flex:1;">↻ Reenviar</button>
+    </div>
+  </div>
+</div>
+
 <div class="sheet" id="sheet">
   <div class="sheet-handle" id="sheetHandle">
     <div class="bar"></div>
@@ -864,9 +885,15 @@ function ocultarErrorLoginMaps(){
 function pintarBadgeSesionMaps(){
   const el = document.getElementById("sesionBadge");
   if(!el) return;
-  el.innerHTML = nombreActual
-    ? ("<b>" + nombreActual + "</b>" + (rolActual ? " · " + rolActual : (esAdmin ? " · Admin" : "")))
+  if(!nombreActual){ el.innerHTML = ""; return; }
+  // Rol de SISTEMA (ADMIN/VENDEDOR, según esAdmin / columna F) — distinto
+  // de rolActual, que es el rol de cara al cliente (columna C, p.ej.
+  // "Coordinador General de Refacciones") y solo es informativo.
+  const rolSistema = esAdmin ? "ADMIN" : (puedeVenderEnRuta() ? "VENDEDOR" : "");
+  const chip = rolSistema
+    ? `<span class="sesion-rol-chip ${esAdmin ? "rol-admin" : "rol-vendedor"}">${rolSistema}</span>`
     : "";
+  el.innerHTML = "<b>" + nombreActual + "</b>" + (rolActual ? " · " + rolActual : "") + chip;
 }
 
 async function manejarInicioDeSesionMaps(){
@@ -4200,11 +4227,6 @@ document.getElementById('btnFit').addEventListener('click', () => {
   ajustarVistaATodos();
 });
 
-document.getElementById('btnZonaOffline').addEventListener('click', () => {
-  abrirSheet();
-  cambiarTab('zonas', 'mapa');
-});
-
 /* ---------- Selección de ruta directamente en el mapa ----------
    En vez de escoger de una lista larga y dispersa, el modo ruta resalta un
    anillo verde en cada prospecto que se va tocando en el propio mapa. */
@@ -5233,6 +5255,11 @@ function renderAjustes(){
       <div style="font-size:12.5px; margin-bottom:8px;">⚠️ No se pudo cargar el mapa vectorial; se usa el clásico.</div>
       <div class="chip-row" style="margin-bottom:22px;"><button class="chip" data-base-reintentar="1">↻ Reintentar</button></div>` : ''}
 
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Mapas</div>
+    <div class="save-row" style="margin-bottom:22px;">
+      <button class="btn" id="btnZonaOfflineAjustes" style="flex:1;">⬇️ Mapas descargados</button>
+    </div>
+
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Importar datos</div>
     <div class="save-row">
       <button class="btn primary" id="btnImportarAjustes" style="flex:1">⭳ Importar CSV / JSON</button>
@@ -5271,6 +5298,9 @@ function renderAjustes(){
   });
   document.getElementById('btnImportarAjustes').addEventListener('click', () => {
     document.getElementById('fileImportarGlobal').click();
+  });
+  document.getElementById('btnZonaOfflineAjustes').addEventListener('click', () => {
+    cambiarTab('zonas', 'mapa');
   });
 }
 
@@ -6853,33 +6883,24 @@ async function renderMisVentas(){
     return;
   }
   sheetBody.innerHTML = ventas.map((v, i) => `
-    <div class="item" data-ver="${i}" style="cursor:pointer; flex-wrap:wrap;">
+    <div class="item" data-ver="${i}" style="cursor:pointer;">
       <div class="info">
         <div class="name">${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
         <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
       </div>
-      <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-copiar="${i}">📋 Copiar</button>
       <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.folio)}">↻ Reenviar</button>
-      <div class="mv-detalle" id="mvDetalle${i}" hidden style="flex-basis:100%; margin-top:8px; padding-top:8px; border-top:1px solid var(--line); font-size:12.5px; color:var(--text-dim);"></div>
     </div>
   `).join('');
 
+  // Al tocar la fila (fuera del botón "Reenviar") se abre la nota de venta
+  // completa (vista previa + copiar), en vez de expandir un detalle en
+  // texto plano aquí mismo.
   sheetBody.querySelectorAll('[data-ver]').forEach(fila => {
     fila.addEventListener('click', (e) => {
-      if(e.target.closest('button')) return; // no expandir si se tocó un botón
+      if(e.target.closest('button')) return;
       const idx = fila.dataset.ver;
-      const det = document.getElementById('mvDetalle' + idx);
-      if(!det) return;
-      if(det.hidden){
-        const v = ventas[idx];
-        det.innerHTML = (v.items || []).map(it => {
-          const importe = (Number(it.cantidad) || 0) * (Number(it.precio) || 0);
-          return `<div style="display:flex; justify-content:space-between; gap:8px; margin-bottom:3px;">`
-            + `<span>${it.cantidad} × ${escapeHtml(it.producto || it.sku || '')}${it.sku ? ' <span style="opacity:.7;">(' + escapeHtml(it.sku) + ')</span>' : ''}</span>`
-            + `<span style="flex-shrink:0;">$${importe.toFixed(2)}</span></div>`;
-        }).join('') || 'Sin productos capturados.';
-      }
-      det.hidden = !det.hidden;
+      const v = ventas[idx];
+      if(v) abrirNotaVentaModal(v);
     });
   });
 
@@ -6889,12 +6910,37 @@ async function renderMisVentas(){
       if(venta) reenviarTicketVenta(venta);
     });
   });
-  sheetBody.querySelectorAll('[data-copiar]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const venta = ventas[btn.dataset.copiar];
-      if(venta) copiarTextoVenta(venta);
-    });
-  });
+}
+
+/* ---------- Modal "Nota de venta": vista previa (el mismo PDF que se
+   comparte) + copiar información + reenviar, todo dentro de la nota ya
+   abierta, en vez de vivir sueltos en la lista de "Mis ventas". ---------- */
+let notaVentaUrlActual = null; // blob URL vigente, para liberarlo al cerrar
+
+function abrirNotaVentaModal(venta){
+  try{
+    const pdfBlob = generarPdfTicketVenta(venta);
+    cerrarNotaVentaModal(); // libera cualquier blob anterior antes de crear uno nuevo
+    const url = URL.createObjectURL(pdfBlob);
+    notaVentaUrlActual = url;
+    document.getElementById('notaVentaTitulo').textContent = 'Nota de venta — ' + (venta.cliente || 'Sin nombre');
+    document.getElementById('notaVentaFolio').textContent = venta.folio + ' · $' + venta.total.toFixed(2);
+    document.getElementById('notaVentaFrame').src = url;
+    document.getElementById('notaVentaAbrirAparte').href = url;
+    document.getElementById('notaVentaBtnCopiar').onclick = () => copiarTextoVenta(venta);
+    document.getElementById('notaVentaBtnReenviar').onclick = () => reenviarTicketVenta(venta);
+    document.getElementById('notaVentaOverlay').hidden = false;
+  } catch(err){
+    mostrarToast('No se pudo abrir la nota: ' + err.message);
+  }
+}
+
+function cerrarNotaVentaModal(){
+  const overlay = document.getElementById('notaVentaOverlay');
+  if(overlay) overlay.hidden = true;
+  const frame = document.getElementById('notaVentaFrame');
+  if(frame) frame.src = 'about:blank';
+  if(notaVentaUrlActual){ URL.revokeObjectURL(notaVentaUrlActual); notaVentaUrlActual = null; }
 }
 
 // Texto plano de la venta (para copiar y pegar donde haga falta: WhatsApp,
