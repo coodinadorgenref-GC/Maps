@@ -1287,10 +1287,11 @@ async function confirmarVentaRuta(){
     return;
   }
  itemsValidos.forEach(function(it){
+  if (esPedido){ it.existencia = "pedido"; return; }
   const k = (it.sku || "").trim();
   it.existencia = (k && inventarioPropio[k]) ? "movil" : "";
 });
-  const metodoPago = document.getElementById("ventaMetodoPago").value;
+   const metodoPago = esPedido ? "pedido" : document.getElementById("ventaMetodoPago").value;
   const referencia = document.getElementById("ventaReferencia").value.trim();
   const meses = Number(document.getElementById("ventaMeses").value) || null;
   const total = actualizarTotalVenta();
@@ -2156,7 +2157,10 @@ function filasVentaParaSheet(venta){
       referencia: venta.referencia,
       mesesMsi: venta.mesesMsi,
       ubicacion: venta.ubicacion || '',
-      precioManual: it.manual ? 'SI' : ''
+      precioManual: it.manual ? 'SI' : '',
+      tipoNota: venta.tipoNota || '',
+      anticipo: venta.anticipo != null ? venta.anticipo : '',
+      saldoPendiente: venta.saldoPendiente != null ? venta.saldoPendiente : ''
     };
   });
 }
