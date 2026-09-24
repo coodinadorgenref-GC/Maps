@@ -943,7 +943,19 @@ async function manejarInicioDeSesionMaps(){
       })
     });
     const rs = await r.json();
-    if(rs.success){
+  if(rs.success){
+  // Solo entran admin y vendedores. Como el backend marca esAdmin=true
+  // también para vendedores, basta con que venga alguno de los dos flags.
+  if(!(rs.esAdmin || rs.esVendedor)){
+    // El servidor ya creó una sesión para esta cuenta: se libera.
+    try{
+      await fetch(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
+        body: JSON.stringify({ action:"cerrarSesionServidor", correo: rs.correo || identificador, token: rs.token }) });
+    } catch(e){}
+    mostrarErrorLoginMaps("Tu cuenta no tiene acceso a esta app. Solo administradores y vendedores.");
+    btnEl.disabled = false; btnEl.innerText = "Entrar";
+    return;
+  }
       usuarioActual = rs.correo || identificador;
       tokenActual = rs.token;
       // El backend del catálogo marca esAdmin=true también para "vendedor"
@@ -988,7 +1000,7 @@ function actualizarTimestampSesionMaps(){
 function verificarSesionGuardadaMaps(){
   const str = localStorage.getItem(SESION_MAPS_KEY);
   if(!str) return; // se queda en la pantalla de login
-  const s = JSON.parse(str);
+   const s = JSON.parse(str);
   duracionSesionActualMapsMs = s.duracionMs || TIEMPO_EXPIRACION_SESION_MAPS_MS;
 
   if(new Date().getTime() - s.timestamp > duracionSesionActualMapsMs){
@@ -1003,9 +1015,10 @@ function verificarSesionGuardadaMaps(){
         const payload = JSON.stringify({ action:"cerrarSesionServidor", correo:s.correo, token:s.token });
         navigator.sendBeacon(LOGIN_API_URL, new Blob([payload], { type:"text/plain" }));
       } catch(e){}
-      localStorage.removeItem(SESION_MAPS_KEY);
-      return; // se queda en la pantalla de login
-    }
+      if(!(s.esAdmin || s.esVendedor)){
+        localStorage.removeItem(SESION_MAPS_KEY);
+        return; // se queda en la pantalla de login
+      }
   }
 
   accesoOfflinePermitidoMaps = s.accesoOffline || false;
