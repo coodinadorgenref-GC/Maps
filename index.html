@@ -57,8 +57,9 @@
     width:9px; height:9px; border-radius:50%; background:var(--text-dim);
     box-shadow:0 0 0 3px rgba(255,255,255,.04);
   }
-  .sync-dot.pend{background:var(--ochre);}
-  .sync-dot.offline{background:var(--danger);}
+  .sync-dot.ok{background:var(--teal);}
+  .sync-dot.pend{background:#22B14C; animation:pulso-sync 1.2s ease-in-out infinite;}
+  .sync-dot.offline{background:#8A94A0;}
   .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim); cursor:pointer;}
 
   /* ---------- Pantalla principal minimalista (referencia: Google Maps) ----------
@@ -93,8 +94,9 @@
     position:absolute; top:8px; right:8px; width:10px; height:10px; border-radius:50%;
     border:2px solid var(--surface); display:none;
   }
-  .menu-badge.pend{ display:block; background:var(--ochre); }
-  .menu-badge.offline{ display:block; background:var(--danger); }
+  @keyframes pulso-sync{50%{opacity:.35}}
+  .menu-badge.pend{ display:block; background:#22B14C; }
+  .menu-badge.offline{ display:block; background:#8A94A0; }
 
   .buscador-res{
     position:fixed; z-index:1350;
@@ -1174,16 +1176,14 @@ let firebaseVentaRutaListo = false;
  *  Firestore tengan un request.auth != null que verificar. El
  *  verdadero control de acceso sigue siendo tu login normal. */
 function iniciarFirebaseVentaRuta(){
-    appVentaRuta.auth().signInAnonymously().then(function(){
-      firebaseVentaRutaListo = true;
+  appVentaRuta.auth().signInAnonymously().then(function(){
+    firebaseVentaRutaListo = true;
     actualizarVisibilidadBotonVenta();
-    // El admin no trae almacén propio (edita el de otros), así que no
-    // vale la pena esta consulta a Firestore al iniciar sesión —
-    // además solía fallar con "client is offline" porque se disparaba
-    // antes de que el canal de Firestore terminara de conectar.
     if(!esAdmin) cargarInventarioPropio();
+    _reportarUbicacionVivo(); // primer reporte inmediato
   }).catch(function(err){
     console.warn("No se pudo autenticar anónimamente...", err);
+    mostrarToast('Firebase: no se pudo autenticar (' + (err.code || err.message) + ')');
   });
 }
     
@@ -1225,25 +1225,28 @@ function actualizarVisibilidadBotonVenta(){
    omite ese dato). */
 let intervaloSeguimientoVivo = null;
 
+let avisoVivoMostrado = false;
+function _avisarFalloVivo(msg){
+  console.warn('[vivo]', msg);
+  if(!avisoVivoMostrado){ avisoVivoMostrado = true; mostrarToast('Seguimiento en vivo: ' + msg); }
+}
 function _reportarUbicacionVivo(){
   if(!usuarioActual || esAdmin || !puedeVenderEnRuta()) return;
   if(document.visibilityState !== 'visible') return;
+  if(!firebaseVentaRutaListo) return; // aún autenticando en Firebase
   const reportar = function(bateria){
     obtenerUbicacionReciente(120000, function(pos){
       dbVentaRuta.collection('ubicaciones_vendedores').doc(usuarioActual).set({
         vendedor: usuarioActual, vendedorNombre: nombreActual,
-        lat: pos.lat, lng: pos.lng,
-        bateria: bateria,
-        visita: visitaActualVendedor || null,
-        actualizadoEn: Date.now()
-      }).catch(function(err){ console.warn('No se pudo reportar ubicación en vivo:', err); });
-    }, function(){ /* sin GPS en este momento: se reintenta en el siguiente ciclo */ });
+        lat: pos.lat, lng: pos.lng, bateria: bateria,
+        visita: visitaActualVendedor || null, actualizadoEn: Date.now()
+      }).then(function(){ avisoVivoMostrado = false; })
+        .catch(function(err){ _avisarFalloVivo('no se pudo guardar (' + (err.code || err.message) + ')'); });
+    }, function(){ _avisarFalloVivo('sin permiso de ubicación / GPS'); });
   };
   if(navigator.getBattery){
     navigator.getBattery().then(function(b){ reportar(Math.round(b.level * 100)); }).catch(function(){ reportar(null); });
-  } else {
-    reportar(null);
-  }
+  } else reportar(null);
 }
 function iniciarSeguimientoEnVivo(){
   if(intervaloSeguimientoVivo !== null) return; // ya está corriendo
@@ -2558,7 +2561,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '21-sep · satélite 4';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '24-sep · vivo 2';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -6745,14 +6748,13 @@ function actualizarHeader(){
   const dot = document.getElementById('syncDot');
   const txt = document.getElementById('syncText');
   const badge = document.getElementById('menuBadge');
+  dot.classList.remove('pend', 'offline', 'ok');
   if(!navigator.onLine){
-    dot.classList.remove('pend');
     dot.classList.add('offline');
-    txt.textContent = 'Sin conexión';
+    txt.textContent = 'Offline' + (pendientes > 0 ? ` · ${pendientes} por subir` : '');
     badge.className = 'menu-badge offline';
     return;
   }
-  dot.classList.remove('offline');
   let hayPendiente;
   if(!SHEET_ENDPOINT){
     hayPendiente = pendientes > 0;
@@ -6761,7 +6763,7 @@ function actualizarHeader(){
     hayPendiente = pendientes > 0 || sincronizando;
     txt.textContent = sincronizando ? 'Sincronizando…' : (pendientes > 0 ? `${pendientes} por subir` : 'Sincronizado');
   }
-  dot.classList.toggle('pend', hayPendiente);
+  dot.classList.add(hayPendiente ? 'pend' : 'ok');
   badge.className = hayPendiente ? 'menu-badge pend' : 'menu-badge';
 }
 window.addEventListener('online', () => { actualizarHeader(); syncPendientes(); });
