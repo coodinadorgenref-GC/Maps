@@ -1353,7 +1353,7 @@ function quitarFilaItemVenta(idx){
 function actualizarCampoItemVenta(idx, campo, valor){
   if (campo === "sku") {
     ventaItemsActuales[idx].sku = valor;
-    (idx, valor); // si el SKU existe en "precios", rellena producto y precio solos
+    aplicarPrecioPorSku(idx, valor); // si el SKU existe en "precios", rellena producto y precio solos
     return; //  ya vuelve a renderizar y actualizar el total
   }
   ventaItemsActuales[idx][campo] = (campo === "producto") ? valor : (Number(valor) || 0);
@@ -1406,7 +1406,7 @@ function escapeHtmlVenta(s){
 async function confirmarVentaRuta(){
   const errEl = document.getElementById("ventaError");
 errEl.style.display = "none";
-agregarVentaACacheMisVentas(venta);;
+
  
   const cliente = document.getElementById("ventaCliente").value.trim();
   const itemsValidos = ventaItemsActuales.filter(function(it){ return it.producto.trim() && it.cantidad > 0; });
@@ -1533,6 +1533,7 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     // señal, la venta ya quedó a salvo en Firestore y el ticket se genera
     // igual. sincronizarVentaRutaASheet() deja la venta en cola local si
     // falla, y reintentarVentasRutaPendientes() la reintenta sola después.
+    agregarVentaACacheMisVentas(venta);
     sincronizarVentaRutaASheet(venta);
  
     // La venta YA quedó guardada arriba (Firestore) — de aquí en adelante
@@ -2252,7 +2253,6 @@ const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
 const MIS_VENTAS_CACHE_KEY = 'gc_mis_ventas_cache_v1';
 const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1'; 
 let preciosCache = {}; // indexado por sku
-let invGCFiltro = '';
   
 function cargarPreciosCacheLocal(){
   try{
@@ -2273,36 +2273,6 @@ function refrescarDatalistSkus(){
 }
   
 refrescarDatalistSkus();
-
-// Si el SKU capturado ya tiene precio guardado en el Sheet, autocompleta
-// producto y precio y bloquea esos campos (fuente confiable). Si el SKU no
-// existe todavía en el catálogo, NO bloquea nada — el vendedor puede
-// escribir producto y precio a mano para no perder la venta, y la fila
-// queda marcada como "manual" para revisar después.
-// producto y precio y bloquea esos campos (fuente confiable). Si el SKU no
-// está en "Precios" pero sí está en el almacén móvil propio del vendedor
-// (se lo cargaron con producto y precio capturados en ese momento), se usa
-// eso como respaldo — también se bloquea, porque igual viene de una fuente
-// capturada por el admin, no tecleada por el vendedor al vuelo. Solo si no
-// aparece en NINGUNA de las dos se desbloquea para captura manual, y la
-// fila queda marcada como "manual" para revisar después.
-function (idx, sku){
-  const skuLimpio = String(sku || '').trim();
-  const p = preciosCache[skuLimpio];
-  const propio = inventarioPropio[skuLimpio];
-  if(p){
-    ventaItemsActuales[idx].producto = p.producto || ventaItemsActuales[idx].producto;
-    ventaItemsActuales[idx].precio = Number(p.precioUnitario) || ventaItemsActuales[idx].precio;
-    ventaItemsActuales[idx].manual = false;
-  } else if(propio && (propio.producto || propio.precioUnitario)){
-    ventaItemsActuales[idx].producto = propio.producto || ventaItemsActuales[idx].producto;
-    ventaItemsActuales[idx].precio = Number(propio.precioUnitario) || ventaItemsActuales[idx].precio;
-    ventaItemsActuales[idx].manual = false;
-  } else {
-    ventaItemsActuales[idx].manual = !!skuLimpio; // sin SKU aún, no se marca nada
-  }
-  renderizarItemsVenta();
-}
   
 function idAlmacenMovil(vendedor, sku){
   return String(vendedor || '').trim().toLowerCase() + '::' + String(sku || '').trim();
@@ -2348,7 +2318,7 @@ function encolarVentaFirestorePendiente(venta){
   const lista = cargarVentasFirestorePendientes();
   const clave = venta.idInterno || venta.folio; // respaldo por si es una venta vieja en cola sin idInterno
   const v = Object.assign({}, venta); delete v.creadoServidor;   // y encola/pushea v en vez de venta
-  if(!lista.some(function(v){ return (v.idInterno || v.folio) === clave; })) lista.push(venta);
+  if(!lista.some(function(v){ return (v.idInterno || v.folio) === clave; })) lista.push(v);
   guardarVentasFirestorePendientes(lista);
 }
 function quitarVentaFirestorePendiente(idInternoOFolio){
@@ -7451,6 +7421,7 @@ function renderInventarioGC(){
   pintarInventarioGC();
   refrescarInventarioGC();
 }
+  
   // Muestra al instante lo último guardado y actualiza en segundo plano.
 function aplicarPrecioPorSku(idx, sku){
   const k = String(sku || '').trim();
