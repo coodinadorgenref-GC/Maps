@@ -1139,7 +1139,11 @@ function actualizarVisibilidadBotonVenta(){
   if (btnRegistrar) btnRegistrar.hidden = !(usuarioActual && puedeVenderEnRuta());
 }
  
-/* ---------- Folio: se genera en el dispositivo, nunca en el servidor ---------- */
+/* ---------- Folio: se genera en el dispositivo, nunca en el servidor ----------
+   Formato: GC-MMDD-#### (ej. GC-0923-0001). El contador interno en
+   localStorage sigue guardándose con el año completo (AAAAMMDD) aunque el
+   folio visible no lo muestre, para que el 23-sep del año que viene no
+   retome el conteo donde se quedó este año. */
 function _codigoCortoVendedor(){
   const local = String(usuarioActual || "vend").split("@")[0];
   return local.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6) || "VEND";
@@ -1148,11 +1152,15 @@ function _fechaCompactaHoy(){
   const d = new Date();
   return d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
 }
+function _fechaCortaMMDD(){
+  const d = new Date();
+  return String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+}
 function generarFolioVenta(){
-  const clave = "folio_consecutivo_" + _codigoCortoVendedor() + "_" + _fechaCompactaHoy();
+  const clave = "folio_consecutivo_GC_" + _fechaCompactaHoy();
   let n = Number(localStorage.getItem(clave) || "0") + 1;
   localStorage.setItem(clave, String(n));
-  return "V-" + _codigoCortoVendedor() + "-" + _fechaCompactaHoy() + "-" + String(n).padStart(3, "0");
+  return "GC-" + _fechaCortaMMDD() + "-" + String(n).padStart(4, "0");
 }
  
 /* ---------- Estado del formulario de venta ---------- */
