@@ -238,8 +238,7 @@ function generarPdfNotaVenta(venta) {
   doc.text('FORMA DE PAGO', PW / 2, y + 3.2, { align: 'center' });
   doc.setTextColor(0, 0, 0); doc.setFontSize(8.5);
   y += 8;
-  const metodos = { efectivo: 'EFECTIVO', transferencia: 'TRANSFERENCIA', msi: 'TARJETA DE CRÉDITO / MESES SIN INTERESES' };
-  let linea = metodos[venta.metodoPago] || String(venta.metodoPago || '').toUpperCase();
+   const metodos = { efectivo: 'EFECTIVO', transferencia: 'TRANSFERENCIA', msi: 'TARJETA DE CRÉDITO / MESES SIN INTERESES', pedido: 'PEDIDO — PAGO PENDIENTE' };  let linea = metodos[venta.metodoPago] || String(venta.metodoPago || '').toUpperCase();
   if (venta.metodoPago === 'transferencia' && venta.referencia) linea += '  —  Ref: ' + venta.referencia;
   if (venta.metodoPago === 'msi' && venta.mesesMsi) linea += '  —  ' + venta.mesesMsi + ' meses sin intereses';
   doc.text(linea, PW / 2, y, { align: 'center' });
