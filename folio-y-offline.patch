@@ -1,0 +1,250 @@
+diff --git a/index.html b/index.html
+index 5a62fd7..c3536b6 100644
+--- a/index.html
++++ b/index.html
+@@ -1154,15 +1154,42 @@ function generarFolioVenta(){
+   localStorage.setItem(clave, String(n));
+   return "V-" + _codigoCortoVendedor() + "-" + _fechaCompactaHoy() + "-" + String(n).padStart(3, "0");
+ }
++
++/* ---------- Identificador interno (discreto, no se muestra al cliente) ----------
++   El folio de arriba (V-VEND-FECHA-###) se sigue generando exactamente
++   igual que siempre para el ticket. Pero como el consecutivo "###" vive en
++   el localStorage de CADA celular, dos vendedores (o el mismo vendedor en
++   dos celulares) pueden producir el MISMO folio el mismo día si ambos
++   están sin señal y ninguno ve el consecutivo del otro. Eso no se nota en
++   el ticket, pero si el folio se usa como llave (en Firestore o en el
++   Sheet) una venta pisa a la otra.
++   Por eso cada venta lleva además un idInterno, único de verdad porque
++   combina un id de dispositivo (se genera una sola vez por celular y se
++   queda guardado) + la hora exacta + un azar corto. Ese es el que se usa
++   como llave real; el folio sigue siendo el mismo para el cliente. */
++function _idDispositivoVenta(){
++  const clave = "id_dispositivo_venta";
++  let id = localStorage.getItem(clave);
++  if (!id) {
++    id = Math.random().toString(36).slice(2, 8).toUpperCase() + Date.now().toString(36).toUpperCase();
++    localStorage.setItem(clave, id);
++  }
++  return id;
++}
++function generarIdInternoVenta(){
++  return _idDispositivoVenta() + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
++}
+  
+ /* ---------- Estado del formulario de venta ---------- */
+ let ventaItemsActuales = [];
+ let ventaFolioActual = "";
++let ventaIdInternoActual = "";
+  
+ function abrirVentaRuta(nombreCliente, telefonoCliente){
+   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
+   ventaItemsActuales = [];
+   ventaFolioActual = generarFolioVenta();
++  ventaIdInternoActual = generarIdInternoVenta();
+   sincronizarPreciosRuta(); // trae el precio más reciente del Sheet antes de capturar
+   cargarInventarioPropio(); // trae tus existencias actuales antes de capturar
+   document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
+@@ -1289,6 +1316,7 @@ async function confirmarVentaRuta(){
+  
+   const venta = {
+     folio: ventaFolioActual,
++    idInterno: ventaIdInternoActual,
+     vendedor: usuarioActual,
+     vendedorNombre: nombreActual,
+     cliente: cliente,
+@@ -1318,7 +1346,7 @@ async function confirmarVentaRuta(){
+     // igual (el ticket de aquí en adelante ya no depende de esto) y la
+     // venta se deja en una cola local de respaldo que se reintenta sola en
+     // cuanto haya señal — igual que ya se hace con el Sheet.
+-    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
++    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.idInterno).set(venta);
+     const confirmoATiempo = await Promise.race([
+       escrituraVenta.then(function(){ return true; }),
+       new Promise(function(resolve){ setTimeout(function(){ resolve(false); }, 4000); })
+@@ -1329,7 +1357,7 @@ async function confirmarVentaRuta(){
+     // Si en realidad sí se llega a guardar (solo iba lento, no perdida), se
+     // quita sola de la cola de respaldo para no reintentarla doble; si de
+     // plano truena (permiso, cuota, etc.) se deja en cola por si acaso.
+-    escrituraVenta.then(function(){ quitarVentaFirestorePendiente(venta.folio); })
++    escrituraVenta.then(function(){ quitarVentaFirestorePendiente(venta.idInterno); })
+       .catch(function(err){
+         console.warn("No se pudo confirmar el guardado en Firestore, se reintentará:", err);
+         encolarVentaFirestorePendiente(venta);
+@@ -2003,6 +2031,7 @@ const PRECIOS_RUTA_KEY = 'gc_precios_ruta_v1';
+ const VENTAS_SHEET_PENDIENTES_KEY = 'gc_ventas_pendientes_sheet_v1';
+ const VENTAS_FIRESTORE_PENDIENTES_KEY = 'gc_ventas_pendientes_firestore_v1';
+ const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
++const MIS_VENTAS_CACHE_KEY = 'gc_mis_ventas_cache_v1';
+ const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1';  
+ let preciosCache = {}; // indexado por sku
+ 
+@@ -2100,20 +2129,22 @@ function guardarVentasFirestorePendientes(lista){
+ }
+ function encolarVentaFirestorePendiente(venta){
+   const lista = cargarVentasFirestorePendientes();
+-  if(!lista.some(function(v){ return v.folio === venta.folio; })) lista.push(venta);
++  const clave = venta.idInterno || venta.folio; // respaldo por si es una venta vieja en cola sin idInterno
++  if(!lista.some(function(v){ return (v.idInterno || v.folio) === clave; })) lista.push(venta);
+   guardarVentasFirestorePendientes(lista);
+ }
+-function quitarVentaFirestorePendiente(folio){
+-  guardarVentasFirestorePendientes(cargarVentasFirestorePendientes().filter(function(v){ return v.folio !== folio; }));
++function quitarVentaFirestorePendiente(idInternoOFolio){
++  guardarVentasFirestorePendientes(cargarVentasFirestorePendientes().filter(function(v){ return (v.idInterno || v.folio) !== idInternoOFolio; }));
+ }
+ async function reintentarVentasFirestorePendientes(){
+   if(!navigator.onLine) return;
+   const pendientes = cargarVentasFirestorePendientes();
+   if(pendientes.length === 0) return;
+   for(const venta of pendientes){
++    const clave = venta.idInterno || venta.folio;
+     try{
+-      await dbVentaRuta.collection('ventas_ruta').doc(venta.folio).set(venta);
+-      quitarVentaFirestorePendiente(venta.folio);
++      await dbVentaRuta.collection('ventas_ruta').doc(clave).set(venta);
++      quitarVentaFirestorePendiente(clave);
+     } catch(err){ /* se reintenta en el siguiente ciclo de sync */ }
+   }
+ }
+@@ -2125,16 +2156,20 @@ function cargarVentasPendientesSheet(){
+ function guardarVentasPendientesSheet(lista){
+   localStorage.setItem(VENTAS_SHEET_PENDIENTES_KEY, JSON.stringify(lista));
+ }
+-// Una fila por SKU vendido, con id = folio + "::" + sku (así Codigo.gs no
+-// duplica líneas si una misma venta se reintenta más de una vez).
++// Una fila por SKU vendido, con id = idInterno + "::" + sku (así Codigo.gs
++// no duplica líneas si una misma venta se reintenta más de una vez, y dos
++// vendedores/celulares que por casualidad generaron el mismo folio visible
++// no se pisan entre sí — el folio sigue viajando aparte solo para mostrarse).
+ function filasVentaParaSheet(venta){
++  const claveVenta = venta.idInterno || venta.folio; // respaldo para ventas viejas en cola
+   return venta.items.map(function(it, idx){
+     // Si no se capturó SKU, se usa el índice de la línea como respaldo
+     // para que el id nunca se repita dentro de una misma venta (si no,
+     // dos líneas sin SKU se pisarían entre sí en el Sheet).
+     const claveSku = (it.sku && String(it.sku).trim()) || ('sin-sku-' + idx);
+     return {
+-      id: venta.folio + '::' + claveSku,
++      id: claveVenta + '::' + claveSku,
++      idInterno: claveVenta,
+       folio: venta.folio,
+       fecha: venta.fechaLocal,
+       vendedor: venta.vendedorNombre || venta.vendedor,
+@@ -6839,29 +6874,51 @@ document.getElementById('btnMisVentas').addEventListener('click', () => {
+    reabrir el panel de compartir (WhatsApp) por si la primera vez no se
+    pudo enviar. */
+ function agruparFilasVentaEnVentas(filas){
+-  const porFolio = {};
++  const porVenta = {};
+   filas.forEach(f => {
+-    if(!porFolio[f.folio]){
+-      porFolio[f.folio] = {
+-        folio: f.folio, fechaLocal: f.fecha, vendedor: f.vendedor, vendedorNombre: f.vendedor,
++    // Se agrupa por idInterno (único de verdad); si es una fila vieja sin
++    // idInterno se cae a folio, como antes.
++    const clave = f.idInterno || f.folio;
++    if(!porVenta[clave]){
++      porVenta[clave] = {
++        folio: f.folio, idInterno: clave, fechaLocal: f.fecha, vendedor: f.vendedor, vendedorNombre: f.vendedor,
+         cliente: f.cliente, metodoPago: f.metodoPago, referencia: f.referencia,
+         mesesMsi: f.mesesMsi || null, items: [], total: 0
+       };
+     }
+-    porFolio[f.folio].items.push({
++    porVenta[clave].items.push({
+       sku: f.sku, producto: f.producto, cantidad: Number(f.cantidad) || 0, precio: Number(f.precioUnitario) || 0
+     });
+-    porFolio[f.folio].total += Number(f.total) || 0;
++    porVenta[clave].total += Number(f.total) || 0;
+   });
+-  return Object.values(porFolio).sort((a, b) => new Date(b.fechaLocal) - new Date(a.fechaLocal));
++  return Object.values(porVenta).sort((a, b) => new Date(b.fechaLocal) - new Date(a.fechaLocal));
+ }
+ 
++function _claveCacheMisVentas(){
++  // La caché es por vendedor (y por vista admin) para no mezclar el
++  // historial de uno con el de otro en el mismo celular.
++  return MIS_VENTAS_CACHE_KEY + '_' + (esAdmin ? 'admin' : String(usuarioActual || '').trim().toLowerCase());
++}
++function _cargarMisVentasCache(){
++  try{ return JSON.parse(localStorage.getItem(_claveCacheMisVentas())) || null; } catch(e){ return null; }
++}
++function _guardarMisVentasCache(ventas){
++  try{ localStorage.setItem(_claveCacheMisVentas(), JSON.stringify(ventas)); } catch(e){ /* localStorage lleno, no es crítico */ }
++}
+ async function renderMisVentas(){
+   if(!SHEET_ENDPOINT){
+     sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
+     return;
+   }
+-  sheetBody.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
++  // Se pinta de inmediato con lo último que ya se tenía guardado (si hay),
++  // en vez de quedarse en "Cargando…" hasta que responda el Sheet — igual
++  // que el almacén móvil. Así "Mis ventas" se ve al instante sin señal,
++  // aunque sea con el historial de la última vez que sí hubo conexión.
++  const cache = _cargarMisVentasCache();
++  const huboCache = Array.isArray(cache) && cache.length > 0;
++  if (huboCache) pintarMisVentas(cache, true);
++  else sheetBody.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
++
+   let ventas = [];
+   try{
+     const resp = await fetch(`${SHEET_ENDPOINT}?recurso=ventasRuta`);
+@@ -6873,22 +6930,31 @@ async function renderMisVentas(){
+       return esAdmin ? true : (v === clave || (claveNombre && v === claveNombre));
+     });
+     ventas = agruparFilasVentaEnVentas(propias);
++    _guardarMisVentasCache(ventas);
+   } catch(err){
+-    sheetBody.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
++    // Sin señal (o el Web App no respondió): si ya se pintó la caché arriba
++    // la dejamos como está; si no había nada guardado, recién aquí se avisa.
++    if (!huboCache && currentTab === 'misventas'){
++      sheetBody.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
++    }
+     return;
+   }
+   if(currentTab !== 'misventas') return;
++  pintarMisVentas(ventas, false);
++}
++function pintarMisVentas(ventas, esCache){
+   if(ventas.length === 0){
+     sheetBody.innerHTML = '<div class="empty">Aún no tienes ventas registradas.</div>';
+     return;
+   }
+-  sheetBody.innerHTML = ventas.map((v, i) => `
++  const avisoCache = esCache ? '<div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Mostrando lo último guardado — actualizando…</div>' : '';
++  sheetBody.innerHTML = avisoCache + ventas.map((v, i) => `
+     <div class="item" data-ver="${i}" style="cursor:pointer;">
+       <div class="info">
+         <div class="name">${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
+         <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
+       </div>
+-      <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.folio)}">↻ Reenviar</button>
++      <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>
+     </div>
+   `).join('');
+ 
+@@ -6906,7 +6972,7 @@ async function renderMisVentas(){
+ 
+   sheetBody.querySelectorAll('[data-reenviar]').forEach(btn => {
+     btn.addEventListener('click', () => {
+-      const venta = ventas.find(v => v.folio === btn.dataset.reenviar);
++      const venta = ventas.find(v => v.idInterno === btn.dataset.reenviar);
+       if(venta) reenviarTicketVenta(venta);
+     });
+   });
+diff --git a/sw.js b/sw.js
+index f3420fc..f8a5464 100644
+--- a/sw.js
++++ b/sw.js
+@@ -3,7 +3,7 @@
+ // para que la herramienta funcione sin señal una vez usada al menos una vez
+ // en la zona donde se necesita.
+ 
+-const CACHE_SHELL = 'rutas-gc-shell-v23';
++const CACHE_SHELL = 'rutas-gc-shell-v24';
+ const CACHE_TILES = 'rutas-gc-tiles-v1';
+ 
+ const SHELL_ASSETS = [
