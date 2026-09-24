@@ -1252,8 +1252,18 @@ function _idDispositivoVenta(){
   }
   return id;
 }
+function idInternoYaUsado(id){
+  const cola = cargarVentasPendientesSheet().concat(cargarVentasFirestorePendientes());
+  if(cola.some(function(v){ return v.idInterno === id; })) return true;
+  return (_cargarMisVentasCache() || []).some(function(v){ return v.idInterno === id; });
+}
 function generarIdInternoVenta(){
-  return _idDispositivoVenta() + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+  const base = "V-" + _codigoCortoVendedor() + "-" + _fechaCompactaHoy() + "-";
+  const clave = "consec_vendedor_" + _codigoCortoVendedor() + "_" + _fechaCompactaHoy();
+  let n = Number(localStorage.getItem(clave) || "0"), id;
+  do { n++; id = base + String(n).padStart(3, "0"); } while(idInternoYaUsado(id));
+  localStorage.setItem(clave, String(n));
+  return id;
 }
 
 /* ---------- Estado del formulario de venta ---------- */
@@ -1267,6 +1277,7 @@ function abrirVentaRuta(nombreCliente, telefonoCliente){
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
   ventaIdInternoActual = generarIdInternoVenta();
+  sincronizarInventarioGCSilencioso();
   visitaActualVendedor = nombreCliente || null; // para el panel "Vendedores en vivo" del admin
   sincronizarPreciosRuta(); // trae el precio más reciente del Sheet antes de capturar
   cargarInventarioPropio(); // trae tus existencias actuales antes de capturar
@@ -1322,8 +1333,15 @@ function actualizarTipoNotaVenta(){
   else { document.getElementById("ventaCampoReferencia").style.display = "none"; document.getElementById("ventaCampoMeses").style.display = "none"; }
   const btn = document.getElementById("ventaBtnGuardar");
   if (btn) btn.innerText = esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar";
-}
 
+  refrescarDatalistSkus();
+  ventaItemsActuales.forEach(function(it){
+    if(!(it.sku || '').trim()) return;
+    const r = resolverProductoPorSku(it.sku, esPedido);
+    if(r){ it.producto = r.producto || it.producto; it.precio = r.precio || it.precio; it.manual = false; }
+  });
+  renderizarItemsVenta();
+} 
 function agregarFilaItemVenta(){
   ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0, manual: false });
   renderizarItemsVenta();
@@ -1335,8 +1353,8 @@ function quitarFilaItemVenta(idx){
 function actualizarCampoItemVenta(idx, campo, valor){
   if (campo === "sku") {
     ventaItemsActuales[idx].sku = valor;
-    aplicarPrecioPorSku(idx, valor); // si el SKU existe en "precios", rellena producto y precio solos
-    return; // aplicarPrecioPorSku ya vuelve a renderizar y actualizar el total
+    (idx, valor); // si el SKU existe en "precios", rellena producto y precio solos
+    return; //  ya vuelve a renderizar y actualizar el total
   }
   ventaItemsActuales[idx][campo] = (campo === "producto") ? valor : (Number(valor) || 0);
   actualizarTotalVenta();
@@ -1387,7 +1405,8 @@ function escapeHtmlVenta(s){
  
 async function confirmarVentaRuta(){
   const errEl = document.getElementById("ventaError");
-  errEl.style.display = "none";
+errEl.style.display = "none";
+agregarVentaACacheMisVentas(venta);;
  
   const cliente = document.getElementById("ventaCliente").value.trim();
   const itemsValidos = ventaItemsActuales.filter(function(it){ return it.producto.trim() && it.cantidad > 0; });
@@ -2231,9 +2250,10 @@ const VENTAS_SHEET_PENDIENTES_KEY = 'gc_ventas_pendientes_sheet_v1';
 const VENTAS_FIRESTORE_PENDIENTES_KEY = 'gc_ventas_pendientes_firestore_v1';
 const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
 const MIS_VENTAS_CACHE_KEY = 'gc_mis_ventas_cache_v1';
-const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1';  
+const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1'; 
 let preciosCache = {}; // indexado por sku
-
+let invGCFiltro = '';
+  
 function cargarPreciosCacheLocal(){
   try{
     (JSON.parse(localStorage.getItem(PRECIOS_RUTA_KEY)) || []).forEach(function(p){ preciosCache[String(p.sku || '').trim()] = p; });
@@ -2245,15 +2265,13 @@ cargarPreciosCacheLocal();
 // SKU en la venta sugiera lo que ya existe en el Sheet mientras se escribe.
 function refrescarDatalistSkus(){
   let dl = document.getElementById('listaSkusPrecios');
-  if(!dl){
-    dl = document.createElement('datalist');
-    dl.id = 'listaSkusPrecios';
-    document.body.appendChild(dl);
-  }
-  dl.innerHTML = Object.keys(preciosCache).map(function(sku){
-    return '<option value="' + escapeHtmlVenta(sku) + '">';
-  }).join('');
+  if(!dl){ dl = document.createElement('datalist'); dl.id = 'listaSkusPrecios'; document.body.appendChild(dl); }
+  const skus = new Set(Object.keys(preciosCache));
+  const selTipo = document.getElementById('ventaTipoNota');
+  if(selTipo && selTipo.value === 'pedido') inventarioGC.forEach(function(x){ skus.add(String(x.sku).trim()); });
+  dl.innerHTML = Array.from(skus).map(function(s){ return '<option value="' + escapeHtmlVenta(s) + '">'; }).join('');
 }
+  
 refrescarDatalistSkus();
 
 // Si el SKU capturado ya tiene precio guardado en el Sheet, autocompleta
@@ -2268,7 +2286,7 @@ refrescarDatalistSkus();
 // capturada por el admin, no tecleada por el vendedor al vuelo. Solo si no
 // aparece en NINGUNA de las dos se desbloquea para captura manual, y la
 // fila queda marcada como "manual" para revisar después.
-function aplicarPrecioPorSku(idx, sku){
+function (idx, sku){
   const skuLimpio = String(sku || '').trim();
   const p = preciosCache[skuLimpio];
   const propio = inventarioPropio[skuLimpio];
@@ -2329,6 +2347,7 @@ function guardarVentasFirestorePendientes(lista){
 function encolarVentaFirestorePendiente(venta){
   const lista = cargarVentasFirestorePendientes();
   const clave = venta.idInterno || venta.folio; // respaldo por si es una venta vieja en cola sin idInterno
+  const v = Object.assign({}, venta); delete v.creadoServidor;   // y encola/pushea v en vez de venta
   if(!lista.some(function(v){ return (v.idInterno || v.folio) === clave; })) lista.push(venta);
   guardarVentasFirestorePendientes(lista);
 }
@@ -5074,6 +5093,7 @@ function cambiarTab(tab, origen){
     if(tab === 'misventas') renderMisVentas();
     if(tab === 'inventariogc') renderInventarioGC();
     if(tab === 'vendedoresvivo') renderVendedoresVivo();
+    if(tab === 'notas') renderNotasVendedor();
   } catch(err){
     // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
     // bajo el título nuevo (justo lo que parecía "me sale la lista").
@@ -7119,6 +7139,11 @@ function _cargarMisVentasCache(){
 function _guardarMisVentasCache(ventas){
   try{ localStorage.setItem(_claveCacheMisVentas(), JSON.stringify(ventas)); } catch(e){ /* localStorage lleno, no es crítico */ }
 }
+function agregarVentaACacheMisVentas(venta){
+  const v = Object.assign({}, venta); delete v.creadoServidor;
+  const c = _cargarMisVentasCache() || [];
+  c.unshift(v); _guardarMisVentasCache(c);
+}
 /* ---------- Panel admin: Vendedores en vivo ----------
    Lista en tiempo real (onSnapshot) de dónde está cada vendedor, su batería
    y qué visita tiene abierta — lo que manda _reportarUbicacionVivo(). Tocar
@@ -7160,7 +7185,48 @@ function renderVendedoresVivo(){
     if(currentTab === 'vendedoresvivo') sheetBody.innerHTML = '<div class="empty">No se pudo cargar (revisa tu señal).</div>';
   });
 }
+const NOTAS_VENDEDOR_CACHE_KEY = 'gc_notas_vendedor_cache_v1';
+let notasVendedorGuardando = null;
+function _claveCacheNotas(){ return NOTAS_VENDEDOR_CACHE_KEY + '_' + String(usuarioActual || '').trim().toLowerCase(); }
 
+function renderNotasVendedor(){
+  if(!puedeVenderEnRuta()){ sheetBody.innerHTML = '<div class="empty">Solo cuentas de vendedor tienen notas propias.</div>'; return; }
+  let texto = ''; try{ texto = localStorage.getItem(_claveCacheNotas()) || ''; } catch(e){}
+  sheetBody.innerHTML =
+    '<div style="font-size:11.5px; color:var(--text-dim); margin-bottom:10px;">Solo tú ves estas notas. Se guardan solas mientras escribes, aunque no tengas señal.</div>'
+    + '<textarea id="notasVendedorTexto" placeholder="Pendientes, recordatorios, direcciones…" style="width:100%; box-sizing:border-box; min-height:52vh; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:12px; font-size:14.5px; font-family:inherit; resize:vertical;"></textarea>'
+    + '<div id="notasVendedorEstado" style="font-size:11px; color:var(--text-dim); margin-top:6px;"></div>';
+  const ta = document.getElementById('notasVendedorTexto');
+  ta.value = texto;
+  ta.addEventListener('input', () => {
+    clearTimeout(notasVendedorGuardando);
+    document.getElementById('notasVendedorEstado').textContent = 'Escribiendo…';
+    notasVendedorGuardando = setTimeout(() => guardarNotasVendedor(ta.value), 700);
+  });
+  cargarNotasVendedorDeFirestore();
+}
+function guardarNotasVendedor(texto){
+  try{ localStorage.setItem(_claveCacheNotas(), texto); } catch(e){}
+  const el = document.getElementById('notasVendedorEstado');
+  dbVentaRuta.collection('notas_vendedor').doc(usuarioActual).set({
+    vendedor: usuarioActual, texto: texto, actualizadoEn: Date.now()
+  }).then(() => { if(el) el.textContent = 'Guardado.'; })
+    .catch(() => { if(el) el.textContent = 'Guardado en este celular; se sube solo cuando haya señal.'; });
+}
+async function cargarNotasVendedorDeFirestore(){
+  try{
+    const doc = await dbVentaRuta.collection('notas_vendedor').doc(usuarioActual).get();
+    if(currentTab !== 'notas') return;
+    if(doc.exists){
+      const remoto = doc.data(), local = localStorage.getItem(_claveCacheNotas()) || '';
+      const ta = document.getElementById('notasVendedorTexto');
+      if(ta && ta.value === local && remoto.texto !== local){
+        ta.value = remoto.texto || '';
+        try{ localStorage.setItem(_claveCacheNotas(), ta.value); } catch(e){}
+      }
+    }
+  } catch(e){ /* sin señal: se queda con lo local */ }
+}
 async function renderMisVentas(){
   if(!SHEET_ENDPOINT){
     sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
@@ -7316,6 +7382,34 @@ let inventarioGC = [];      // [{sku, producto, cantidad, ubicacion, precioUnita
 let apartadosGCPend = [];   // apartados pendientes (de todos, para calcular disponible)
 let invGCFiltro = '';
 
+try{ const c = JSON.parse(localStorage.getItem(INV_GC_CACHE_KEY)); if(c){ inventarioGC = c.inv || []; apartadosGCPend = c.ap || []; } }catch(e){}
+
+async function sincronizarInventarioGCSilencioso(){
+  if(!navigator.onLine || !firebaseVentaRutaListo) return;
+  try{
+    const r = await Promise.all([
+      dbVentaRuta.collection('inventario_gc').get(),
+      dbVentaRuta.collection('apartados_gc').where('estatus', '==', 'pendiente').get()
+    ]);
+    inventarioGC = r[0].docs.map(function(d){ return d.data(); });
+    apartadosGCPend = r[1].docs.map(function(d){ return d.data(); });
+    localStorage.setItem(INV_GC_CACHE_KEY, JSON.stringify({ inv: inventarioGC, ap: apartadosGCPend }));
+    refrescarDatalistSkus();
+  } catch(e){ /* sin señal: se queda con la copia local */ }
+}
+
+function resolverProductoPorSku(sku, esPedido){
+  const k = String(sku || '').trim(); if(!k) return null;
+  const pr = preciosCache[k], prop = inventarioPropio[k];
+  if(esPedido){
+    const gc = inventarioGC.find(function(x){ return String(x.sku).trim() === k; });
+    if(gc) return { producto: gc.producto || (pr && pr.producto) || '', precio: Number(gc.precioUnitario) || (pr ? Number(pr.precioUnitario) : 0) || 0 };
+  }
+  if(pr) return { producto: pr.producto || '', precio: Number(pr.precioUnitario) || 0 };
+  if(prop && (prop.producto || prop.precioUnitario)) return { producto: prop.producto || '', precio: Number(prop.precioUnitario) || 0 };
+  return null;
+}
+  
 function idDocGC(sku){ return String(sku || '').trim().replace(/\//g, '_'); }
 
 function disponibleGC(sku){
@@ -7353,16 +7447,19 @@ function renderInventarioGC(){
     document.getElementById('invGCExcelInput').addEventListener('change', invGCImportarExcel);
   }
 
-  // Muestra al instante lo último guardado y actualiza en segundo plano.
-  try{
-    const c = JSON.parse(localStorage.getItem(INV_GC_CACHE_KEY));
-    if(c){ inventarioGC = c.inv || []; apartadosGCPend = c.ap || []; }
-  } catch(e){}
   document.getElementById('invGCAviso').textContent = inventarioGC.length ? 'Mostrando lo último guardado — actualizando…' : 'Cargando…';
   pintarInventarioGC();
   refrescarInventarioGC();
 }
-
+  // Muestra al instante lo último guardado y actualiza en segundo plano.
+function aplicarPrecioPorSku(idx, sku){
+  const k = String(sku || '').trim();
+  const r = resolverProductoPorSku(k, esVentaPedido());
+  const it = ventaItemsActuales[idx];
+  if(r){ it.producto = r.producto || it.producto; it.precio = r.precio || it.precio; it.manual = false; }
+  else it.manual = !!k;
+  renderizarItemsVenta();
+}
 async function refrescarInventarioGC(){
   let aviso = '';
   try{
