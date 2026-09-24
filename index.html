@@ -1000,7 +1000,17 @@ function actualizarTimestampSesionMaps(){
 function verificarSesionGuardadaMaps(){
   const str = localStorage.getItem(SESION_MAPS_KEY);
   if(!str) return; // se queda en la pantalla de login
-   const s = JSON.parse(str);
+
+  let s;
+  try{ s = JSON.parse(str); }
+  catch(e){ localStorage.removeItem(SESION_MAPS_KEY); return; }
+
+  // Solo admin o vendedor: cualquier otra sesión guardada se descarta.
+  if(!(s.esAdmin || s.esVendedor)){
+    localStorage.removeItem(SESION_MAPS_KEY);
+    return;
+  }
+
   duracionSesionActualMapsMs = s.duracionMs || TIEMPO_EXPIRACION_SESION_MAPS_MS;
 
   if(new Date().getTime() - s.timestamp > duracionSesionActualMapsMs){
@@ -1015,10 +1025,9 @@ function verificarSesionGuardadaMaps(){
         const payload = JSON.stringify({ action:"cerrarSesionServidor", correo:s.correo, token:s.token });
         navigator.sendBeacon(LOGIN_API_URL, new Blob([payload], { type:"text/plain" }));
       } catch(e){}
-      if(!(s.esAdmin || s.esVendedor)){
-        localStorage.removeItem(SESION_MAPS_KEY);
-        return; // se queda en la pantalla de login
-      }
+      localStorage.removeItem(SESION_MAPS_KEY);
+      return; // se queda en la pantalla de login
+    }
   }
 
   accesoOfflinePermitidoMaps = s.accesoOffline || false;
@@ -5145,7 +5154,6 @@ function renderSheetTabs(){
     almacen: 'Almacén móvil',
     misventas: 'Mis ventas',
     inventariogc: 'Inventario Grupo Camejo',
-    vendedoresvivo: 'Vendedores en vivo'
     vendedoresvivo: 'Vendedores en vivo',
     notas: 'Mis notas'
   };
