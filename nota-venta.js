@@ -96,7 +96,9 @@ function generarPdfNotaVenta(venta) {
   doc.setFillColor(VERDE[0], VERDE[1], VERDE[2]);
   doc.rect(MX, y, TW, 6.5, 'F');
   doc.setTextColor(255, 255, 255); doc.setFont(undefined, 'bold'); doc.setFontSize(11);
-  doc.text('NOTA DE VENTA', PW / 2, y + 4.6, { align: 'center' });
+  const esPedidoNota = venta.tipoNota === 'pedido' || venta.metodoPago === 'pedido';
+  const esCreditoNota = venta.tipoNota === 'credito';
+  doc.text(esPedidoNota ? 'PEDIDO' : (esCreditoNota ? 'NOTA DE VENTA — CRÉDITO' : 'NOTA DE VENTA'), PW / 2, y + 4.6, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 11;
 
@@ -242,6 +244,15 @@ function generarPdfNotaVenta(venta) {
   if (venta.metodoPago === 'transferencia' && venta.referencia) linea += '  —  Ref: ' + venta.referencia;
   if (venta.metodoPago === 'msi' && venta.mesesMsi) linea += '  —  ' + venta.mesesMsi + ' meses sin intereses';
   doc.text(linea, PW / 2, y, { align: 'center' });
+  // Venta a crédito: se deja a la vista cuánto se abonó y cuánto queda por cobrar.
+  if (esCreditoNota) {
+    const antic = Number(venta.anticipo) || 0;
+    const saldo = venta.saldoPendiente != null ? Number(venta.saldoPendiente) : Math.max(0, totalRedondeado(venta.items) - antic);
+    doc.setFont(undefined, 'bold');
+    doc.text('VENTA A CRÉDITO  —  Anticipo: $' + antic.toFixed(2) + '  —  Saldo pendiente: $' + saldo.toFixed(2), PW / 2, y + 5, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    y += 5;
+  }
   y += 10;
 
   // ---- Pie ----
