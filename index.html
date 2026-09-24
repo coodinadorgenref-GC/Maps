@@ -700,6 +700,10 @@
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zM18 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
     <span class="txt">Almacén móvil</span>
   </button>
+  <button class="drawer-item" id="btnVendedoresVivo" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+    <span class="txt">Vendedores en vivo</span>
+  </button>
   <button class="drawer-item" id="btnInventarioGC">
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z"/></svg>
     <span class="txt">Inventario Grupo Camejo</span>
@@ -766,6 +770,15 @@
     </div>
     <div class="venta-folio" id="ventaFolioPreview"></div>
     <div class="venta-error" id="ventaError"></div>
+
+    <div class="venta-campo">
+      <label for="ventaTipoNota">Tipo de nota</label>
+      <select id="ventaTipoNota" onchange="actualizarTipoNotaVenta()">
+        <option value="contado">Venta de contado</option>
+        <option value="credito">Venta a crédito</option>
+        <option value="pedido">Pedido (aún no se entrega)</option>
+      </select>
+    </div>
  
     <div class="venta-campo">
       <label for="ventaCliente">Cliente / prospecto</label>
@@ -794,6 +807,13 @@
     <div class="venta-campo" id="ventaCampoMeses" style="display:none">
       <label for="ventaMeses">Meses (MSI)</label>
       <input type="number" id="ventaMeses" min="1" max="24" value="3">
+    </div>
+    <div class="venta-campo" id="ventaCampoAnticipo" style="display:none">
+      <label for="ventaAnticipo">Anticipo recibido</label>
+      <input type="number" id="ventaAnticipo" min="0" step="0.01" value="0">
+    </div>
+    <div class="venta-error" id="ventaAvisoPedido" style="display:none; background:transparent; color:var(--text-dim); font-size:11.5px;">
+      Es un pedido: no se descuenta del almacén móvil ni se valida existencia — se entrega y cobra después.
     </div>
  
     <div class="venta-total"><span>Total</span><span id="ventaTotalMostrado">$0.00</span></div>
@@ -1137,6 +1157,56 @@ function actualizarVisibilidadBotonVenta(){
   if (btnFly) btnFly.hidden = !puede;
   const btnRegistrar = document.getElementById('btnRegistrarVentaMenu');
   if (btnRegistrar) btnRegistrar.hidden = !(usuarioActual && puedeVenderEnRuta());
+  const btnVivo = document.getElementById('btnVendedoresVivo');
+  if (btnVivo) btnVivo.hidden = !esAdmin;
+  // El seguimiento en vivo (ubicación + batería) solo corre en el celular
+  // del vendedor, nunca en el del admin, y solo mientras la app está
+  // abierta y visible (ver iniciarSeguimientoEnVivo).
+  if (usuarioActual && puedeVenderEnRuta() && !esAdmin) iniciarSeguimientoEnVivo();
+  else detenerSeguimientoEnVivo();
+}
+
+/* ---------- Seguimiento en vivo del vendedor (ubicación + batería + visita) ----------
+   Mientras el vendedor tiene la app abierta y visible se manda su
+   ubicación, batería y qué visita tiene abierta (si hay una venta en
+   captura) a Firestore cada ~45 s, para el panel "Vendedores en vivo" del
+   admin. Un navegador/PWA no da geolocalización confiable en segundo plano:
+   es "dónde está mientras trabaja con la app abierta", no rastreo 24/7; se
+   pausa solo al apagar pantalla o cambiar de app y se reanuda al volver.
+   Sin señal, la escritura queda en la cola offline de Firestore. La batería
+   usa la Battery Status API (Chrome/Android sí; Safari/iOS no: ahí solo se
+   omite ese dato). */
+let intervaloSeguimientoVivo = null;
+
+function _reportarUbicacionVivo(){
+  if(!usuarioActual || esAdmin || !puedeVenderEnRuta()) return;
+  if(document.visibilityState !== 'visible') return;
+  const reportar = function(bateria){
+    obtenerUbicacionReciente(120000, function(pos){
+      dbVentaRuta.collection('ubicaciones_vendedores').doc(usuarioActual).set({
+        vendedor: usuarioActual, vendedorNombre: nombreActual,
+        lat: pos.lat, lng: pos.lng,
+        bateria: bateria,
+        visita: visitaActualVendedor || null,
+        actualizadoEn: Date.now()
+      }).catch(function(err){ console.warn('No se pudo reportar ubicación en vivo:', err); });
+    }, function(){ /* sin GPS en este momento: se reintenta en el siguiente ciclo */ });
+  };
+  if(navigator.getBattery){
+    navigator.getBattery().then(function(b){ reportar(Math.round(b.level * 100)); }).catch(function(){ reportar(null); });
+  } else {
+    reportar(null);
+  }
+}
+function iniciarSeguimientoEnVivo(){
+  if(intervaloSeguimientoVivo !== null) return; // ya está corriendo
+  _reportarUbicacionVivo();
+  intervaloSeguimientoVivo = setInterval(_reportarUbicacionVivo, 45000);
+  document.addEventListener('visibilitychange', _reportarUbicacionVivo);
+}
+function detenerSeguimientoEnVivo(){
+  if(intervaloSeguimientoVivo !== null){ clearInterval(intervaloSeguimientoVivo); intervaloSeguimientoVivo = null; }
+  document.removeEventListener('visibilitychange', _reportarUbicacionVivo);
 }
  
 /* ---------- Folio: se genera en el dispositivo, nunca en el servidor ----------
@@ -1163,32 +1233,63 @@ function generarFolioVenta(){
   return "GC-" + _fechaCortaMMDD() + "-" + String(n).padStart(4, "0");
 }
  
+/* ---------- Identificador interno (no se muestra al cliente) ----------
+   El folio visible (GC-MMDD-####) sale de un consecutivo guardado en el
+   localStorage de CADA celular, así que dos celulares sin señal pueden
+   generar el MISMO folio el mismo día. Por eso cada venta lleva además un
+   idInterno único de verdad (id de dispositivo + hora exacta + azar corto);
+   ese es la llave real en Firestore y en el Sheet. El folio solo se muestra. */
+function _idDispositivoVenta(){
+  const clave = "id_dispositivo_venta";
+  let id = localStorage.getItem(clave);
+  if (!id) {
+    id = Math.random().toString(36).slice(2, 8).toUpperCase() + Date.now().toString(36).toUpperCase();
+    localStorage.setItem(clave, id);
+  }
+  return id;
+}
+function generarIdInternoVenta(){
+  return _idDispositivoVenta() + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+}
+
 /* ---------- Estado del formulario de venta ---------- */
 let ventaItemsActuales = [];
 let ventaFolioActual = "";
+let ventaIdInternoActual = "";
+let visitaActualVendedor = null; // cliente de la venta abierta; lo lee el seguimiento en vivo
  
 function abrirVentaRuta(nombreCliente, telefonoCliente){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
+  ventaIdInternoActual = generarIdInternoVenta();
+  visitaActualVendedor = nombreCliente || null; // para el panel "Vendedores en vivo" del admin
   sincronizarPreciosRuta(); // trae el precio más reciente del Sheet antes de capturar
   cargarInventarioPropio(); // trae tus existencias actuales antes de capturar
   document.getElementById("ventaFolioPreview").innerText = "Folio: " + ventaFolioActual;
+  document.getElementById("ventaTipoNota").value = "contado";
   document.getElementById("ventaCliente").value = nombreCliente || "";
   document.getElementById("ventaTelefono").value = telefonoCliente || "";
   document.getElementById("ventaMetodoPago").value = "efectivo";
+  document.getElementById("ventaAnticipo").value = "0";
   document.getElementById("ventaError").style.display = "none";
   actualizarCamposPagoVenta();
+  actualizarTipoNotaVenta();
   renderizarItemsVenta();
   agregarFilaItemVenta(); // arranca con una fila vacía lista para llenar
   document.getElementById("ventaOverlay").hidden = false;
 }
 function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
+  visitaActualVendedor = null;
 }
 document.getElementById('btnAlmacenMovil').addEventListener('click', () => {
   abrirSheet();
   cambiarTab("almacen", "mapa");
+});
+document.getElementById('btnVendedoresVivo').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab("vendedoresvivo", "mapa");
 });
  
 function actualizarCamposPagoVenta(){
@@ -1198,6 +1299,27 @@ function actualizarCamposPagoVenta(){
   if (metodo === "transferencia") document.getElementById("ventaReferenciaLabel").innerText = "Referencia bancaria";
 }
  
+// Un pedido aún no se entrega ni se cobra: no pide método de pago ni valida/
+// descuenta existencia (eso pasa cuando se surte de verdad). Una venta a
+// crédito sí se entrega y descuenta como cualquier venta, pero puede llevar
+// anticipo y deja un saldo pendiente marcado en la nota.
+function esVentaPedido(){
+  return document.getElementById("ventaTipoNota").value === "pedido";
+}
+function actualizarTipoNotaVenta(){
+  const tipo = document.getElementById("ventaTipoNota").value;
+  const esPedido = tipo === "pedido";
+  const esCredito = tipo === "credito";
+  document.getElementById("ventaCampoAnticipo").style.display = esCredito ? "block" : "none";
+  document.getElementById("ventaAvisoPedido").style.display = esPedido ? "block" : "none";
+  const bloquePago = document.getElementById("ventaMetodoPago").closest(".venta-campo");
+  if(bloquePago) bloquePago.style.display = esPedido ? "none" : "block";
+  if (!esPedido) actualizarCamposPagoVenta();
+  else { document.getElementById("ventaCampoReferencia").style.display = "none"; document.getElementById("ventaCampoMeses").style.display = "none"; }
+  const btn = document.getElementById("ventaBtnGuardar");
+  if (btn) btn.innerText = esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar";
+}
+
 function agregarFilaItemVenta(){
   ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0, manual: false });
   renderizarItemsVenta();
@@ -1268,6 +1390,12 @@ async function confirmarVentaRuta(){
   if (!cliente){ errEl.innerText = "Ingresa el nombre del cliente."; errEl.style.display = "block"; return; }
   if (itemsValidos.length === 0){ errEl.innerText = "Agrega al menos un producto."; errEl.style.display = "block"; return; }
 
+  const tipoNota = document.getElementById("ventaTipoNota").value;
+  const esPedido = tipoNota === "pedido";
+
+  // Un pedido todavía no se entrega: no hay existencia que validar ni que
+  // descontar del almacén móvil (eso pasa después, cuando se surta).
+  if (!esPedido) {
   // Solo se valida contra el almacén móvil lo que trae SKU capturado; una
   // línea sin SKU se vende igual que siempre (no hay forma de cruzarla).
   const faltantes = [];
@@ -1286,6 +1414,7 @@ async function confirmarVentaRuta(){
     if(btnPedido) btnPedido.onclick = function(){ generarPedidosRestock(faltantes); };
     return;
   }
+  }
  itemsValidos.forEach(function(it){
   if (esPedido){ it.existencia = "pedido"; return; }
   const k = (it.sku || "").trim();
@@ -1295,15 +1424,23 @@ async function confirmarVentaRuta(){
   const referencia = document.getElementById("ventaReferencia").value.trim();
   const meses = Number(document.getElementById("ventaMeses").value) || null;
   const total = actualizarTotalVenta();
+  const anticipo = tipoNota === "credito" ? (Number(document.getElementById("ventaAnticipo").value) || 0) : null;
+  if (anticipo !== null && (anticipo < 0 || anticipo > total)){
+    errEl.innerText = "El anticipo no puede ser negativo ni mayor al total."; errEl.style.display = "block"; return;
+  }
  
   const venta = {
     folio: ventaFolioActual,
+    idInterno: ventaIdInternoActual,
     vendedor: usuarioActual,
     vendedorNombre: nombreActual,
     cliente: cliente,
     telefono: document.getElementById("ventaTelefono").value.trim(),
     items: itemsValidos,
     total: total,
+    tipoNota: tipoNota,
+    anticipo: anticipo,
+    saldoPendiente: tipoNota === "credito" ? Math.max(0, total - anticipo) : null,
     metodoPago: metodoPago,
     referencia: metodoPago === "transferencia" ? referencia : "",
     mesesMsi: metodoPago === "msi" ? meses : null,
@@ -1327,7 +1464,7 @@ async function confirmarVentaRuta(){
     // igual (el ticket de aquí en adelante ya no depende de esto) y la
     // venta se deja en una cola local de respaldo que se reintenta sola en
     // cuanto haya señal — igual que ya se hace con el Sheet.
-    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.folio).set(venta);
+    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.idInterno).set(venta);
     const confirmoATiempo = await Promise.race([
       escrituraVenta.then(function(){ return true; }),
       new Promise(function(resolve){ setTimeout(function(){ resolve(false); }, 4000); })
@@ -1338,7 +1475,7 @@ async function confirmarVentaRuta(){
     // Si en realidad sí se llega a guardar (solo iba lento, no perdida), se
     // quita sola de la cola de respaldo para no reintentarla doble; si de
     // plano truena (permiso, cuota, etc.) se deja en cola por si acaso.
-    escrituraVenta.then(function(){ quitarVentaFirestorePendiente(venta.folio); })
+    escrituraVenta.then(function(){ quitarVentaFirestorePendiente(venta.idInterno); })
       .catch(function(err){
         console.warn("No se pudo confirmar el guardado en Firestore, se reintentará:", err);
         encolarVentaFirestorePendiente(venta);
@@ -1351,6 +1488,7 @@ async function confirmarVentaRuta(){
     const actualizacionesInventario = {};
     // AHORA (Sheet):
 const filasADescontar = [];
+if (!esPedido) {
 itemsValidos.forEach(function(it){
   const clave = (it.sku || '').trim();
   if(!clave || !inventarioPropio[clave]) return;
@@ -1365,6 +1503,7 @@ itemsValidos.forEach(function(it){
     actualizadoEn: Date.now()
   });
 });
+}
 if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin await: no bloquea el ticket
 
     // No se espera esta llamada (no "await"): si el Sheet tarda o no hay
@@ -1384,7 +1523,7 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     cerrarVentaRuta();
     const skusManuales = itemsValidos.filter(function(it){ return it.manual; }).map(function(it){ return it.sku || it.producto; });
     mostrarToast && mostrarToast(
-      "Venta " + venta.folio + " registrada."
+      (esPedido ? "Pedido " : "Venta ") + venta.folio + " registrado."
       + (skusManuales.length ? " Ojo: " + skusManuales.join(", ") + " se capturó sin precio de catálogo." : "")
     );
     compartirTicketVenta(venta, pdfBlob).catch(function(err){
@@ -1394,7 +1533,7 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     errEl.innerText = "No se pudo guardar la venta: " + err.message;
     errEl.style.display = "block";
   } finally {
-    btn.disabled = false; btn.innerText = "Generar ticket y enviar";
+    btn.disabled = false; btn.innerText = esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar";
   }
 }
  
@@ -1484,11 +1623,14 @@ async function generarPedidosRestock(faltantes){
 let almacenEditandoCorreo = null; // solo admin: de qué vendedor se está viendo/editando
 let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
 
+let modoDescargaAlmacen = false; // true mientras el vendedor hace su "descarga" de fin de ruta
+
 async function renderAlmacen(){
   if(!SHEET_ENDPOINT){
     sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
     return;
   }
+  if(!esAdmin && modoDescargaAlmacen){ renderDescargaAlmacen(); return; }
   if(esAdmin) await renderAlmacenAdmin();
   else await renderAlmacenPropio();
 }
@@ -1517,10 +1659,13 @@ async function pintarAlmacenPropio(esCache){
   }).join('');
   const avisoCache = esCache ? '<div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Mostrando lo último guardado — actualizando…</div>' : '';
   sheetBody.innerHTML = avisoCache
+    + '<button class="btn" id="btnAbrirDescarga" style="width:100%; margin-bottom:12px;">📦 Hacer descarga (fin de ruta)</button>'
     + '<div style="font-weight:700; font-size:14px; margin-bottom:10px;">Existencias que traes contigo</div>'
     + (filas || '<div class="empty">Aún no tienes inventario asignado. Pídele a un admin que te lo cargue.</div>')
     + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes</div>'
     + '<div id="mvPedidosPropiosWrap"><div class="empty">Cargando…</div></div>';
+  const btnDescarga = document.getElementById('btnAbrirDescarga');
+  if(btnDescarga) btnDescarga.addEventListener('click', function(){ modoDescargaAlmacen = true; renderDescargaAlmacen(); });
   const pedidos = await cargarPedidosPropiosPendientes();
   if(currentTab !== 'almacen') return;
   const wrap = document.getElementById('mvPedidosPropiosWrap');
@@ -1530,6 +1675,75 @@ async function pintarAlmacenPropio(esCache){
       + '<div class="meta">Pediste ' + p.cantidadSolicitada + ' · Pendiente</div></div></div>';
   }).join('');
   wrap.innerHTML = filasPedidos || '<div class="empty">No tienes pedidos pendientes.</div>';
+}
+
+/* ---------- Descarga de fin de ruta ----------
+   El vendedor captura cuánto le sobró de cada producto al terminar el día.
+   Se descuenta de su almacén móvil (igual que una venta) y queda un
+   registro en Firestore (descargas_fin_dia) para que el admin vea qué
+   regresó. Funciona sin señal: usa la persistencia de Firestore y la cola
+   offline del Sheet que ya tiene el resto de la app. */
+function renderDescargaAlmacen(){
+  const entradas = Object.entries(inventarioPropio).filter(function(par){ return (par[1].cantidad || 0) > 0; });
+  sheetBody.innerHTML =
+    '<div style="font-weight:700; font-size:14px; margin-bottom:4px;">Descarga de fin de ruta</div>'
+    + '<div style="font-size:11.5px; color:var(--text-dim); margin-bottom:14px;">Captura cuánto te sobró de cada producto. Se descuenta de tu almacén móvil.</div>'
+    + (entradas.length ? entradas.map(function(par){
+        const sku = par[0], it = par[1];
+        return '<div class="item"><div class="info"><div class="name">' + escapeHtml(it.producto || sku) + '</div>'
+          + '<div class="meta">SKU ' + escapeHtml(sku) + ' · de ' + (it.cantidad || 0) + '</div></div>'
+          + '<input class="vi-cant" type="number" min="0" max="' + (it.cantidad || 0) + '" placeholder="0" data-sku-descarga="' + escapeHtmlVenta(sku) + '" style="width:64px; flex-shrink:0;" value="0">'
+          + '</div>';
+      }).join('') : '<div class="empty">No tienes existencias para descargar.</div>')
+    + '<div class="save-row" style="margin-top:14px;">'
+    + '<button class="btn" id="btnDescargaCancelar" style="flex:1;">Cancelar</button>'
+    + '<button class="btn primary" id="btnDescargaConfirmar" style="flex:1;">Confirmar descarga</button>'
+    + '</div>';
+  document.getElementById('btnDescargaCancelar').addEventListener('click', function(){ modoDescargaAlmacen = false; renderAlmacen(); });
+  const btnConfirmar = document.getElementById('btnDescargaConfirmar');
+  if(btnConfirmar) btnConfirmar.addEventListener('click', confirmarDescargaAlmacen);
+}
+
+async function confirmarDescargaAlmacen(){
+  const inputs = sheetBody.querySelectorAll('[data-sku-descarga]');
+  const items = [];
+  inputs.forEach(function(inp){
+    const sku = inp.dataset.skuDescarga;
+    const it = inventarioPropio[sku];
+    if(!it) return;
+    const devuelta = Math.min(Math.max(0, Number(inp.value) || 0), it.cantidad || 0);
+    if (devuelta > 0) items.push({ sku: sku, devuelta: devuelta, producto: it.producto, precioUnitario: it.precioUnitario, observaciones: it.observaciones });
+  });
+  if(items.length === 0){ mostrarToast('Captura al menos una cantidad a regresar.'); return; }
+
+  const upserts = items.map(function(it){
+    const nueva = Math.max(0, (inventarioPropio[it.sku].cantidad || 0) - it.devuelta);
+    return {
+      id: idAlmacenMovil(usuarioActual, it.sku),
+      vendedor: usuarioActual, sku: it.sku,
+      producto: it.producto || '',
+      cantidadAsignada: nueva,
+      precioUnitario: it.precioUnitario || 0,
+      observaciones: it.observaciones || '',
+      actualizadoEn: Date.now()
+    };
+  });
+
+  // Optimista: se refleja de inmediato en el almacén local, aunque no haya señal.
+  upserts.forEach(function(u){ if(inventarioPropio[u.sku]) inventarioPropio[u.sku].cantidad = u.cantidadAsignada; });
+  localStorage.setItem(ALMACEN_PROPIO_CACHE_KEY, JSON.stringify(inventarioPropio));
+
+  // Registro para que el admin vea qué se regresó (se encola solo sin señal).
+  dbVentaRuta.collection('descargas_fin_dia').add({
+    vendedor: usuarioActual, vendedorNombre: nombreActual,
+    fecha: new Date().toISOString(),
+    items: items.map(function(it){ return { sku: it.sku, producto: it.producto, cantidad: it.devuelta }; })
+  }).catch(function(err){ console.warn('No se pudo registrar la descarga:', err); });
+
+  await sincronizarAlmacenASheet(upserts);
+  mostrarToast('Descarga registrada.');
+  modoDescargaAlmacen = false;
+  await renderAlmacen();
 }
 
 async function cargarPedidosPropiosPendientes(){
@@ -2012,6 +2226,7 @@ const PRECIOS_RUTA_KEY = 'gc_precios_ruta_v1';
 const VENTAS_SHEET_PENDIENTES_KEY = 'gc_ventas_pendientes_sheet_v1';
 const VENTAS_FIRESTORE_PENDIENTES_KEY = 'gc_ventas_pendientes_firestore_v1';
 const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
+const MIS_VENTAS_CACHE_KEY = 'gc_mis_ventas_cache_v1';
 const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1';  
 let preciosCache = {}; // indexado por sku
 
@@ -2109,20 +2324,22 @@ function guardarVentasFirestorePendientes(lista){
 }
 function encolarVentaFirestorePendiente(venta){
   const lista = cargarVentasFirestorePendientes();
-  if(!lista.some(function(v){ return v.folio === venta.folio; })) lista.push(venta);
+  const clave = venta.idInterno || venta.folio; // respaldo por si es una venta vieja en cola sin idInterno
+  if(!lista.some(function(v){ return (v.idInterno || v.folio) === clave; })) lista.push(venta);
   guardarVentasFirestorePendientes(lista);
 }
-function quitarVentaFirestorePendiente(folio){
-  guardarVentasFirestorePendientes(cargarVentasFirestorePendientes().filter(function(v){ return v.folio !== folio; }));
+function quitarVentaFirestorePendiente(idInternoOFolio){
+  guardarVentasFirestorePendientes(cargarVentasFirestorePendientes().filter(function(v){ return (v.idInterno || v.folio) !== idInternoOFolio; }));
 }
 async function reintentarVentasFirestorePendientes(){
   if(!navigator.onLine) return;
   const pendientes = cargarVentasFirestorePendientes();
   if(pendientes.length === 0) return;
   for(const venta of pendientes){
+    const clave = venta.idInterno || venta.folio;
     try{
-      await dbVentaRuta.collection('ventas_ruta').doc(venta.folio).set(venta);
-      quitarVentaFirestorePendiente(venta.folio);
+      await dbVentaRuta.collection('ventas_ruta').doc(clave).set(venta);
+      quitarVentaFirestorePendiente(clave);
     } catch(err){ /* se reintenta en el siguiente ciclo de sync */ }
   }
 }
@@ -2134,16 +2351,20 @@ function cargarVentasPendientesSheet(){
 function guardarVentasPendientesSheet(lista){
   localStorage.setItem(VENTAS_SHEET_PENDIENTES_KEY, JSON.stringify(lista));
 }
-// Una fila por SKU vendido, con id = folio + "::" + sku (así Codigo.gs no
-// duplica líneas si una misma venta se reintenta más de una vez).
+// Una fila por SKU vendido, con id = idInterno + "::" + sku (así Codigo.gs
+// no duplica líneas si una misma venta se reintenta más de una vez, y dos
+// vendedores/celulares que por casualidad generaron el mismo folio visible
+// no se pisan entre sí — el folio sigue viajando aparte solo para mostrarse).
 function filasVentaParaSheet(venta){
+  const claveVenta = venta.idInterno || venta.folio; // respaldo para ventas viejas en cola
   return venta.items.map(function(it, idx){
     // Si no se capturó SKU, se usa el índice de la línea como respaldo
     // para que el id nunca se repita dentro de una misma venta (si no,
     // dos líneas sin SKU se pisarían entre sí en el Sheet).
     const claveSku = (it.sku && String(it.sku).trim()) || ('sin-sku-' + idx);
     return {
-      id: venta.folio + '::' + claveSku,
+      id: claveVenta + '::' + claveSku,
+      idInterno: claveVenta,
       folio: venta.folio,
       fecha: venta.fechaLocal,
       vendedor: venta.vendedorNombre || venta.vendedor,
@@ -2158,6 +2379,8 @@ function filasVentaParaSheet(venta){
       mesesMsi: venta.mesesMsi,
       ubicacion: venta.ubicacion || '',
       precioManual: it.manual ? 'SI' : '',
+      existencia: it.existencia || '',
+      telefono: venta.telefono || '',
       tipoNota: venta.tipoNota || '',
       anticipo: venta.anticipo != null ? venta.anticipo : '',
       saldoPendiente: venta.saldoPendiente != null ? venta.saldoPendiente : ''
@@ -4828,6 +5051,10 @@ const ETIQUETA_ORIGEN = { lista: 'Lista', agenda: 'Próximas rutas', mapa: 'Mapa
 
 function cambiarTab(tab, origen){
   if(origen) origenNav = origen;
+  if(tab !== 'vendedoresvivo' && typeof unsubscribeVendedoresVivo === 'function'){
+    unsubscribeVendedoresVivo();
+    unsubscribeVendedoresVivo = null;
+  }
   currentTab = tab;
   renderSheetTabs();
   abrirSheet();
@@ -4842,6 +5069,7 @@ function cambiarTab(tab, origen){
     if(tab === 'almacen') renderAlmacen();
     if(tab === 'misventas') renderMisVentas();
     if(tab === 'inventariogc') renderInventarioGC();
+    if(tab === 'vendedoresvivo') renderVendedoresVivo();
   } catch(err){
     // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
     // bajo el título nuevo (justo lo que parecía "me sale la lista").
@@ -4902,7 +5130,8 @@ function renderSheetTabs(){
     agenda: 'Próximas rutas',
     almacen: 'Almacén móvil',
     misventas: 'Mis ventas',
-    inventariogc: 'Inventario Grupo Camejo'
+    inventariogc: 'Inventario Grupo Camejo',
+    vendedoresvivo: 'Vendedores en vivo'
   };
   const destino = ETIQUETA_ORIGEN[origenNav] ? origenNav : 'mapa';
   tabsEl.innerHTML = `
@@ -6851,21 +7080,81 @@ document.getElementById('btnMisVentas').addEventListener('click', () => {
    reabrir el panel de compartir (WhatsApp) por si la primera vez no se
    pudo enviar. */
 function agruparFilasVentaEnVentas(filas){
-  const porFolio = {};
+  const porVenta = {};
   filas.forEach(f => {
-    if(!porFolio[f.folio]){
-      porFolio[f.folio] = {
-        folio: f.folio, fechaLocal: f.fecha, vendedor: f.vendedor, vendedorNombre: f.vendedor,
-        cliente: f.cliente, metodoPago: f.metodoPago, referencia: f.referencia,
-        mesesMsi: f.mesesMsi || null, items: [], total: 0
+    // Se agrupa por idInterno (único de verdad); si es una fila vieja sin
+    // idInterno se cae a folio, como antes.
+    const clave = f.idInterno || f.folio;
+    if(!porVenta[clave]){
+      porVenta[clave] = {
+        folio: f.folio, idInterno: clave, fechaLocal: f.fecha, vendedor: f.vendedor, vendedorNombre: f.vendedor,
+        cliente: f.cliente, telefono: f.telefono || '', metodoPago: f.metodoPago, referencia: f.referencia,
+        mesesMsi: f.mesesMsi || null, items: [], total: 0,
+        tipoNota: f.tipoNota || '',
+        anticipo: (f.anticipo === '' || f.anticipo == null) ? null : Number(f.anticipo),
+        saldoPendiente: (f.saldoPendiente === '' || f.saldoPendiente == null) ? null : Number(f.saldoPendiente)
       };
     }
-    porFolio[f.folio].items.push({
-      sku: f.sku, producto: f.producto, cantidad: Number(f.cantidad) || 0, precio: Number(f.precioUnitario) || 0
+    porVenta[clave].items.push({
+      sku: f.sku, producto: f.producto, cantidad: Number(f.cantidad) || 0, precio: Number(f.precioUnitario) || 0,
+      existencia: f.existencia || '', manual: f.precioManual === 'SI'
     });
-    porFolio[f.folio].total += Number(f.total) || 0;
+    porVenta[clave].total += Number(f.total) || 0;
   });
-  return Object.values(porFolio).sort((a, b) => new Date(b.fechaLocal) - new Date(a.fechaLocal));
+  return Object.values(porVenta).sort((a, b) => new Date(b.fechaLocal) - new Date(a.fechaLocal));
+}
+
+function _claveCacheMisVentas(){
+  // La caché es por vendedor (y por vista admin) para no mezclar el
+  // historial de uno con el de otro en el mismo celular.
+  return MIS_VENTAS_CACHE_KEY + '_' + (esAdmin ? 'admin' : String(usuarioActual || '').trim().toLowerCase());
+}
+function _cargarMisVentasCache(){
+  try{ return JSON.parse(localStorage.getItem(_claveCacheMisVentas())) || null; } catch(e){ return null; }
+}
+function _guardarMisVentasCache(ventas){
+  try{ localStorage.setItem(_claveCacheMisVentas(), JSON.stringify(ventas)); } catch(e){ /* localStorage lleno, no es crítico */ }
+}
+/* ---------- Panel admin: Vendedores en vivo ----------
+   Lista en tiempo real (onSnapshot) de dónde está cada vendedor, su batería
+   y qué visita tiene abierta — lo que manda _reportarUbicacionVivo(). Tocar
+   una fila centra el mapa en ese punto. Más de 20 min sin reportar (pantalla
+   apagada, app cerrada o sin señal) se marca atenuado. */
+let unsubscribeVendedoresVivo = null;
+function renderVendedoresVivo(){
+  if(!esAdmin){ sheetBody.innerHTML = '<div class="empty">Solo el admin puede ver este panel.</div>'; return; }
+  sheetBody.innerHTML = '<div class="empty">Cargando…</div>';
+  if(unsubscribeVendedoresVivo) unsubscribeVendedoresVivo();
+  unsubscribeVendedoresVivo = dbVentaRuta.collection('ubicaciones_vendedores').onSnapshot(function(snap){
+    if(currentTab !== 'vendedoresvivo') return;
+    const ahora = Date.now();
+    const filas = snap.docs.map(function(d){ return d.data(); }).sort(function(a,b){ return (b.actualizadoEn||0) - (a.actualizadoEn||0); });
+    if(filas.length === 0){ sheetBody.innerHTML = '<div class="empty">Ningún vendedor ha reportado ubicación todavía.</div>'; return; }
+    sheetBody.innerHTML = filas.map(function(v){
+      const hace = ahora - (v.actualizadoEn || 0);
+      const minutos = Math.round(hace / 60000);
+      const antiguedad = minutos < 1 ? 'justo ahora' : (minutos < 60 ? 'hace ' + minutos + ' min' : 'hace ' + Math.round(minutos / 60) + ' h');
+      const bateriaTxt = (v.bateria === null || v.bateria === undefined) ? '' : ' · 🔋' + v.bateria + '%';
+      const vencido = hace > 20 * 60 * 1000;
+      return '<div class="item" data-ver-vivo="' + escapeHtml(v.vendedor || '') + '" style="cursor:pointer;' + (vencido ? 'opacity:.55;' : '') + '">'
+        + '<div class="info"><div class="name">' + escapeHtml(v.vendedorNombre || v.vendedor || 'Vendedor') + '</div>'
+        + '<div class="meta">' + (v.visita ? 'Visitando: ' + escapeHtml(v.visita) : 'Sin visita abierta') + bateriaTxt + ' · ' + antiguedad + (vencido ? ' (sin reportar)' : '') + '</div></div>'
+        + '</div>';
+    }).join('');
+    sheetBody.querySelectorAll('[data-ver-vivo]').forEach(function(fila){
+      fila.addEventListener('click', function(){
+        const v = filas.find(function(x){ return x.vendedor === fila.dataset.verVivo; });
+        if(v && v.lat && v.lng){
+          volverAlMapa();
+          map.setView([v.lat, v.lng], 16);
+          L.popup().setLatLng([v.lat, v.lng]).setContent(escapeHtml(v.vendedorNombre || v.vendedor)).openOn(map);
+        }
+      });
+    });
+  }, function(err){
+    console.warn('No se pudo suscribir a ubicaciones_vendedores:', err);
+    if(currentTab === 'vendedoresvivo') sheetBody.innerHTML = '<div class="empty">No se pudo cargar (revisa tu señal).</div>';
+  });
 }
 
 async function renderMisVentas(){
@@ -6873,7 +7162,15 @@ async function renderMisVentas(){
     sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
     return;
   }
-  sheetBody.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
+  // Se pinta de inmediato con lo último que ya se tenía guardado (si hay),
+  // en vez de quedarse en "Cargando…" hasta que responda el Sheet — igual
+  // que el almacén móvil. Así "Mis ventas" se ve al instante sin señal,
+  // aunque sea con el historial de la última vez que sí hubo conexión.
+  const cache = _cargarMisVentasCache();
+  const huboCache = Array.isArray(cache) && cache.length > 0;
+  if (huboCache) pintarMisVentas(cache, true);
+  else sheetBody.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
+
   let ventas = [];
   try{
     const resp = await fetch(`${SHEET_ENDPOINT}?recurso=ventasRuta`);
@@ -6885,22 +7182,31 @@ async function renderMisVentas(){
       return esAdmin ? true : (v === clave || (claveNombre && v === claveNombre));
     });
     ventas = agruparFilasVentaEnVentas(propias);
+    _guardarMisVentasCache(ventas);
   } catch(err){
-    sheetBody.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
+    // Sin señal (o el Web App no respondió): si ya se pintó la caché arriba
+    // la dejamos como está; si no había nada guardado, recién aquí se avisa.
+    if (!huboCache && currentTab === 'misventas'){
+      sheetBody.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
+    }
     return;
   }
   if(currentTab !== 'misventas') return;
+  pintarMisVentas(ventas, false);
+}
+function pintarMisVentas(ventas, esCache){
   if(ventas.length === 0){
     sheetBody.innerHTML = '<div class="empty">Aún no tienes ventas registradas.</div>';
     return;
   }
-  sheetBody.innerHTML = ventas.map((v, i) => `
+  const avisoCache = esCache ? '<div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Mostrando lo último guardado — actualizando…</div>' : '';
+  sheetBody.innerHTML = avisoCache + ventas.map((v, i) => `
     <div class="item" data-ver="${i}" style="cursor:pointer;">
       <div class="info">
         <div class="name">${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
         <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
       </div>
-      <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.folio)}">↻ Reenviar</button>
+      <button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>
     </div>
   `).join('');
 
@@ -6918,7 +7224,7 @@ async function renderMisVentas(){
 
   sheetBody.querySelectorAll('[data-reenviar]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const venta = ventas.find(v => v.folio === btn.dataset.reenviar);
+      const venta = ventas.find(v => v.idInterno === btn.dataset.reenviar);
       if(venta) reenviarTicketVenta(venta);
     });
   });
@@ -6971,7 +7277,11 @@ function textoVentaPlano(venta){
   });
   l.push('');
   l.push('TOTAL: $' + totalRedondeado(venta.items).toFixed(2));
-  if(venta.metodoPago) l.push('Forma de pago: ' + venta.metodoPago);
+  if(venta.tipoNota === 'pedido') l.push('PEDIDO — pago pendiente');
+  else if(venta.metodoPago) l.push('Forma de pago: ' + venta.metodoPago);
+  if(venta.tipoNota === 'credito'){
+    l.push('VENTA A CRÉDITO — Anticipo: $' + (Number(venta.anticipo) || 0).toFixed(2) + ' — Saldo pendiente: $' + (Number(venta.saldoPendiente) || 0).toFixed(2));
+  }
   return l.join('\n');
 }
 async function copiarTextoVenta(venta){
