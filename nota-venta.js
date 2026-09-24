@@ -265,24 +265,38 @@ function generarPdfNotaVenta(venta) {
   doc.setFont(undefined, 'bold');
   doc.text('Vendedor: ' + (venta.vendedorNombre || venta.vendedor || ''), PW - MX, y, { align: 'right' });
   doc.setFont(undefined, 'normal');
-  doc.text('Folio: ' + folioTxt, PW - MX, y + 4, { align: 'right' });
+  const idVend = /^V-/.test(String(venta.idInterno || '')) ? venta.idInterno : folioTxt;
+  doc.text('Folio: ' + idVend, PW - MX, y + 4, { align: 'right' });
   y += 8;
+
 
   // ---- Marcas que manejamos (pie de página) ----
   if (window.LOGO_MARCAS && window.LOGO_MARCAS.length) {
     doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.15);
     doc.line(MX, y, PW - MX, y);
     y += 5;
-    const ALTO_LOGO = 5, SEPARACION = 2.5;
-    const marcas = window.LOGO_MARCAS.filter(function (m) { return m.src; });
-    const anchos = marcas.map(function (m) { return ALTO_LOGO * (m.w / m.h); });
-    const anchoTotal = anchos.reduce(function (a, b) { return a + b; }, 0) + SEPARACION * Math.max(0, marcas.length - 1);
-    let lx = Math.max(MX, (PW - anchoTotal) / 2);
-    marcas.forEach(function (m, i) {
-      try { doc.addImage(m.src, 'PNG', lx, y, anchos[i], ALTO_LOGO); } catch (e) {}
-      lx += anchos[i] + SEPARACION;
+    const SEP = 6;
+    const marcas = window.LOGO_MARCAS.filter(function (m) { return m.src; }).map(function (m) {
+      const ancho = m.ancho || 30;
+      return { m: m, ancho: ancho, alto: ancho * (m.h / m.w) };
     });
-    y += ALTO_LOGO;
+    const filas = []; let fila = [], usado = 0;
+    marcas.forEach(function (o) {
+      const nuevo = usado + (fila.length ? SEP : 0) + o.ancho;
+      if (fila.length && nuevo > TW) { filas.push(fila); fila = []; usado = 0; }
+      usado += (fila.length ? SEP : 0) + o.ancho; fila.push(o);
+    });
+    if (fila.length) filas.push(fila);
+    filas.forEach(function (f) {
+      const anchoFila = f.reduce(function (s, o) { return s + o.ancho; }, 0) + SEP * (f.length - 1);
+      const altoFila = Math.max.apply(null, f.map(function (o) { return o.alto; }));
+      let lx = (PW - anchoFila) / 2;
+      f.forEach(function (o) {
+        try { doc.addImage(o.m.src, 'PNG', lx, y + (altoFila - o.alto) / 2, o.ancho, o.alto); } catch (e) {}
+        lx += o.ancho + SEP;
+      });
+      y += altoFila + 4;
+    });
   }
 
   return doc;
