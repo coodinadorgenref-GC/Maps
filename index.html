@@ -940,7 +940,10 @@ async function manejarInicioDeSesionMaps(){
     if(rs.success){
       usuarioActual = rs.correo || identificador;
       tokenActual = rs.token;
-      esAdmin = rs.esAdmin || false;
+      // El backend del catálogo marca esAdmin=true también para "vendedor"
+      // (_tienePermisosDeAdmin), porque allá comparten permisos. En Maps NO:
+      // si viene esVendedor, es vendedor y no admin.
+      esAdmin = !!rs.esAdmin && !rs.esVendedor;
       window.esVendedorSesion = rs.esVendedor || false; // NUEVO — columna F = "vendedor"
       rolActual = rs.rol || "";
       nombreActual = rs.nombre || "";
@@ -986,7 +989,7 @@ function verificarSesionGuardadaMaps(){
     if(!navigator.onLine && s.accesoOffline){
       // Cuenta autorizada para trabajar offline: entra con lo que ya
       // tenía guardado; el heartbeat normal confirma en cuanto haya señal.
-      usuarioActual = s.correo; tokenActual = s.token; esAdmin = s.esAdmin || false;
+      usuarioActual = s.correo; tokenActual = s.token; esAdmin = !!s.esAdmin && !s.esVendedor;
       window.esVendedorSesion = s.esVendedor || false;
       rolActual = s.rol || ""; nombreActual = s.nombre || ""; accesoOfflinePermitidoMaps = true;
     } else {
@@ -1000,7 +1003,7 @@ function verificarSesionGuardadaMaps(){
   }
 
   accesoOfflinePermitidoMaps = s.accesoOffline || false;
-  usuarioActual = s.correo; tokenActual = s.token; esAdmin = s.esAdmin || false;
+  usuarioActual = s.correo; tokenActual = s.token; esAdmin = !!s.esAdmin && !s.esVendedor;
   window.esVendedorSesion = s.esVendedor || false;
   rolActual = s.rol || ""; nombreActual = s.nombre || "";
   pintarBadgeSesionMaps();
