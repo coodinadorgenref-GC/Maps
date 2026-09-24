@@ -265,8 +265,8 @@ function generarPdfNotaVenta(venta) {
   doc.setFont(undefined, 'bold');
   doc.text('Vendedor: ' + (venta.vendedorNombre || venta.vendedor || ''), PW - MX, y, { align: 'right' });
   doc.setFont(undefined, 'normal');
-  const idVend = /^V-/.test(String(venta.idInterno || '')) ? venta.idInterno : folioTxt;
-  doc.text('Folio: ' + idVend, PW - MX, y + 4, { align: 'right' });
+  const idFirebase = /^V-/.test(String(venta.idInterno || '')) ? String(venta.idInterno) : '';
+  if (idFirebase) doc.text('ID de venta: ' + idFirebase, PW - MX, y + 4, { align: 'right' });
   y += 8;
 
 
