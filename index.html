@@ -4847,8 +4847,8 @@ function confirmarSeleccionEnMapa(lat, lng){
   abrirSheet();
   cambiarTab('alta');
 }
-document.getElementById('btnPickConfirmar').addEventListener('click', confirmarSeleccionEnMapaCentro);
-document.getElementById('btnPickCancelar').addEventListener('click', cancelarSeleccionEnMapa);
+document.getElementById('btnPickConfirmar')?.addEventListener('click', confirmarSeleccionEnMapaCentro);
+document.getElementById('btnPickCancelar')?.addEventListener('click', cancelarSeleccionEnMapa);
 
 function confirmarSeleccionEnMapa(lat, lng){
   pickingLocation = false;
