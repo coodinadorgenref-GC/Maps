@@ -2598,7 +2598,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '25-sep · vivo 2';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '25-sep · vivo 3';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -4854,16 +4854,12 @@ function confirmarSeleccionEnMapa(lat, lng){
   abrirSheet();
   cambiarTab('alta');
 }
+function confirmarSeleccionEnMapaCentro(){
+  const c = map.getCenter();
+  confirmarSeleccionEnMapa(c.lat, c.lng);
+}
 document.getElementById('btnPickConfirmar')?.addEventListener('click', confirmarSeleccionEnMapaCentro);
 document.getElementById('btnPickCancelar')?.addEventListener('click', cancelarSeleccionEnMapa);
-
-function confirmarSeleccionEnMapa(lat, lng){
-  pickingLocation = false;
-  document.getElementById('pickBanner').style.display = 'none';
-  fijarCoordTemporal(lat, lng);
-  abrirSheet();
-  cambiarTab('alta');
-}
 
 function fijarCoordTemporal(lat, lng){
   tempCoord = { lat, lng };
