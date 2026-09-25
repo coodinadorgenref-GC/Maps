@@ -669,6 +669,13 @@
     <button class="cancel" id="btnZonaCancelar">Cancelar</button>
   </div>
 </div>
+<div id="routeBanner" class="route-banner">
+  <span class="txt" id="routeBannerTxt">Toca los prospectos en el mapa para sumarlos a la ruta (0)</span>
+  <div class="btns">
+    <button class="go" id="btnRutaListo">Listo</button>
+    <button class="cancel" id="btnRutaCancelar">Cancelar</button>
+  </div>
+</div>
 
 <div class="topbar" id="topbar">
   <button class="tb-btn" id="btnMenu" title="Menú" aria-label="Abrir menú"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg><span class="menu-badge" id="menuBadge"></span></button>
@@ -2591,7 +2598,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '25-sep · vivo 1';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '25-sep · vivo 2';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
