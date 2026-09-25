@@ -2591,7 +2591,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '24-sep · vivo 3';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '25-sep · vivo 1';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
