@@ -186,6 +186,11 @@
     width:auto; max-width:none; border-radius:16px 16px 0 0;
     max-height:60vh; padding-bottom:calc(6px + env(safe-area-inset-bottom));
   }
+    /* Agrega en el bloque de estilos: */
+  .sticky-search{
+    position:sticky; top:-14px; z-index:5; background:var(--surface);
+    margin:-14px -16px 10px; padding:14px 16px 8px;
+  }
   /* ---------- Sesión (login) ---------- */
   .login-overlay{
     position:fixed; inset:0; z-index:5000;
@@ -609,7 +614,13 @@
     padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
     font-size:13.5px; font-weight:600; display:none;
   }
-  
+
+  .pick-banner{ display:none; }
+.pick-crosshair{
+  position:fixed; left:50%; top:50%; transform:translate(-50%,-100%);
+  z-index:1200; pointer-events:none; display:none;
+}
+.pick-crosshair.visible{ display:block; }
 </style>
 </head>
 <body>
@@ -637,12 +648,18 @@
   </div>
 </div>
 
-<div id="pickBanner" class="pick-banner">Toca un punto en el mapa para marcar la ubicación</div>
-<div id="routeBanner" class="route-banner">
-  <span class="txt" id="routeBannerTxt">Toca los prospectos en el mapa para sumarlos a la ruta (0)</span>
-  <div class="btns">
-    <button class="go" id="btnRutaListo">Calcular ruta</button>
-    <button class="cancel" id="btnRutaCancelar">Cancelar</button>
+<!-- Reemplaza el pickBanner por: -->
+<div id="pickBanner" class="pick-banner" style="flex-direction:column; gap:10px; align-items:center; padding-bottom:14px;">
+  <span>Mueve el mapa hasta ubicar el punto exacto</span>
+  <div style="display:flex; gap:8px;">
+    <button id="btnPickConfirmar" style="border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;background:#0E1518;color:#fff;">Confirmar ubicación</button>
+    <button id="btnPickCancelar" style="border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;background:transparent;color:#0E1518;border:1px solid #0E1518;">Cancelar</button>
+  </div>
+</div>
+<div class="pick-crosshair" id="pickCrosshair">
+  <div class="map-pin-wrap" style="width:34px;height:34px;">
+    <div class="map-pin-shape" style="background:#C4D600"></div>
+    <div class="map-pin-icon" style="font-size:14px;color:#0E1518;"><span>＋</span></div>
   </div>
 </div>
 <div id="zoneDrawBanner" class="route-banner">
@@ -1691,6 +1708,7 @@ async function generarPedidosRestock(faltantes){
 
 /* ---------- Pantalla "Almacén móvil" ---------- */
 let almacenEditandoCorreo = null; // solo admin: de qué vendedor se está viendo/editando
+let almPropioFiltro = ''; 
 let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
 
 let modoDescargaAlmacen = false; // true mientras el vendedor hace su "descarga" de fin de ruta
@@ -1719,8 +1737,13 @@ async function renderAlmacenPropio(){
   await pintarAlmacenPropio(false);
 }
 
+// Reemplaza toda la función pintarAlmacenPropio por esta:
 async function pintarAlmacenPropio(esCache){
-  const entradas = Object.entries(inventarioPropio);
+  const q = normalizarBusqueda(almPropioFiltro).trim();
+  const entradas = Object.entries(inventarioPropio).filter(function(par){
+    if(!q) return true;
+    return normalizarBusqueda(par[0] + ' ' + (par[1].producto || '')).includes(q);
+  });
   const filas = entradas.map(function(par){
     const sku = par[0], it = par[1];
     return '<div class="item"><div class="info"><div class="name">' + escapeHtml(it.producto || sku) + '</div>'
@@ -1730,12 +1753,20 @@ async function pintarAlmacenPropio(esCache){
   const avisoCache = esCache ? '<div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Mostrando lo último guardado — actualizando…</div>' : '';
   sheetBody.innerHTML = avisoCache
     + '<button class="btn" id="btnAbrirDescarga" style="width:100%; margin-bottom:12px;">📦 Hacer descarga (fin de ruta)</button>'
+    + '<div class="sticky-search"><div class="search-wrap"><input type="text" id="almPropioBuscar" placeholder="Buscar SKU o producto…" value="' + escapeHtml(almPropioFiltro) + '"></div></div>'
     + '<div style="font-weight:700; font-size:14px; margin-bottom:10px;">Existencias que traes contigo</div>'
-    + (filas || '<div class="empty">Aún no tienes inventario asignado. Pídele a un admin que te lo cargue.</div>')
+    + (filas || '<div class="empty">' + (Object.keys(inventarioPropio).length ? 'Sin resultados.' : 'Aún no tienes inventario asignado. Pídele a un admin que te lo cargue.') + '</div>')
     + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes</div>'
     + '<div id="mvPedidosPropiosWrap"><div class="empty">Cargando…</div></div>';
   const btnDescarga = document.getElementById('btnAbrirDescarga');
   if(btnDescarga) btnDescarga.addEventListener('click', function(){ modoDescargaAlmacen = true; renderDescargaAlmacen(); });
+  const inputBuscar = document.getElementById('almPropioBuscar');
+  if(inputBuscar) inputBuscar.addEventListener('input', function(){
+    almPropioFiltro = inputBuscar.value;
+    pintarAlmacenPropio(false);
+    const el = document.getElementById('almPropioBuscar');
+    if(el){ el.focus(); const v = el.value; el.value = ''; el.value = v; }
+  });
   const pedidos = await cargarPedidosPropiosPendientes();
   if(currentTab !== 'almacen') return;
   const wrap = document.getElementById('mvPedidosPropiosWrap');
@@ -1884,43 +1915,37 @@ async function renderAlmacenAdmin(){
   cargarPedidosPendientesAdmin();
 }
 
+// Reemplaza toda la función pintarPantallaAlmacenAdmin por esta:
 function pintarPantallaAlmacenAdmin(){
-  const opciones = listaVendedores.map(function(v){
-    return '<option value="' + escapeHtml(v.correo) + '"' + (v.correo === almacenEditandoCorreo ? ' selected' : '') + '>'
-      + escapeHtml(v.nombre || v.correo) + '</option>';
+  const filasVendedores = listaVendedores.map(function(v){
+    const activo = v.correo === almacenEditandoCorreo;
+    return '<div class="item" data-correo="' + escapeHtml(v.correo) + '" style="cursor:pointer;' + (activo ? 'background:var(--surface-2);' : '') + '">'
+      + '<div class="info"><div class="name">' + escapeHtml(v.nombre || v.correo) + '</div><div class="meta">' + escapeHtml(v.correo) + '</div></div>'
+      + '<button type="button" class="quitar-parada" data-quitar="' + escapeHtml(v.correo) + '" title="Quitar de la lista">🗑</button>'
+      + '</div>';
   }).join('');
 
   sheetBody.innerHTML =
-    '<div class="field"><label>Vendedor</label>'
-    + '<select id="almVendedorSelect">'
-    + (listaVendedores.length ? opciones : '<option value="">— sin vendedores registrados —</option>')
-    + '<option value="__nuevo__">➕ Agregar vendedor nuevo…</option>'
-    + '</select></div>'
-    + '<div id="almNuevoVendedorWrap" hidden style="margin:-6px 0 12px;">'
+    '<div style="font-weight:700; font-size:14px; margin-bottom:8px;">Vendedores</div>'
+    + '<div id="almVendedoresLista">' + (filasVendedores || '<div class="empty">Sin vendedores registrados.</div>') + '</div>'
+    + '<button class="btn" id="btnAlmMostrarNuevo" style="width:100%; margin:10px 0 14px;">➕ Agregar vendedor nuevo…</button>'
+    + '<div id="almNuevoVendedorWrap" hidden style="margin-bottom:14px;">'
     + '<input type="text" id="almNuevoNombre" placeholder="Nombre del vendedor" style="margin-bottom:6px;">'
     + '<input type="text" id="almNuevoCorreo" placeholder="correo@vendedor.com">'
     + '<div class="save-row" style="margin-top:8px;"><button class="btn primary" id="btnAlmNuevoGuardar" style="flex:1;">Guardar vendedor</button></div>'
     + '</div>'
-    + '<div class="save-row" style="margin-bottom:6px;"><button class="btn primary" id="btnAlmCargar" style="flex:1;">Cargar almacén</button></div>'
-    + '<div style="text-align:right; margin-bottom:14px;"><button type="button" id="btnAlmQuitarVendedor" style="background:none; border:none; color:var(--text-dim); font-size:11.5px; text-decoration:underline; cursor:pointer;">Quitar vendedor de la lista</button></div>'
     + '<div id="almListaWrap"></div>'
     + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes (todos los vendedores)</div>'
     + '<div id="almPedidosWrap"><div class="empty">Cargando…</div></div>';
 
-  const sel = document.getElementById('almVendedorSelect');
-  sel.addEventListener('change', function(){
-    document.getElementById('almNuevoVendedorWrap').hidden = (sel.value !== '__nuevo__');
+  document.getElementById('btnAlmMostrarNuevo').addEventListener('click', function(){
+    document.getElementById('almNuevoVendedorWrap').hidden = false;
   });
 
   document.getElementById('btnAlmNuevoGuardar').addEventListener('click', async function(){
     const nombre = document.getElementById('almNuevoNombre').value.trim();
     const correo = document.getElementById('almNuevoCorreo').value.trim().toLowerCase();
     if(!nombre || !correo){ mostrarToast('Escribe nombre y correo del vendedor'); return; }
-    // Se recarga la lista antes de comparar para no fiarse de una copia
-    // en memoria que pudo quedar vieja (por ejemplo si se agregó desde
-    // otro dispositivo hace un momento), y la comparación es sin mayúsculas
-    // ni espacios para que "Correo@X.com" y "correo@x.com " no se traten
-    // como distintos.
     await cargarListaVendedores();
     if(listaVendedores.some(function(v){ return (v.correo || '').trim().toLowerCase() === correo; })){
       mostrarToast('Ese correo ya está en la lista');
@@ -1928,27 +1953,32 @@ function pintarPantallaAlmacenAdmin(){
       return;
     }
     listaVendedores.push({ nombre: nombre, correo: correo });
-    await guardarVendedorEnSheet({ correo, nombre });   // antes: guardarListaVendedoresFirestore()
+    await guardarVendedorEnSheet({ correo, nombre });
     almacenEditandoCorreo = correo;
     pintarPantallaAlmacenAdmin();
     await cargarAlmacenParaEdicion(correo);
   });
 
-  document.getElementById('btnAlmCargar').addEventListener('click', async function(){
-    const correo = sel.value;
-    if(!correo || correo === '__nuevo__'){ mostrarToast('Elige un vendedor de la lista'); return; }
-    almacenEditandoCorreo = correo;
-    await cargarAlmacenParaEdicion(correo);
+  sheetBody.querySelectorAll('#almVendedoresLista .item').forEach(function(fila){
+    fila.addEventListener('click', async function(e){
+      if(e.target.closest('[data-quitar]')) return;
+      const correo = fila.dataset.correo;
+      almacenEditandoCorreo = correo;
+      pintarPantallaAlmacenAdmin();
+      await cargarAlmacenParaEdicion(correo);
+    });
   });
 
-  document.getElementById('btnAlmQuitarVendedor').addEventListener('click', async function(){
-    const correo = sel.value;
-    if(!correo || correo === '__nuevo__'){ mostrarToast('Elige primero un vendedor de la lista'); return; }
-    if(!confirm('¿Quitar a este vendedor de la lista? No se borra su almacén, solo deja de aparecer aquí.')) return;
-    listaVendedores = listaVendedores.filter(function(v){ return v.correo !== correo; });
-    await quitarVendedorDelSheet(correo);                // antes: guardarListaVendedoresFirestore()
-    if(almacenEditandoCorreo === correo) almacenEditandoCorreo = null;
-    pintarPantallaAlmacenAdmin();
+  sheetBody.querySelectorAll('[data-quitar]').forEach(function(btn){
+    btn.addEventListener('click', async function(e){
+      e.stopPropagation();
+      const correo = btn.dataset.quitar;
+      if(!confirm('¿Quitar a este vendedor de la lista? No se borra su almacén, solo deja de aparecer aquí.')) return;
+      listaVendedores = listaVendedores.filter(function(v){ return v.correo !== correo; });
+      await quitarVendedorDelSheet(correo);
+      if(almacenEditandoCorreo === correo) almacenEditandoCorreo = null;
+      pintarPantallaAlmacenAdmin();
+    });
   });
 }
 
@@ -2561,7 +2591,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '24-sep · vivo 2';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '24-sep · vivo 3';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -4188,13 +4218,8 @@ function renderMarcadores(){
       });
 
       m.on('click', () => {
-        // Si se está corrigiendo/marcando una ubicación (banner "toca el mapa..."
-        // visible), tocar un pin existente no debe abrir SU ficha — antes eso
-        // sacaba de golpe la edición en curso y aterrizaba en otro prospecto.
-        // En su lugar, se usa ese punto exacto como la nueva coordenada.
-        if(pickingLocation){ confirmarSeleccionEnMapa(p.lat, p.lng); return; }
         if(etiquetaMostrada){ etiquetaMostrada = false; return; }
-        if(modoRuta){ toggleSeleccionRuta(p.id); return; }
+        if(modoRuta){ m.closePopup(); toggleSeleccionRuta(p.id); return; }
         if(enRuta){ quitarParadaDeRuta(p.id); return; }
         abrirDetalle(p.id, 'mapa');
       });
@@ -4803,11 +4828,27 @@ function usarGPSparaAlta(){
   }, () => mostrarToast('No se pudo obtener tu ubicación'), { enableHighAccuracy:true, timeout:8000 });
 }
 
+// Reemplaza activarSeleccionEnMapa y el bloque de map.on('click', pickingLocation) por:
 function activarSeleccionEnMapa(){
   pickingLocation = true;
-  document.getElementById('pickBanner').style.display = 'block';
+  document.getElementById('pickBanner').style.display = 'flex';
+  document.getElementById('pickCrosshair').classList.add('visible');
   cerrarSheet();
 }
+function cancelarSeleccionEnMapa(){
+  pickingLocation = false;
+  document.getElementById('pickBanner').style.display = 'none';
+  document.getElementById('pickCrosshair').classList.remove('visible');
+}
+function confirmarSeleccionEnMapa(lat, lng){
+  pickingLocation = false;
+  document.getElementById('pickBanner').style.display = 'none';
+  fijarCoordTemporal(lat, lng);
+  abrirSheet();
+  cambiarTab('alta');
+}
+document.getElementById('btnPickConfirmar').addEventListener('click', confirmarSeleccionEnMapaCentro);
+document.getElementById('btnPickCancelar').addEventListener('click', cancelarSeleccionEnMapa);
 
 function confirmarSeleccionEnMapa(lat, lng){
   pickingLocation = false;
@@ -4816,11 +4857,6 @@ function confirmarSeleccionEnMapa(lat, lng){
   abrirSheet();
   cambiarTab('alta');
 }
-
-map.on('click', (e) => {
-  if(!pickingLocation) return;
-  confirmarSeleccionEnMapa(e.latlng.lat, e.latlng.lng);
-});
 
 function fijarCoordTemporal(lat, lng){
   tempCoord = { lat, lng };
@@ -6950,14 +6986,22 @@ function resaltarProspecto(id){
 
 // Mientras se edita una ficha (aunque la hoja esté bajada o cerrada para ver el mapa), el
 // prospecto en edición se ve resaltado. Se llama cada vez que cambia la pantalla de la hoja.
+// Reemplaza toda la función sincronizarResaltadoEdicion por esta:
 function sincronizarResaltadoEdicion(){
   const editando = currentTab === 'alta' && editandoId;
   if(editando){
     if(resaltadoModo === 'edicion' && resaltadoId === editandoId) return;
     const p = prospectos.find(x => x.id === editandoId);
-    if(p && typeof p.lat === 'number' && typeof p.lng === 'number') ponerResaltado(p, 'edicion', false);
+    if(p && typeof p.lat === 'number' && typeof p.lng === 'number'){
+      ponerResaltado(p, 'edicion', false);
+      const mOriginal = marcadoresPorId.get(editandoId);
+      if(mOriginal && markersLayer.hasLayer(mOriginal)) markersLayer.removeLayer(mOriginal);
+    }
   } else if(resaltadoModo === 'edicion'){
+    const idPrevio = resaltadoId;
     quitarResaltado();
+    const mOriginal = marcadoresPorId.get(idPrevio);
+    if(mOriginal && !markersLayer.hasLayer(mOriginal)) markersLayer.addLayer(mOriginal);
   }
 }
 
@@ -7447,8 +7491,8 @@ function renderInventarioGC(){
     '<div class="field"><div class="search-wrap"><input type="text" id="invGCBuscar" placeholder="Buscar SKU o producto…" value="' + escapeHtml(invGCFiltro) + '"></div></div>'
     + (esAd
       ? '<div class="save-row" style="margin-bottom:6px;">'
-        + '<button class="btn" id="btnInvGCPlantilla" style="flex:1;">⬇️ Plantilla</button>'
-        + '<button class="btn" id="btnInvGCExcel" style="flex:1;">📄 Cargar Excel/CSV</button></div>'
+        + '<button class="btn" id="btnInvGCPlantilla" style="flex:1;">⬇️ Descargar Plantilla</button>'
+        + '<button class="btn" id="btnInvGCExcel" style="flex:1;">⬆️ Subir plantilla</button></div>'
         + '<input type="file" id="invGCExcelInput" accept=".xlsx,.xls,.csv" style="display:none">'
         + '<div style="font-size:11.5px; color:var(--text-dim); margin-bottom:12px;">Reemplaza TODO el inventario Grupo Camejo con lo que traiga el archivo (sku y cantidad obligatorias; ubicacion = unidad de negocio).</div>'
       : '')
