@@ -7183,7 +7183,7 @@ function agruparFilasVentaEnVentas(filas){
         mesesMsi: f.mesesMsi || null, items: [], total: 0,
         tipoNota: f.tipoNota || '',
         anticipo: (f.anticipo === '' || f.anticipo == null) ? null : Number(f.anticipo),
-        saldoPendiente: (f.saldoPendiente === '' || f.saldoPendiente == null) ? null : Number(f.saldoPendiente)
+        saldoPendiente: (f.saldoPendiente === '' || f.saldoPendiente == null) ? null : Number(f.saldoPendiente),
         cancelada: f.cancelada === 'SI' || f.cancelada === true   // ← nuevo
       };
     }
