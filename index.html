@@ -1005,7 +1005,13 @@ async function manejarInicioDeSesionMaps(){
       window.esVendedorSesion = rs.esVendedor || false; // NUEVO — columna F = "vendedor"
       rolActual = rs.rol || "";
       nombreActual = rs.nombre || "";
-      accesoOfflinePermitidoMaps = rs.accesoOffline || false;
+      // Antes dependía de una bandera por cuenta (rs.accesoOffline) en
+      // Usuarios_Autorizados: si faltaba, la sesión se cerraba sola sin
+      // señal y el login (que sí necesita internet) dejaba a la persona
+      // sin poder volver a entrar. Como a este punto ya se validó arriba
+      // que es admin o vendedor autorizado, el acceso offline aplica
+      // siempre — ya no depende de esa bandera del servidor.
+      accesoOfflinePermitidoMaps = true;
       const recordarme = document.getElementById("loginRecordarme")?.checked || false;
       duracionSesionActualMapsMs = recordarme ? DURACION_RECORDARME_MAPS_MS : TIEMPO_EXPIRACION_SESION_MAPS_MS;
       guardarSesionMaps();
@@ -2319,6 +2325,7 @@ async function syncPendientes(){
     reintentarVentasRutaPendientes();
     reintentarAlmacenPendientes();   // ← nuevo
     reintentarVentasFirestorePendientes();   // ← nuevo: venta misma, no solo su reflejo en Sheet
+    reintentarMovimientosPendientes();   // ← nuevo: bitácora de cancelaciones/devoluciones
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
     // próximo evento "online" o el siguiente intervalo.
@@ -2335,6 +2342,7 @@ const VENTAS_FIRESTORE_PENDIENTES_KEY = 'gc_ventas_pendientes_firestore_v1';
 const ALMACEN_PROPIO_CACHE_KEY = 'gc_almacen_propio_cache_v1';
 const MIS_VENTAS_CACHE_KEY = 'gc_mis_ventas_cache_v1';
 const ALMACEN_PENDIENTES_KEY = 'gc_almacen_pendientes_sheet_v1'; 
+const MOVIMIENTOS_PENDIENTES_KEY = 'gc_movimientos_pendientes_sheet_v1';
 let preciosCache = {}; // indexado por sku
   
 function cargarPreciosCacheLocal(){
@@ -2515,6 +2523,35 @@ async function reintentarAlmacenPendientes(){
     localStorage.setItem(ALMACEN_PENDIENTES_KEY, '[]');
   } catch(err){ /* se reintenta en el próximo ciclo */ }
 }
+
+/* ---------- Bitácora de movimientos (devoluciones al almacén móvil por
+   cancelación, total o por producto). Es un registro de auditoría aparte:
+   NO reemplaza el descuento/restitución de cantidadAsignada en
+   Almacen_Vendedores, solo dice "esto pasó, aquí y cuándo". Requiere que
+   el Apps Script del Sheet de Prospectos & Rutas GC tenga un handler para
+   recurso "movimientosAlmacen" (upsert por id en una hoja tipo Kardex con
+   columnas: fecha, vendedor, folio, sku, producto, cantidad, tipo, motivo,
+   canceladoPor). Si ese handler no existe todavía, esta llamada no truena
+   nada (la cancelación ya quedó a salvo en Firestore/Sheet de ventas) pero
+   tampoco deja rastro hasta que se agregue. */
+async function sincronizarMovimientosASheet(filas){
+  if(!SHEET_ENDPOINT || !filas || !filas.length) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'movimientosAlmacen', upserts: filas }) });
+  } catch(err){
+    const pendientes = JSON.parse(localStorage.getItem(MOVIMIENTOS_PENDIENTES_KEY) || '[]');
+    localStorage.setItem(MOVIMIENTOS_PENDIENTES_KEY, JSON.stringify(pendientes.concat(filas)));
+  }
+}
+async function reintentarMovimientosPendientes(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  const pendientes = JSON.parse(localStorage.getItem(MOVIMIENTOS_PENDIENTES_KEY) || '[]');
+  if(pendientes.length === 0) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'movimientosAlmacen', upserts: pendientes }) });
+    localStorage.setItem(MOVIMIENTOS_PENDIENTES_KEY, '[]');
+  } catch(err){ /* se reintenta en el próximo ciclo */ }
+}
 const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
 const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
 const COLOR_ESTATUS = {
@@ -2598,7 +2635,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '25-sep · vivo 4';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '25-sep · vivo 5';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -6496,7 +6533,7 @@ function renderFormAlta(){
         <button class="btn" type="button" id="btnQuitarFotoFachada" style="margin-top:6px; color:var(--danger);">✕ Quitar foto</button>
       </div>
       <button class="btn" type="button" id="btnTomarFotoFachada" style="width:100%;">📷 ${tempFotoFachada ? 'Cambiar foto' : 'Tomar foto de la fachada'}</button>
-      <input type="file" id="fFotoFachada" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="fFotoFachada" accept="image/*" style="display:none">
     </div>
 
     <div class="field">
@@ -7345,6 +7382,7 @@ async function renderMisVentas(){
         <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
       </div>
       ${!v.cancelada ? `<button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>` : ''}
+      ${(!v.cancelada && puedeCancelarVenta(v)) ? `<button class="btn danger" style="flex:0 0 auto; padding:8px 12px;" data-cancelar="${escapeHtml(v.idInterno)}">✕ Cancelar</button>` : ''}
     </div>
   `).join('');
 
@@ -7361,6 +7399,15 @@ async function renderMisVentas(){
     btn.addEventListener('click', () => {
       const venta = ventas.find(v => v.idInterno === btn.dataset.reenviar);
       if(venta) reenviarTicketVenta(venta);
+    });
+  });
+
+  // Cancelar directo desde la lista, sin tener que abrir la nota primero
+  // (antes solo se podía cancelar desde dentro del modal — poco visible).
+  sheetBody.querySelectorAll('[data-cancelar]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const venta = ventas.find(v => v.idInterno === btn.dataset.cancelar);
+      if(venta) cancelarNotaVenta(venta);
     });
   });
 }
@@ -7395,8 +7442,38 @@ function abrirNotaVentaModal(venta){
     }
     const puede = puedeCancelarVenta(venta) && !venta.cancelada;
     btnCancelar.style.display = puede ? 'block' : 'none';
-    btnCancelar.textContent = (venta.tipoNota === 'pedido' ? '✕ Cancelar pedido' : '✕ Cancelar venta');
+    btnCancelar.textContent = (venta.tipoNota === 'pedido' ? '✕ Cancelar todo el pedido' : '✕ Cancelar toda la venta');
     btnCancelar.onclick = () => cancelarNotaVenta(venta);
+
+    // Lista de productos con cancelación por línea (solo tiene sentido si
+    // hay más de un producto activo; con uno solo, cancelar esa línea es
+    // lo mismo que cancelar la nota completa, y ya está el botón de arriba).
+    let listaLineas = document.getElementById('notaVentaLineas');
+    if(!listaLineas){
+      listaLineas = document.createElement('div');
+      listaLineas.id = 'notaVentaLineas';
+      listaLineas.style.cssText = 'margin-top:10px;';
+      btnCancelar.insertAdjacentElement('afterend', listaLineas);
+    }
+    const items = venta.items || [];
+    const activos = items.filter(it => !it.cancelado);
+    if(puede && activos.length > 1){
+      listaLineas.innerHTML = '<div style="font-size:11.5px; color:var(--text-dim); margin-bottom:6px;">O cancela solo un producto:</div>'
+        + items.map(function(it, i){
+            if(it.cancelado) return `<div class="item" style="padding:6px 4px; opacity:.5;"><div class="info"><div class="name" style="font-size:13px;">${escapeHtml(it.producto || it.sku || '')}</div><div class="meta">✕ ya cancelado</div></div></div>`;
+            return `<div class="item" style="padding:6px 4px;">
+              <div class="info"><div class="name" style="font-size:13px;">${escapeHtml(it.cantidad)} × ${escapeHtml(it.producto || it.sku || '')}</div><div class="meta">$${(Number(it.precio)||0).toFixed(2)} c/u · $${((Number(it.precio)||0) * (Number(it.cantidad)||0)).toFixed(2)}</div></div>
+              <button class="btn danger" style="flex:0 0 auto; padding:6px 10px; font-size:12.5px;" data-cancelar-linea="${i}">✕</button>
+            </div>`;
+          }).join('');
+      listaLineas.querySelectorAll('[data-cancelar-linea]').forEach(function(btn){
+        btn.addEventListener('click', function(){ cancelarLineaVenta(venta, Number(btn.dataset.cancelarLinea)); });
+      });
+      listaLineas.style.display = 'block';
+    } else {
+      listaLineas.innerHTML = '';
+      listaLineas.style.display = 'none';
+    }
 
     document.getElementById('notaVentaOverlay').hidden = false;
   } catch(err){
@@ -7457,32 +7534,62 @@ async function reenviarTicketVenta(venta){
   return esAdmin || venta.vendedor === usuarioActual;
 }
 
-async function cancelarNotaVenta(venta){
+/* Núcleo compartido: cancela un subconjunto de líneas (índices dentro de
+   venta.items). Cancelar TODAS las líneas activas equivale a cancelar la
+   nota completa (marca venta.cancelada, igual que antes). Lo usan tanto
+   "Cancelar venta/pedido completo" como "Cancelar este producto". */
+async function _ejecutarCancelacionVenta(venta, indices){
   if(!puedeCancelarVenta(venta)){ mostrarToast('No tienes permiso para cancelar esta venta.'); return; }
   if(venta.cancelada){ mostrarToast('Esta venta ya está cancelada.'); return; }
 
+  const items = venta.items || [];
+  const aCancelar = indices.filter(function(i){ return items[i] && !items[i].cancelado; });
+  if(aCancelar.length === 0) return;
+
   const esPedido = venta.tipoNota === 'pedido' || venta.metodoPago === 'pedido';
   const idInterno = venta.idInterno || venta.folio;
+  const quedanActivas = items.some(function(it, i){ return aCancelar.indexOf(i) === -1 && !it.cancelado; });
+  const seCancelaCompleta = !quedanActivas;
 
-  const aviso = esPedido
-    ? '¿Cancelar el pedido ' + venta.folio + '? No se toca el almacén móvil porque nunca se descontó.'
-    : '¿Cancelar la venta ' + venta.folio + '? Las piezas que salieron de tu almacén móvil se regresarán a tu inventario.';
+  const aviso = seCancelaCompleta
+    ? (esPedido
+        ? '¿Cancelar el pedido ' + venta.folio + '? No se toca el almacén móvil porque nunca se descontó.'
+        : '¿Cancelar la venta ' + venta.folio + '? Las piezas que salieron de tu almacén móvil se regresarán a tu inventario.')
+    : (esPedido
+        ? '¿Cancelar ' + aCancelar.length + ' producto(s) de este pedido?'
+        : '¿Cancelar ' + aCancelar.length + ' producto(s) de esta venta? Esas piezas se regresarán a tu almacén móvil.');
   if(!confirm(aviso)) return;
 
-  // 1) Fuente de verdad: se marca cancelada en Firestore
+  const ahora = Date.now();
+  const itemsActualizados = items.map(function(it, i){
+    if(aCancelar.indexOf(i) !== -1){
+      return Object.assign({}, it, { cancelado: true, canceladoEn: ahora, canceladoPor: usuarioActual });
+    }
+    return it;
+  });
+  const nuevoTotal = totalRedondeado(itemsActualizados);
+
+  // 1) Fuente de verdad: se actualiza en Firestore (items + total, y si se
+  //    cancela toda la nota, también el flag general "cancelada")
   try{
-    await dbVentaRuta.collection('ventas_ruta').doc(idInterno).update({
-      cancelada: true, canceladaEn: Date.now(), canceladaPor: usuarioActual
-    });
+    const upd = { items: itemsActualizados, total: nuevoTotal };
+    if(seCancelaCompleta){ upd.cancelada = true; upd.canceladaEn = ahora; upd.canceladaPor = usuarioActual; }
+    await dbVentaRuta.collection('ventas_ruta').doc(idInterno).update(upd);
   } catch(err){
     mostrarToast('No se pudo cancelar (revisa tu señal): ' + (err.code || err.message));
     return;
   }
+  venta.items = itemsActualizados;
+  venta.total = nuevoTotal;
+  if(seCancelaCompleta) venta.cancelada = true;
 
-  // 2) Si NO es pedido, regresar al almacén móvil lo que sí se descontó
+  // 2) Si NO es pedido, regresar al almacén móvil lo que sí se descontó, y
+  //    dejar rastro del movimiento (bitácora aparte, no solo el saldo nuevo)
+  const filasMovimiento = [];
   if(!esPedido){
     const filasRestituir = [];
-    (venta.items || []).forEach(function(it){
+    aCancelar.forEach(function(i){
+      const it = items[i];
       const clave = (it.sku || '').trim();
       if(!clave || it.existencia !== 'movil') return; // solo lo que de verdad salió del almacén móvil
       const vendedorVenta = venta.vendedor || usuarioActual;
@@ -7496,18 +7603,40 @@ async function cancelarNotaVenta(venta){
         cantidadAsignada: actual.cantidad,
         precioUnitario: actual.precioUnitario || it.precio || 0,
         observaciones: actual.observaciones || '',
-        actualizadoEn: Date.now()
+        actualizadoEn: ahora
+      });
+      filasMovimiento.push({
+        id: idInterno + '::' + clave + '::' + ahora,
+        fecha: new Date(ahora).toISOString(), vendedor: vendedorVenta, folio: venta.folio,
+        sku: clave, producto: it.producto || '', cantidad: it.cantidad,
+        tipo: seCancelaCompleta ? 'cancelacion_total' : 'cancelacion_parcial',
+        motivo: 'Devolución a almacén móvil por cancelación', canceladoPor: usuarioActual
       });
     });
     if(filasRestituir.length){
       try{ localStorage.setItem(ALMACEN_PROPIO_CACHE_KEY, JSON.stringify(inventarioPropio)); } catch(e){}
       await sincronizarAlmacenASheet(filasRestituir); // ya trae su propia cola offline si falla
     }
+  } else {
+    aCancelar.forEach(function(i){
+      const it = items[i];
+      filasMovimiento.push({
+        id: idInterno + '::' + (it.sku || 'sin-sku-' + i) + '::' + ahora,
+        fecha: new Date(ahora).toISOString(), vendedor: venta.vendedor, folio: venta.folio,
+        sku: it.sku || '', producto: it.producto || '', cantidad: it.cantidad,
+        tipo: seCancelaCompleta ? 'cancelacion_total_pedido' : 'cancelacion_parcial_pedido',
+        motivo: 'Cancelación de pedido (no afecta almacén)', canceladoPor: usuarioActual
+      });
+    });
   }
+  if(filasMovimiento.length) await sincronizarMovimientosASheet(filasMovimiento); // bitácora, cola offline propia
 
   // 3) Reflejar la cancelación en el Sheet (ventasRuta) para que el reporte no la cuente
   try{
-    const filas = filasVentaParaSheet(venta).map(function(f){ f.cancelada = 'SI'; return f; });
+    const filas = filasVentaParaSheet(venta).map(function(f, i){
+      f.cancelada = (itemsActualizados[i] && itemsActualizados[i].cancelado) ? 'SI' : '';
+      return f;
+    });
     await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'ventasRuta', upserts: filas }) });
   } catch(err){
     // No es crítico: Firestore ya quedó marcada. Se puede reintentar en el próximo sync si hace falta.
@@ -7516,11 +7645,24 @@ async function cancelarNotaVenta(venta){
   // 4) Reflejar en la caché local de "Mis ventas"
   const cache = _cargarMisVentasCache() || [];
   const idx = cache.findIndex(function(v){ return (v.idInterno || v.folio) === idInterno; });
-  if(idx !== -1){ cache[idx].cancelada = true; _guardarMisVentasCache(cache); }
+  if(idx !== -1){ cache[idx] = venta; _guardarMisVentasCache(cache); }
 
-  mostrarToast(esPedido ? 'Pedido cancelado.' : 'Venta cancelada y piezas regresadas a tu almacén móvil.');
-  cerrarNotaVentaModal();
+  mostrarToast(seCancelaCompleta
+    ? (esPedido ? 'Pedido cancelado.' : 'Venta cancelada y piezas regresadas a tu almacén móvil.')
+    : (aCancelar.length + ' producto(s) cancelado(s)' + (esPedido ? '.' : ' y regresado(s) a tu almacén móvil.')));
+
+  if(seCancelaCompleta){ cerrarNotaVentaModal(); }
+  else { abrirNotaVentaModal(venta); } // re-pinta el modal con la nota actualizada (PDF y lista de líneas)
   if(currentTab === 'misventas') renderMisVentas();
+}
+
+async function cancelarNotaVenta(venta){
+  const indicesActivos = (venta.items || []).map(function(_, i){ return i; }).filter(function(i){ return !venta.items[i].cancelado; });
+  await _ejecutarCancelacionVenta(venta, indicesActivos);
+}
+
+async function cancelarLineaVenta(venta, indice){
+  await _ejecutarCancelacionVenta(venta, [indice]);
 }
 /* ---------- Inventario Grupo Camejo ----------
    Refacciones que NO están en el almacén móvil pero sí en las unidades de
