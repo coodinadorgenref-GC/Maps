@@ -45,7 +45,11 @@
 /* ---------- Total: siempre redondeado hacia arriba al peso ----------
    Se suma en centavos enteros para evitar errores de punto flotante. */
 function totalRedondeado(items) {
+  // Las líneas canceladas (it.cancelado === true) no cuentan para el total:
+  // se siguen imprimiendo en la nota (tachadas) como constancia, pero ya
+  // no se cobran.
   const centavos = (items || []).reduce(function (s, it) {
+    if (it && it.cancelado) return s;
     return s + Math.round((Number(it.cantidad) || 0) * (Number(it.precio) || 0) * 100);
   }, 0);
   return Math.ceil(centavos / 100);
@@ -168,6 +172,8 @@ function generarPdfNotaVenta(venta) {
     const it = items[i];
     if (it) {
       const precio = Number(it.precio) || 0, cant = Number(it.cantidad) || 0;
+      const cancelada = !!it.cancelado;
+      if (cancelada) doc.setTextColor(150, 150, 150); // línea cancelada: en gris, no cuenta en el total
       doc.setFontSize(8.5);
       doc.text(String(cant), centro(c.cant), y + 4.2, { align: 'center' });
       doc.text(String(it.sku || ''), centro(c.sku), y + 4.2, { align: 'center' });
@@ -178,10 +184,17 @@ function generarPdfNotaVenta(venta) {
       if (doc.getTextWidth(prodTxt) > c.prod.w - 4) prodTxt = doc.splitTextToSize(prodTxt, c.prod.w - 4)[0];
       doc.text(prodTxt, c.prod.x + 2, y + 4.2);
       doc.setFontSize(8);
-      doc.text(EXISTENCIA_NOTA[it.existencia] || '', centro(c.exist), y + 4.2, { align: 'center' });
+      doc.text(cancelada ? 'CANCELADO' : (EXISTENCIA_NOTA[it.existencia] || ''), centro(c.exist), y + 4.2, { align: 'center' });
       doc.setFontSize(8.5);
       doc.text('$' + precio.toFixed(2), derecha(c.precio), y + 4.2, { align: 'right' });
       doc.text('$' + (cant * precio).toFixed(2), derecha(c.importe), y + 4.2, { align: 'right' });
+      if (cancelada) {
+        // Tachado sobre toda la fila
+        doc.setDrawColor(200, 60, 60); doc.setLineWidth(0.4);
+        doc.line(MX + 1, y + filaH / 2, MX + TW - 1, y + filaH / 2);
+        doc.setDrawColor(0, 0, 0);
+        doc.setTextColor(0, 0, 0);
+      }
     }
     y += filaH;
   }
