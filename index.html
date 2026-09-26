@@ -61,6 +61,13 @@
   .sync-dot.pend{background:#22B14C; animation:pulso-sync 1.2s ease-in-out infinite;}
   .sync-dot.offline{background:#8A94A0;}
   .sync-wrap{display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-dim); cursor:pointer;}
+  /* Punto de señal de red "en crudo": independiente del estado de sync
+     (Sincronizado/Offline/Pendientes). Verde = hay red, gris = no hay red. */
+  .signal-dot{
+    width:7px; height:7px; border-radius:50%; background:#8A94A0; flex-shrink:0;
+    box-shadow:0 0 0 2px rgba(255,255,255,.04);
+  }
+  .signal-dot.on{background:#2ECC71;}
 
   /* ---------- Pantalla principal minimalista (referencia: Google Maps) ----------
      Arriba a la izquierda: menú ☰ + buscador + "cómo llegar". A la derecha: GPS
@@ -696,6 +703,7 @@
     <div class="sync-wrap" id="syncWrap" title="Toca para buscar cambios de otros dispositivos">
       <span class="sync-dot" id="syncDot"></span>
       <span id="syncText">Local</span>
+      <span class="signal-dot" id="signalDot" title="Señal de red"></span>
     </div>
   </div>
 
@@ -738,6 +746,10 @@
   <button class="drawer-item" id="btnMisVentas">
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM7 13h5v2H7v-2zm0 4h10v2H7v-2zm7-8V3.5L18.5 8H14z"/></svg>
     <span class="txt">Mis ventas</span>
+  </button>
+  <button class="drawer-item" id="btnTraspasos">
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z"/></svg>
+    <span class="txt">Traspasos a bodega</span>
   </button>
   <button class="drawer-item" id="btnNotasVendedor" hidden>
   <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
@@ -1729,6 +1741,8 @@ let almPropioFiltro = '';
 let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}] en edición
 
 let modoDescargaAlmacen = false; // true mientras el vendedor hace su "descarga" de fin de ruta
+let modoTraspaso = false;        // true mientras se seleccionan ventas para traspasar a bodega
+let seleccionTraspaso = new Set(); // idInterno (o folio) de las ventas marcadas en modoTraspaso
 
 async function renderAlmacen(){
   if(!SHEET_ENDPOINT){
@@ -2332,6 +2346,7 @@ async function syncPendientes(){
     reintentarVentasFirestorePendientes();   // ← nuevo: venta misma, no solo su reflejo en Sheet
     reintentarMovimientosPendientes();   // ← nuevo: bitácora de cancelaciones/devoluciones
     reintentarCatalogosPendientes();   // ← nuevo
+    reintentarTraspasosPendientes();   // ← nuevo: control interno campo↔bodega
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
     // próximo evento "online" o el siguiente intervalo.
@@ -2574,7 +2589,9 @@ function filasVentaParaSheet(venta){
       telefono: venta.telefono || '',
       tipoNota: venta.tipoNota || '',
       anticipo: venta.anticipo != null ? venta.anticipo : '',
-      saldoPendiente: venta.saldoPendiente != null ? venta.saldoPendiente : ''
+      saldoPendiente: venta.saldoPendiente != null ? venta.saldoPendiente : '',
+      traspasoId: venta.traspasoId || '',
+      folioGeneral: venta.folioGeneral || ''
     };
   });
 }
@@ -2658,6 +2675,152 @@ async function reintentarMovimientosPendientes(){
     await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'movimientosAlmacen', upserts: pendientes }) });
     localStorage.setItem(MOVIMIENTOS_PENDIENTES_KEY, '[]');
   } catch(err){ /* se reintenta en el próximo ciclo */ }
+}
+
+/* ════════════════════════════════════════════════════════════
+   TRASPASOS — control interno "campo → bodega".
+   Las ventas que se hacen en Maps se le reportan y entregan (efectivo +
+   notas) a la bodega, que las factura como "nota de venta general". Un
+   "traspaso" agrupa un lote de notas de campo (por folio/idInterno) al
+   momento de la entrega; el match contra la nota general se captura a mano
+   después (folioGeneral, aquí o directo en cada venta). Igual que
+   movimientosAlmacen: recurso simple del Sheet + cola offline propia, sin
+   necesidad de una colección de Firestore aparte.
+   ════════════════════════════════════════════════════════════ */
+const TRASPASOS_PENDIENTES_KEY = 'gc_traspasos_pendientes_sheet_v1';
+
+function idTraspaso(){
+  return 'T-' + _codigoCortoVendedor() + '-' + Date.now().toString(36).toUpperCase();
+}
+
+async function sincronizarTraspasoASheet(fila){
+  if(!SHEET_ENDPOINT) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'traspasos', upserts: [fila] }) });
+  } catch(err){
+    const pendientes = JSON.parse(localStorage.getItem(TRASPASOS_PENDIENTES_KEY) || '[]');
+    localStorage.setItem(TRASPASOS_PENDIENTES_KEY, JSON.stringify(pendientes.concat([fila])));
+  }
+}
+async function reintentarTraspasosPendientes(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  const pendientes = JSON.parse(localStorage.getItem(TRASPASOS_PENDIENTES_KEY) || '[]');
+  if(pendientes.length === 0) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'traspasos', upserts: pendientes }) });
+    localStorage.setItem(TRASPASOS_PENDIENTES_KEY, '[]');
+  } catch(err){ /* se reintenta en el próximo ciclo */ }
+}
+
+// Crea el traspaso y marca cada venta involucrada (Firestore + Sheet +
+// caché local de "Mis ventas") con el mismo traspasoId — así se sabe, en
+// cuanto se abre esa nota, que ya se entregó a bodega.
+async function crearTraspaso(ventasSeleccionadas){
+  if(!ventasSeleccionadas || !ventasSeleccionadas.length){ mostrarToast('Selecciona al menos una venta.'); return; }
+  const ahora = Date.now();
+  const traspasoId = idTraspaso();
+  const total = ventasSeleccionadas.reduce((s, v) => s + (Number(v.total) || 0), 0);
+  const fila = {
+    id: traspasoId,
+    fecha: new Date(ahora).toISOString(),
+    vendedor: usuarioActual,
+    vendedorNombre: nombreActual || usuarioActual,
+    folios: ventasSeleccionadas.map(v => v.folio).join(', '),
+    idsInternos: ventasSeleccionadas.map(v => v.idInterno || v.folio).join(', '),
+    total: total,
+    efectivoEntregado: '',
+    notasEntregadas: '',
+    folioGeneral: '',
+    observaciones: ''
+  };
+  await sincronizarTraspasoASheet(fila);
+
+  for(const venta of ventasSeleccionadas){
+    const idInterno = venta.idInterno || venta.folio;
+    venta.traspasoId = traspasoId;
+    try{ await dbVentaRuta.collection('ventas_ruta').doc(idInterno).update({ traspasoId: traspasoId }); }
+    catch(err){ /* no crítico: el Sheet (abajo) y el siguiente sync lo alcanzan */ }
+    try{
+      const filas = filasVentaParaSheet(venta);
+      await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'ventasRuta', upserts: filas }) });
+    } catch(err){ /* se resincroniza solo en el próximo ciclo, igual que al cancelar */ }
+  }
+
+  const cache = _cargarMisVentasCache() || [];
+  ventasSeleccionadas.forEach(venta => {
+    const idInterno = venta.idInterno || venta.folio;
+    const idx = cache.findIndex(v => (v.idInterno || v.folio) === idInterno);
+    if(idx !== -1) cache[idx] = venta;
+  });
+  _guardarMisVentasCache(cache);
+
+  mostrarToast('Traspaso registrado: ' + ventasSeleccionadas.length + ' nota(s) · $' + total.toFixed(2));
+  if(currentTab === 'misventas') renderMisVentas();
+}
+
+// Guarda folioGeneral / efectivoEntregado / notasEntregadas de un traspaso
+// ya existente (edición desde la pantalla "Traspasos"), sin tocar sus folios.
+async function guardarCambiosTraspaso(fila){
+  await sincronizarTraspasoASheet(fila);
+  mostrarToast('Traspaso actualizado.');
+}
+
+async function renderTraspasos(){
+  if(!SHEET_ENDPOINT){
+    sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
+    return;
+  }
+  sheetBody.innerHTML = '<div class="empty">Cargando traspasos…</div>';
+  let filas = [];
+  try{
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=traspasos`);
+    filas = await resp.json();
+  } catch(err){
+    if(currentTab === 'traspasos') sheetBody.innerHTML = '<div class="empty">No se pudieron cargar los traspasos (revisa tu señal).</div>';
+    return;
+  }
+  if(currentTab !== 'traspasos') return;
+  const clave = String(usuarioActual || '').trim().toLowerCase();
+  const claveNombre = String(nombreActual || '').trim().toLowerCase();
+  const propios = filas.filter(f => {
+    const v = String(f.vendedor || '').trim().toLowerCase();
+    return esAdmin ? true : (v === clave || (claveNombre && v === claveNombre));
+  }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+  if(propios.length === 0){
+    sheetBody.innerHTML = '<div class="empty">Aún no has hecho ningún traspaso a bodega.</div>';
+    return;
+  }
+  sheetBody.innerHTML = propios.map((t, i) => `
+    <div class="item" style="flex-direction:column; align-items:stretch; gap:8px;">
+      <div>
+        <div class="name">${new Date(t.fecha).toLocaleString('es-MX')} · $${(Number(t.total)||0).toFixed(2)}</div>
+        <div class="meta">Folios: ${escapeHtml(t.folios || '')}</div>
+      </div>
+      <label style="font-size:11.5px; display:flex; align-items:center; gap:6px;">
+        Folio de la nota general (match):
+        <input type="text" data-folio-general="${i}" value="${escapeHtml(t.folioGeneral || '')}" placeholder="Ej. FAC-00123" style="flex:1; min-width:0;">
+      </label>
+      <div style="display:flex; gap:14px; font-size:12px;">
+        <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" data-efectivo="${i}" ${t.efectivoEntregado === 'SI' ? 'checked' : ''}> Efectivo entregado</label>
+        <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" data-notas="${i}" ${t.notasEntregadas === 'SI' ? 'checked' : ''}> Notas entregadas</label>
+      </div>
+      <button class="btn" style="width:100%;" data-guardar-traspaso="${i}">Guardar</button>
+    </div>
+  `).join('');
+  sheetBody.querySelectorAll('[data-guardar-traspaso]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.guardarTraspaso);
+      const t = propios[i];
+      const folioInput = sheetBody.querySelector(`[data-folio-general="${i}"]`);
+      const efectivoInput = sheetBody.querySelector(`[data-efectivo="${i}"]`);
+      const notasInput = sheetBody.querySelector(`[data-notas="${i}"]`);
+      t.folioGeneral = folioInput ? folioInput.value.trim() : t.folioGeneral;
+      t.efectivoEntregado = efectivoInput && efectivoInput.checked ? 'SI' : '';
+      t.notasEntregadas = notasInput && notasInput.checked ? 'SI' : '';
+      guardarCambiosTraspaso(t);
+    });
+  });
 }
 const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
 const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
@@ -2743,7 +2906,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '25-sep · vivo 4';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '26-sep · vivo 1';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -5278,6 +5441,7 @@ function cambiarTab(tab, origen){
     unsubscribeVendedoresVivo();
     unsubscribeVendedoresVivo = null;
   }
+  if(tab !== 'misventas'){ modoTraspaso = false; seleccionTraspaso = new Set(); }
   currentTab = tab;
   renderSheetTabs();
   abrirSheet();
@@ -5294,6 +5458,7 @@ function cambiarTab(tab, origen){
     if(tab === 'inventariogc') renderInventarioGC();
     if(tab === 'vendedoresvivo') renderVendedoresVivo();
     if(tab === 'notas') renderNotasVendedor();
+    if(tab === 'traspasos') renderTraspasos();
   } catch(err){
     // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
     // bajo el título nuevo (justo lo que parecía "me sale la lista").
@@ -5356,7 +5521,8 @@ function renderSheetTabs(){
     misventas: 'Mis ventas',
     inventariogc: 'Inventario Grupo Camejo',
     vendedoresvivo: 'Vendedores en vivo',
-    notas: 'Mis notas'
+    notas: 'Mis notas',
+    traspasos: 'Traspasos a bodega'
   };
   const destino = ETIQUETA_ORIGEN[origenNav] ? origenNav : 'mapa';
   tabsEl.innerHTML = `
@@ -7010,6 +7176,8 @@ function actualizarHeader(){
   const dot = document.getElementById('syncDot');
   const txt = document.getElementById('syncText');
   const badge = document.getElementById('menuBadge');
+  const signal = document.getElementById('signalDot');
+  if(signal) signal.classList.toggle('on', navigator.onLine);
   dot.classList.remove('pend', 'offline', 'ok');
   if(!navigator.onLine){
     dot.classList.add('offline');
@@ -7383,6 +7551,10 @@ document.getElementById('btnMisVentas').addEventListener('click', () => {
   abrirSheet();
   cambiarTab('misventas', 'mapa');
 });
+document.getElementById('btnTraspasos').addEventListener('click', () => {
+  abrirSheet();
+  cambiarTab('traspasos', 'mapa');
+});
 document.getElementById('btnNotasVendedor').addEventListener('click', () => {
   abrirSheet();
   cambiarTab('notas', 'mapa');
@@ -7407,7 +7579,9 @@ function agruparFilasVentaEnVentas(filas){
         tipoNota: f.tipoNota || '',
         anticipo: (f.anticipo === '' || f.anticipo == null) ? null : Number(f.anticipo),
         saldoPendiente: (f.saldoPendiente === '' || f.saldoPendiente == null) ? null : Number(f.saldoPendiente),
-        cancelada: f.cancelada === 'SI' || f.cancelada === true   // ← nuevo
+        cancelada: f.cancelada === 'SI' || f.cancelada === true,   // ← nuevo
+        traspasoId: f.traspasoId || '',       // ← nuevo: control interno campo↔bodega
+        folioGeneral: f.folioGeneral || ''    // ← nuevo: folio de la nota de venta general, ya casada
       };
     }
     porVenta[clave].items.push({
@@ -7561,16 +7735,75 @@ async function renderMisVentas(){
     return;
   }
   const avisoCache = esCache ? '<div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Mostrando lo último guardado — actualizando…</div>' : '';
-  sheetBody.innerHTML = avisoCache + ventas.map((v, i) => `
-    <div class="item" data-ver="${i}" style="cursor:pointer;${v.cancelada ? ' opacity:.55;' : ''}">
+
+  // Solo se pueden traspasar ventas activas (no canceladas) que todavía no
+  // se hayan entregado a bodega en un traspaso previo.
+  const elegibles = ventas.filter(v => !v.cancelada && !v.traspasoId);
+
+  const botonTraspaso = (!modoTraspaso && elegibles.length > 0)
+    ? `<button class="btn" id="btnIniciarTraspaso" style="width:100%; margin-bottom:10px;">📤 Traspasar ventas a bodega</button>`
+    : '';
+
+  sheetBody.innerHTML = avisoCache + botonTraspaso + ventas.map((v, i) => {
+    const clave = v.idInterno || v.folio;
+    const puedeElegir = modoTraspaso && elegibles.includes(v);
+    const checkbox = modoTraspaso
+      ? (puedeElegir
+          ? `<input type="checkbox" data-check-traspaso="${escapeHtml(clave)}" ${seleccionTraspaso.has(clave) ? 'checked' : ''} style="width:20px; height:20px; flex-shrink:0;">`
+          : `<span style="width:20px; flex-shrink:0;"></span>`)
+      : '';
+    const etiquetas = [
+      v.traspasoId ? '🔁 Ya traspasada a bodega' : '',
+      v.folioGeneral ? ('· Folio bodega: ' + escapeHtml(v.folioGeneral)) : ''
+    ].filter(Boolean).join(' ');
+    return `
+    <div class="item" ${modoTraspaso ? '' : `data-ver="${i}"`} style="${modoTraspaso ? '' : 'cursor:pointer;'}${(v.cancelada || (modoTraspaso && !puedeElegir)) ? ' opacity:.55;' : ''}">
+      ${checkbox}
       <div class="info">
         <div class="name">${v.cancelada ? '❌ CANCELADA — ' : ''}${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
         <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
+        ${etiquetas ? `<div class="meta">${etiquetas}</div>` : ''}
       </div>
-      ${!v.cancelada ? `<button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>` : ''}
-      ${(!v.cancelada && puedeCancelarVenta(v)) ? `<button class="btn danger" style="flex:0 0 auto; padding:8px 12px;" data-cancelar="${escapeHtml(v.idInterno)}">✕ Cancelar</button>` : ''}
+      ${(!modoTraspaso && !v.cancelada) ? `<button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>` : ''}
+      ${(!modoTraspaso && !v.cancelada && puedeCancelarVenta(v)) ? `<button class="btn danger" style="flex:0 0 auto; padding:8px 12px;" data-cancelar="${escapeHtml(v.idInterno)}">✕ Cancelar</button>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('') + (modoTraspaso ? `
+    <div class="save-row" style="position:sticky; bottom:0; background:var(--bg); padding-top:10px;">
+      <button class="btn" id="btnCancelarTraspaso" style="flex:1;">Cancelar</button>
+      <button class="btn primary" id="btnConfirmarTraspaso" style="flex:1;">Traspasar (${seleccionTraspaso.size}) · $${ventas.filter(v => seleccionTraspaso.has(v.idInterno || v.folio)).reduce((s,v)=>s+v.total,0).toFixed(2)}</button>
+    </div>
+  ` : '');
+
+  const btnIniciar = document.getElementById('btnIniciarTraspaso');
+  if(btnIniciar) btnIniciar.addEventListener('click', () => {
+    modoTraspaso = true; seleccionTraspaso = new Set();
+    pintarMisVentas(ventas, false);
+  });
+
+  if(modoTraspaso){
+    sheetBody.querySelectorAll('[data-check-traspaso]').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const clave = chk.dataset.checkTraspaso;
+        if(chk.checked) seleccionTraspaso.add(clave); else seleccionTraspaso.delete(clave);
+        pintarMisVentas(ventas, false);
+      });
+    });
+    const btnCancelar = document.getElementById('btnCancelarTraspaso');
+    if(btnCancelar) btnCancelar.addEventListener('click', () => {
+      modoTraspaso = false; seleccionTraspaso = new Set();
+      pintarMisVentas(ventas, false);
+    });
+    const btnConfirmar = document.getElementById('btnConfirmarTraspaso');
+    if(btnConfirmar) btnConfirmar.addEventListener('click', async () => {
+      const elegidas = ventas.filter(v => seleccionTraspaso.has(v.idInterno || v.folio));
+      if(!elegidas.length){ mostrarToast('Selecciona al menos una venta.'); return; }
+      btnConfirmar.disabled = true; btnConfirmar.textContent = 'Traspasando…';
+      await crearTraspaso(elegidas);
+      modoTraspaso = false; seleccionTraspaso = new Set();
+    });
+    return; // en modo selección no hace falta cablear clic-para-abrir/reenviar/cancelar
+  }
 
   sheetBody.querySelectorAll('[data-ver]').forEach(fila => {
     fila.addEventListener('click', (e) => {
@@ -7717,7 +7950,15 @@ async function reenviarTicketVenta(venta){
   }
 }
   function puedeCancelarVenta(venta){
-  return esAdmin || venta.vendedor === usuarioActual;
+  // Antes comparaba venta.vendedor === usuarioActual tal cual, sin normalizar
+  // — si el Sheet guardaba el correo con otra capitalización o un espacio de
+  // más, la comparación fallaba y el botón de cancelar se ocultaba aunque la
+  // venta sí fuera tuya (mismo criterio que ya usa renderMisVentas para
+  // decidir qué ventas te pertenecen).
+  const v = String(venta.vendedor || '').trim().toLowerCase();
+  const u = String(usuarioActual || '').trim().toLowerCase();
+  const n = String(nombreActual || '').trim().toLowerCase();
+  return esAdmin || (!!v && (v === u || (!!n && v === n)));
 }
 
 /* Núcleo compartido: cancela un subconjunto de líneas (índices dentro de
