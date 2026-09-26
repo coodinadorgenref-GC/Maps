@@ -294,20 +294,22 @@
     width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
     color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; outline:none;
   }
-  .venta-fila-item{ display:flex; gap:6px; margin-bottom:8px; align-items:center; }
-  .venta-fila-item input{ background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px; font-size:13.5px; }
+  .venta-fila-item{ display:flex; gap:6px; margin-bottom:6px; align-items:center; }
+  .venta-fila-item input{ background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:8px; font-size:13.5px; min-width:0; }
   .venta-fila-item input[readonly]{ opacity:.65; }
-  .venta-fila-item-wrap{ margin-bottom:8px; }
-  .venta-fila-item-wrap .venta-fila-item{ margin-bottom:0; }
+  .venta-fila-item-wrap{ margin-bottom:10px; }
+  .venta-fila-item-wrap .venta-fila-item:last-child{ margin-bottom:0; }
   .venta-fila-item input.vi-manual{ border-color:var(--ochre); }
   .vi-aviso-manual{ font-size:10.5px; color:var(--ochre); margin:3px 0 0 2px; }
-  .venta-fila-item .vi-producto{ flex:2; min-width:0; }
-  .venta-fila-item .vi-cant{ width:52px; }
-  .venta-fila-item .vi-precio{ width:76px; }
-  .venta-fila-item .vi-quitar{ background:none; border:none; color:var(--danger); font-size:18px; cursor:pointer; padding:4px; }
-  .vi-precio-wrap{ position:relative; width:76px; flex-shrink:0; }
+  /* Fila 1: SKU (compacto) + Producto (todo el resto del ancho, sin recortarse) */
+  .venta-fila-item .vi-sku{ flex:0 0 84px; width:84px; }
+  .venta-fila-item .vi-producto{ flex:1 1 auto; min-width:0; }
+  /* Fila 2: Cantidad + Precio a la izquierda, Eliminar pegado a la derecha */
+  .venta-fila-item .vi-cant{ flex:0 0 60px; width:60px; }
+  .venta-fila-item .vi-quitar{ background:none; border:none; color:var(--danger); font-size:18px; cursor:pointer; padding:4px; margin-left:auto; flex:0 0 auto; }
+  .vi-precio-wrap{ position:relative; flex:0 0 92px; width:92px; }
   .vi-precio-wrap::before{ content:"$"; position:absolute; left:8px; top:50%; transform:translateY(-50%); color:var(--text-dim); font-size:13.5px; pointer-events:none; }
-  .vi-precio-wrap .vi-precio{ width:100%; box-sizing:border-box; padding-left:17px; }
+  .vi-precio-wrap .vi-precio{ width:100%; padding-left:17px; }
   .alm-fila{ margin-bottom:8px; }
   .alm-fila .venta-fila-item{ margin-bottom:4px; }
   .alm-fila .vi-obs{
@@ -1459,6 +1461,8 @@ function renderizarItemsVenta(){
       + ' onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)"'
       + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
       + '<input class="vi-producto' + (it.manual ? ' vi-manual' : '') + '" placeholder="' + (bloqueado ? 'Se llena solo con el SKU' : 'Producto') + '" value="' + escapeHtmlVenta(it.producto) + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
+      + '</div>'
+      + '<div class="venta-fila-item">'
       + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
       + '<span class="vi-precio-wrap"><input class="vi-precio' + (it.manual ? ' vi-manual' : '') + '" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
       + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
@@ -2322,10 +2326,12 @@ async function syncPendientes(){
     // venta en ruta: refresca precios y reintenta ventas que no llegaron
     // al Sheet la primera vez. No bloquea lo de prospectos si tarda.
     sincronizarPreciosRuta();
+    sincronizarCatalogosProspectos();   // ← nuevo: catálogos de modo de operación / motivo de descarte
     reintentarVentasRutaPendientes();
     reintentarAlmacenPendientes();   // ← nuevo
     reintentarVentasFirestorePendientes();   // ← nuevo: venta misma, no solo su reflejo en Sheet
     reintentarMovimientosPendientes();   // ← nuevo: bitácora de cancelaciones/devoluciones
+    reintentarCatalogosPendientes();   // ← nuevo
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
     // próximo evento "online" o el siguiente intervalo.
@@ -2391,6 +2397,92 @@ async function sincronizarPreciosRuta(){
   } catch(err){
     // sin señal o el Web App no respondió: se sigue usando lo último en localStorage
   }
+}
+
+/* ---------- Catálogos que crecen solos (modo de operación del taller,
+   motivo de descarte). Empiezan con CATALOGO_BASE y se les van sumando los
+   valores que se capturen como "Otro" — en este dispositivo al momento, y
+   de cualquier dispositivo una vez que haya señal y se sincronicen contra
+   el recurso "catalogos" del mismo Sheet. Nunca se quita nada, solo crece. */
+const CATALOGOS_PROSPECTOS_KEY = 'gc_catalogos_prospectos_v1';
+const CATALOGOS_PENDIENTES_KEY = 'gc_catalogos_pendientes_sheet_v1';
+let catalogosProspectos = { modoOperacionTaller: [], motivoDescarte: [] };
+
+function _normalizarClaveCatalogo(texto){
+  return String(texto || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+function _fusionarCatalogo(campo, extras){
+  const base = CATALOGO_BASE[campo] || [];
+  const vistos = new Set();
+  const resultado = [];
+  base.concat(extras || [], catalogosProspectos[campo] || []).forEach(function(v){
+    const val = String(v || '').trim();
+    if(!val) return;
+    const clave = _normalizarClaveCatalogo(val);
+    if(vistos.has(clave)) return;
+    vistos.add(clave);
+    resultado.push(val);
+  });
+  return resultado;
+}
+function cargarCatalogosProspectosLocal(){
+  let extras = { modoOperacionTaller: [], motivoDescarte: [] };
+  try{ extras = Object.assign(extras, JSON.parse(localStorage.getItem(CATALOGOS_PROSPECTOS_KEY)) || {}); } catch(e){}
+  catalogosProspectos = {
+    modoOperacionTaller: _fusionarCatalogo('modoOperacionTaller', extras.modoOperacionTaller),
+    motivoDescarte: _fusionarCatalogo('motivoDescarte', extras.motivoDescarte)
+  };
+}
+cargarCatalogosProspectosLocal();
+
+async function sincronizarCatalogosProspectos(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  try{
+    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=catalogos`);
+    const filas = await resp.json();
+    const extras = { modoOperacionTaller: [], motivoDescarte: [] };
+    filas.forEach(function(f){
+      if(extras[f.campo]) extras[f.campo].push(f.valor);
+    });
+    catalogosProspectos = {
+      modoOperacionTaller: _fusionarCatalogo('modoOperacionTaller', extras.modoOperacionTaller),
+      motivoDescarte: _fusionarCatalogo('motivoDescarte', extras.motivoDescarte)
+    };
+    localStorage.setItem(CATALOGOS_PROSPECTOS_KEY, JSON.stringify(catalogosProspectos));
+  } catch(err){
+    // sin señal: se sigue usando lo último guardado en localStorage
+  }
+}
+async function reintentarCatalogosPendientes(){
+  if(!SHEET_ENDPOINT || !navigator.onLine) return;
+  const pendientes = JSON.parse(localStorage.getItem(CATALOGOS_PENDIENTES_KEY) || '[]');
+  if(pendientes.length === 0) return;
+  try{
+    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'catalogos', upserts: pendientes }) });
+    localStorage.setItem(CATALOGOS_PENDIENTES_KEY, '[]');
+  } catch(err){ /* se reintenta en el próximo ciclo */ }
+}
+// Agrega un valor nuevo (capturado como "Otro") al catálogo de "campo":
+// lo deja disponible de inmediato en este dispositivo y lo manda al Sheet
+// para que las próximas capturas —en cualquier dispositivo— ya lo vean en
+// la lista desplegable, en vez de volver a escribirlo distinto.
+async function agregarValorCatalogo(campo, valorCrudo){
+  const valor = String(valorCrudo || '').trim();
+  if(!valor) return null;
+  const clave = _normalizarClaveCatalogo(valor);
+  const yaExiste = (catalogosProspectos[campo] || []).some(function(v){ return _normalizarClaveCatalogo(v) === clave; });
+  if(!yaExiste){
+    catalogosProspectos[campo] = (catalogosProspectos[campo] || []).concat([valor]);
+    localStorage.setItem(CATALOGOS_PROSPECTOS_KEY, JSON.stringify(catalogosProspectos));
+    const fila = { id: campo + '::' + clave, campo: campo, valor: valor };
+    try{
+      await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'catalogos', upserts: [fila] }) });
+    } catch(err){
+      const pendientes = JSON.parse(localStorage.getItem(CATALOGOS_PENDIENTES_KEY) || '[]');
+      localStorage.setItem(CATALOGOS_PENDIENTES_KEY, JSON.stringify(pendientes.concat([fila])));
+    }
+  }
+  return valor;
 }
 
 // Cola de respaldo SOLO para el guardado en Firestore de la venta misma
@@ -2554,6 +2646,22 @@ async function reintentarMovimientosPendientes(){
 }
 const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
 const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
+const TIPO_NEGOCIO_OPTS = ['Refaccionaria','Taller'];
+// Catálogos "que crecen solos": listas base + lo que se haya agregado como
+// "Otro" antes (local o de otro dispositivo, vía el recurso "catalogos" del
+// mismo Sheet). Así, capturas futuras seleccionan de la lista en vez de
+// volver a escribir el mismo motivo con otras palabras/mayúsculas.
+const CATALOGO_BASE = {
+  modoOperacionTaller: [
+    'Solo compra al momento (bajo pedido, no tiene stock)',
+    'Compra por adelantado piezas de uso común (mantiene algo de stock)',
+    'También revende piezas (funciona parcial como refaccionaria)'
+  ],
+  motivoDescarte: [
+    'Solo hace trabajos al momento, no compra para inventario',
+    'No tiene capital para invertir'
+  ]
+};
 const COLOR_ESTATUS = {
   'Prospecto': '#FF8A1E',
   'Visitado':  '#2FA89D',
@@ -2635,7 +2743,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '25-sep · vivo 5';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '25-sep · vivo 4';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -6492,20 +6600,17 @@ function renderFormAlta(){
 
     <div class="field">
       <div class="loc-row" style="margin-bottom:0;">
-        <button class="btn" type="button" id="btnMostrarEnlaceMaps">🔗 Enlace</button>
+        ${!p ? `<button class="btn" type="button" id="btnMostrarEnlaceMaps">🔗 Enlace</button>` : ''}
         <button class="btn" type="button" id="btnAbrirEnMaps">📍 Abrir / compartir ubicación</button>
         <button class="btn" type="button" id="btnMostrarContacto">💬 Contacto</button>
       </div>
-      <div id="bloqueEnlaceMaps" style="display:none; margin-top:10px;">
-        <label>Enlace o coordenadas</label>
-        <div class="loc-row" style="margin-bottom:0;">
-          <input type="text" id="fEnlaceMaps" placeholder="https://maps.google.com/... o lat, lng" style="flex:2; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 11px; font-size:14.5px; font-family:inherit;">
-          <button class="btn" type="button" id="btnUsarEnlaceMaps">Usar</button>
+      ${!p ? `<div id="bloqueEnlaceMaps" style="display:none; margin-top:8px;">
+        <div class="loc-row" style="margin-bottom:4px;">
+          <input type="text" id="fEnlaceMaps" placeholder="Enlace de Maps o lat, lng" style="flex:1; min-width:0; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:9px 10px; font-size:13.5px; font-family:inherit;">
+          <button class="btn" type="button" id="btnUsarEnlaceMaps" style="flex:0 0 auto; padding:9px 12px;">Usar</button>
         </div>
-        <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">
-          Funciona con enlaces largos (con @lat,lng) o coordenadas sueltas. Los enlaces cortos (maps.app.goo.gl) hay que abrirlos una vez en el navegador y pegar la URL completa que quede.
-        </div>
-      </div>
+        <div style="font-size:10px; color:var(--text-dim);">Enlaces cortos (goo.gl): ábrelos una vez y pega la URL larga.</div>
+      </div>` : ''}
       <div id="bloqueContacto" style="display:${p && (p.contactoNombre || p.contactoTel) ? 'block' : 'none'}; margin-top:10px;">
         <div class="fila-2col">
           <div class="field" style="margin-bottom:0;">
@@ -6540,6 +6645,18 @@ function renderFormAlta(){
       <label>Nombre del negocio</label>
       <input type="text" id="fNombre" placeholder="Ej. Refaccionaria Los 3 Hermanos" value="${p ? escapeHtml(p.nombre) : ''}">
     </div>
+    <div class="field">
+      <label>Tipo de negocio</label>
+      <select id="fTipoNegocio">
+        <option value="">Sin definir</option>
+        ${TIPO_NEGOCIO_OPTS.map(t => `<option ${p && p.tipoNegocio===t ? 'selected':''}>${t}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field" id="campoModoOperacion" style="display:none;">
+      <label>Modo de operación</label>
+      <select id="fModoOperacion"></select>
+      <input type="text" id="fModoOperacionOtro" placeholder="Escribe el modo de operación…" style="display:none; margin-top:6px;">
+    </div>
     <div class="fila-2col">
       <div class="field">
         <label>Estatus</label>
@@ -6553,6 +6670,11 @@ function renderFormAlta(){
           ${FRECUENCIA.map(f => `<option ${p && p.frecuencia===f ? 'selected':''}>${f}</option>`).join('')}
         </select>
       </div>
+    </div>
+    <div class="field" id="campoMotivoDescarte" style="display:none;">
+      <label>Motivo de descarte</label>
+      <select id="fMotivoDescarte"></select>
+      <input type="text" id="fMotivoDescarteOtro" placeholder="Escribe el motivo…" style="display:none; margin-top:6px;">
     </div>
     <div class="field">
       <label>Fecha de última visita</label>
@@ -6584,24 +6706,75 @@ function renderFormAlta(){
     pill.style.display = 'block';
   }
 
+  // Tipo de negocio → si es Taller, aparece "Modo de operación"; si el
+  // estatus es Descartado, aparece "Motivo de descarte". Ambos usan un
+  // <select> con "Otro (agregar nuevo)" que hace crecer el catálogo
+  // compartido en vez de aceptar texto libre en cada captura.
+  function pintarSelectCatalogo(idSelect, campo, valorActual){
+    const sel = document.getElementById(idSelect);
+    if(!sel) return;
+    const opciones = _fusionarCatalogo(campo, valorActual ? [valorActual] : []);
+    sel.innerHTML = '<option value="">Sin definir</option>'
+      + opciones.map(o => `<option value="${escapeHtml(o)}" ${o === valorActual ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')
+      + '<option value="__otro__">Otro (agregar nuevo)</option>';
+  }
+  function wireSelectConOtro(idSelect, idOtro, campo){
+    const sel = document.getElementById(idSelect);
+    const otro = document.getElementById(idOtro);
+    if(!sel || !otro) return;
+    sel.addEventListener('change', () => {
+      otro.style.display = sel.value === '__otro__' ? 'block' : 'none';
+      if(sel.value === '__otro__') otro.focus();
+    });
+    const confirmar = async () => {
+      const texto = otro.value.trim();
+      if(!texto) return;
+      await agregarValorCatalogo(campo, texto);
+      pintarSelectCatalogo(idSelect, campo, texto);
+      otro.value = '';
+      otro.style.display = 'none';
+    };
+    otro.addEventListener('blur', confirmar);
+    otro.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); otro.blur(); } });
+  }
+  pintarSelectCatalogo('fModoOperacion', 'modoOperacionTaller', p ? p.modoOperacionTaller : '');
+  pintarSelectCatalogo('fMotivoDescarte', 'motivoDescarte', p ? p.motivoDescarte : '');
+  wireSelectConOtro('fModoOperacion', 'fModoOperacionOtro', 'modoOperacionTaller');
+  wireSelectConOtro('fMotivoDescarte', 'fMotivoDescarteOtro', 'motivoDescarte');
+
+  const actualizarVisibilidadModoOperacion = () => {
+    document.getElementById('campoModoOperacion').style.display =
+      document.getElementById('fTipoNegocio').value === 'Taller' ? 'block' : 'none';
+  };
+  const actualizarVisibilidadMotivoDescarte = () => {
+    document.getElementById('campoMotivoDescarte').style.display =
+      document.getElementById('fEstatus').value === 'Descartado' ? 'block' : 'none';
+  };
+  document.getElementById('fTipoNegocio').addEventListener('change', actualizarVisibilidadModoOperacion);
+  document.getElementById('fEstatus').addEventListener('change', actualizarVisibilidadMotivoDescarte);
+  actualizarVisibilidadModoOperacion();
+  actualizarVisibilidadMotivoDescarte();
+
   document.getElementById('btnGPS').addEventListener('click', usarGPSparaAlta);
   document.getElementById('btnMapPick').addEventListener('click', activarSeleccionEnMapa);
-  document.getElementById('btnMostrarEnlaceMaps').addEventListener('click', () => {
-    const bloque = document.getElementById('bloqueEnlaceMaps');
-    bloque.style.display = bloque.style.display === 'none' ? 'block' : 'none';
-  });
-  document.getElementById('btnUsarEnlaceMaps').addEventListener('click', () => {
-    const texto = document.getElementById('fEnlaceMaps').value.trim();
-    if(!texto){ mostrarToast('Pega un enlace o unas coordenadas primero'); return; }
-    const coords = extraerCoordsDeGoogleMaps(texto);
-    if(!coords){
-      mostrarToast('No encontré coordenadas ahí — si es un enlace corto (maps.app.goo.gl), ábrelo una vez y pega la URL larga que quede');
-      return;
-    }
-    fijarCoordTemporal(coords.lat, coords.lng);
-    map.setView([coords.lat, coords.lng], 16);
-    mostrarToast('Ubicación tomada del enlace');
-  });
+  if(!p){
+    document.getElementById('btnMostrarEnlaceMaps').addEventListener('click', () => {
+      const bloque = document.getElementById('bloqueEnlaceMaps');
+      bloque.style.display = bloque.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('btnUsarEnlaceMaps').addEventListener('click', () => {
+      const texto = document.getElementById('fEnlaceMaps').value.trim();
+      if(!texto){ mostrarToast('Pega un enlace o unas coordenadas primero'); return; }
+      const coords = extraerCoordsDeGoogleMaps(texto);
+      if(!coords){
+        mostrarToast('No encontré coordenadas ahí — si es un enlace corto (maps.app.goo.gl), ábrelo una vez y pega la URL larga que quede');
+        return;
+      }
+      fijarCoordTemporal(coords.lat, coords.lng);
+      map.setView([coords.lat, coords.lng], 16);
+      mostrarToast('Ubicación tomada del enlace');
+    });
+  }
   document.getElementById('btnVisitaHoy').addEventListener('click', () => {
     document.getElementById('fFechaVisita').value = new Date().toISOString().slice(0, 10);
   });
@@ -6746,6 +6919,7 @@ async function abrirOCompartirUbicacion(p){
 
 function guardarDesdeForm(){
   const nombre = document.getElementById('fNombre').value.trim();
+  const tipoNegocio = document.getElementById('fTipoNegocio').value;
   const estatus = document.getElementById('fEstatus').value;
   const frecuencia = document.getElementById('fFrecuencia').value;
   const notas = document.getElementById('fNotas').value.trim();
@@ -6754,18 +6928,30 @@ function guardarDesdeForm(){
   const fechaUltimaVisita = fechaVisitaTexto ? new Date(fechaVisitaTexto + 'T12:00:00').getTime() : null;
   const contactoNombre = document.getElementById('fContactoNombre').value.trim();
   const contactoTel = document.getElementById('fContactoTel').value.trim();
+  // Si es "Otro" y no se alcanzó a confirmar (blur) antes de tocar Guardar,
+  // se toma el texto tal cual está escrito para no perder la captura.
+  const selModoOp = document.getElementById('fModoOperacion').value;
+  const modoOperacionTaller = tipoNegocio === 'Taller'
+    ? (selModoOp === '__otro__' ? document.getElementById('fModoOperacionOtro').value.trim() : selModoOp)
+    : '';
+  const selMotivo = document.getElementById('fMotivoDescarte').value;
+  const motivoDescarte = estatus === 'Descartado'
+    ? (selMotivo === '__otro__' ? document.getElementById('fMotivoDescarteOtro').value.trim() : selMotivo)
+    : '';
+  if(modoOperacionTaller) agregarValorCatalogo('modoOperacionTaller', modoOperacionTaller);
+  if(motivoDescarte) agregarValorCatalogo('motivoDescarte', motivoDescarte);
 
   if(!nombre){ mostrarToast('Falta el nombre del negocio'); return; }
   if(!tempCoord){ mostrarToast('Falta la ubicación: usa GPS o marca en el mapa'); return; }
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, estatus, frecuencia, notas, prioridad, fechaUltimaVisita, contactoNombre, contactoTel, foto: tempFotoFachada || '', lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    Object.assign(p, { nombre, tipoNegocio, modoOperacionTaller, estatus, motivoDescarte, frecuencia, notas, prioridad, fechaUltimaVisita, contactoNombre, contactoTel, foto: tempFotoFachada || '', lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
     if(tempLugar){ p.municipio = tempLugar.municipio; p.localidad = tempLugar.localidad; }
   } else {
     prospectos.push({
       id: 'p_' + Date.now(),
-      nombre, estatus, frecuencia, notas, prioridad,
+      nombre, tipoNegocio, modoOperacionTaller, estatus, motivoDescarte, frecuencia, notas, prioridad,
       contactoNombre, contactoTel, foto: tempFotoFachada || '',
       lat: tempCoord.lat, lng: tempCoord.lng,
       municipio: tempLugar ? tempLugar.municipio : '',
