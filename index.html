@@ -2404,6 +2404,21 @@ async function sincronizarPreciosRuta(){
    valores que se capturen como "Otro" — en este dispositivo al momento, y
    de cualquier dispositivo una vez que haya señal y se sincronicen contra
    el recurso "catalogos" del mismo Sheet. Nunca se quita nada, solo crece. */
+// Catálogos "que crecen solos": listas base + lo que se haya agregado como
+// "Otro" antes (local o de otro dispositivo, vía el recurso "catalogos" del
+// mismo Sheet). Así, capturas futuras seleccionan de la lista en vez de
+// volver a escribir el mismo motivo con otras palabras/mayúsculas.
+const CATALOGO_BASE = {
+  modoOperacionTaller: [
+    'Solo compra al momento (bajo pedido, no tiene stock)',
+    'Compra por adelantado piezas de uso común (mantiene algo de stock)',
+    'También revende piezas (funciona parcial como refaccionaria)'
+  ],
+  motivoDescarte: [
+    'Solo hace trabajos al momento, no compra para inventario',
+    'No tiene capital para invertir'
+  ]
+};
 const CATALOGOS_PROSPECTOS_KEY = 'gc_catalogos_prospectos_v1';
 const CATALOGOS_PENDIENTES_KEY = 'gc_catalogos_pendientes_sheet_v1';
 let catalogosProspectos = { modoOperacionTaller: [], motivoDescarte: [] };
@@ -2647,21 +2662,6 @@ async function reintentarMovimientosPendientes(){
 const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
 const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
 const TIPO_NEGOCIO_OPTS = ['Refaccionaria','Taller'];
-// Catálogos "que crecen solos": listas base + lo que se haya agregado como
-// "Otro" antes (local o de otro dispositivo, vía el recurso "catalogos" del
-// mismo Sheet). Así, capturas futuras seleccionan de la lista en vez de
-// volver a escribir el mismo motivo con otras palabras/mayúsculas.
-const CATALOGO_BASE = {
-  modoOperacionTaller: [
-    'Solo compra al momento (bajo pedido, no tiene stock)',
-    'Compra por adelantado piezas de uso común (mantiene algo de stock)',
-    'También revende piezas (funciona parcial como refaccionaria)'
-  ],
-  motivoDescarte: [
-    'Solo hace trabajos al momento, no compra para inventario',
-    'No tiene capital para invertir'
-  ]
-};
 const COLOR_ESTATUS = {
   'Prospecto': '#FF8A1E',
   'Visitado':  '#2FA89D',
