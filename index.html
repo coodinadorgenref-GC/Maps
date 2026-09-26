@@ -747,10 +747,6 @@
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM7 13h5v2H7v-2zm0 4h10v2H7v-2zm7-8V3.5L18.5 8H14z"/></svg>
     <span class="txt">Mis ventas</span>
   </button>
-  <button class="drawer-item" id="btnTraspasos">
-    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z"/></svg>
-    <span class="txt">Traspasos a bodega</span>
-  </button>
   <button class="drawer-item" id="btnNotasVendedor" hidden>
   <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
   <span class="txt">Mis notas</span>
@@ -1743,6 +1739,7 @@ let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}]
 let modoDescargaAlmacen = false; // true mientras el vendedor hace su "descarga" de fin de ruta
 let modoTraspaso = false;        // true mientras se seleccionan ventas para traspasar a bodega
 let seleccionTraspaso = new Set(); // idInterno (o folio) de las ventas marcadas en modoTraspaso
+let subTabMisVentas = 'ventas';  // 'ventas' | 'traspasos' — sub-pestaña dentro de "Mis ventas"
 
 async function renderAlmacen(){
   if(!SHEET_ENDPOINT){
@@ -2766,20 +2763,22 @@ async function guardarCambiosTraspaso(fila){
 }
 
 async function renderTraspasos(){
+  const cuerpo = document.getElementById('misVentasCuerpo');
+  if(!cuerpo) return;
   if(!SHEET_ENDPOINT){
-    sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
+    cuerpo.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
     return;
   }
-  sheetBody.innerHTML = '<div class="empty">Cargando traspasos…</div>';
+  cuerpo.innerHTML = '<div class="empty">Cargando traspasos…</div>';
   let filas = [];
   try{
     const resp = await fetch(`${SHEET_ENDPOINT}?recurso=traspasos`);
     filas = await resp.json();
   } catch(err){
-    if(currentTab === 'traspasos') sheetBody.innerHTML = '<div class="empty">No se pudieron cargar los traspasos (revisa tu señal).</div>';
+    if(currentTab === 'misventas' && subTabMisVentas === 'traspasos') cuerpo.innerHTML = '<div class="empty">No se pudieron cargar los traspasos (revisa tu señal).</div>';
     return;
   }
-  if(currentTab !== 'traspasos') return;
+  if(currentTab !== 'misventas' || subTabMisVentas !== 'traspasos') return;
   const clave = String(usuarioActual || '').trim().toLowerCase();
   const claveNombre = String(nombreActual || '').trim().toLowerCase();
   const propios = filas.filter(f => {
@@ -2788,10 +2787,10 @@ async function renderTraspasos(){
   }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
   if(propios.length === 0){
-    sheetBody.innerHTML = '<div class="empty">Aún no has hecho ningún traspaso a bodega.</div>';
+    cuerpo.innerHTML = '<div class="empty">Aún no has hecho ningún traspaso a bodega.</div>';
     return;
   }
-  sheetBody.innerHTML = propios.map((t, i) => `
+  cuerpo.innerHTML = propios.map((t, i) => `
     <div class="item" style="flex-direction:column; align-items:stretch; gap:8px;">
       <div>
         <div class="name">${new Date(t.fecha).toLocaleString('es-MX')} · $${(Number(t.total)||0).toFixed(2)}</div>
@@ -2808,13 +2807,13 @@ async function renderTraspasos(){
       <button class="btn" style="width:100%;" data-guardar-traspaso="${i}">Guardar</button>
     </div>
   `).join('');
-  sheetBody.querySelectorAll('[data-guardar-traspaso]').forEach(btn => {
+  cuerpo.querySelectorAll('[data-guardar-traspaso]').forEach(btn => {
     btn.addEventListener('click', () => {
       const i = Number(btn.dataset.guardarTraspaso);
       const t = propios[i];
-      const folioInput = sheetBody.querySelector(`[data-folio-general="${i}"]`);
-      const efectivoInput = sheetBody.querySelector(`[data-efectivo="${i}"]`);
-      const notasInput = sheetBody.querySelector(`[data-notas="${i}"]`);
+      const folioInput = cuerpo.querySelector(`[data-folio-general="${i}"]`);
+      const efectivoInput = cuerpo.querySelector(`[data-efectivo="${i}"]`);
+      const notasInput = cuerpo.querySelector(`[data-notas="${i}"]`);
       t.folioGeneral = folioInput ? folioInput.value.trim() : t.folioGeneral;
       t.efectivoEntregado = efectivoInput && efectivoInput.checked ? 'SI' : '';
       t.notasEntregadas = notasInput && notasInput.checked ? 'SI' : '';
@@ -2906,7 +2905,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '26-sep · vivo 1';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '26-sep · vivo 2';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -5458,7 +5457,6 @@ function cambiarTab(tab, origen){
     if(tab === 'inventariogc') renderInventarioGC();
     if(tab === 'vendedoresvivo') renderVendedoresVivo();
     if(tab === 'notas') renderNotasVendedor();
-    if(tab === 'traspasos') renderTraspasos();
   } catch(err){
     // Antes, si una vista fallaba a medias, se quedaba visible la lista anterior
     // bajo el título nuevo (justo lo que parecía "me sale la lista").
@@ -5521,8 +5519,7 @@ function renderSheetTabs(){
     misventas: 'Mis ventas',
     inventariogc: 'Inventario Grupo Camejo',
     vendedoresvivo: 'Vendedores en vivo',
-    notas: 'Mis notas',
-    traspasos: 'Traspasos a bodega'
+    notas: 'Mis notas'
   };
   const destino = ETIQUETA_ORIGEN[origenNav] ? origenNav : 'mapa';
   tabsEl.innerHTML = `
@@ -7551,10 +7548,6 @@ document.getElementById('btnMisVentas').addEventListener('click', () => {
   abrirSheet();
   cambiarTab('misventas', 'mapa');
 });
-document.getElementById('btnTraspasos').addEventListener('click', () => {
-  abrirSheet();
-  cambiarTab('traspasos', 'mapa');
-});
 document.getElementById('btnNotasVendedor').addEventListener('click', () => {
   abrirSheet();
   cambiarTab('notas', 'mapa');
@@ -7698,6 +7691,29 @@ async function renderMisVentas(){
     sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
     return;
   }
+  // Sub-pestañas dentro de la misma pantalla: "Ventas" (lo de siempre) y
+  // "Traspasos a bodega" (antes vivía como entrada aparte del menú).
+  sheetBody.innerHTML = `
+    <div style="display:flex; gap:8px; margin-bottom:12px;">
+      <button class="btn ${subTabMisVentas === 'ventas' ? 'primary' : ''}" id="subTabVentas" style="flex:1;">Ventas</button>
+      <button class="btn ${subTabMisVentas === 'traspasos' ? 'primary' : ''}" id="subTabTraspasos" style="flex:1;">Traspasos a bodega</button>
+    </div>
+    <div id="misVentasCuerpo"><div class="empty">Cargando…</div></div>
+  `;
+  document.getElementById('subTabVentas').addEventListener('click', () => {
+    if(subTabMisVentas === 'ventas') return;
+    subTabMisVentas = 'ventas'; modoTraspaso = false; seleccionTraspaso = new Set();
+    renderMisVentas();
+  });
+  document.getElementById('subTabTraspasos').addEventListener('click', () => {
+    if(subTabMisVentas === 'traspasos') return;
+    subTabMisVentas = 'traspasos';
+    renderMisVentas();
+  });
+
+  if(subTabMisVentas === 'traspasos'){ await renderTraspasos(); return; }
+
+  const cuerpo = document.getElementById('misVentasCuerpo');
   // Se pinta de inmediato con lo último que ya se tenía guardado (si hay),
   // en vez de quedarse en "Cargando…" hasta que responda el Sheet — igual
   // que el almacén móvil. Así "Mis ventas" se ve al instante sin señal,
@@ -7705,7 +7721,7 @@ async function renderMisVentas(){
   const cache = _cargarMisVentasCache();
   const huboCache = Array.isArray(cache) && cache.length > 0;
   if (huboCache) pintarMisVentas(cache, true);
-  else sheetBody.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
+  else cuerpo.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
 
   let ventas = [];
   try{
@@ -7722,14 +7738,16 @@ async function renderMisVentas(){
   } catch(err){
     // Sin señal (o el Web App no respondió): si ya se pintó la caché arriba
     // la dejamos como está; si no había nada guardado, recién aquí se avisa.
-    if (!huboCache && currentTab === 'misventas'){
-      sheetBody.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
+    if (!huboCache && currentTab === 'misventas' && subTabMisVentas === 'ventas'){
+      cuerpo.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
     }
     return;
   }
-  if(currentTab !== 'misventas') return;
+  if(currentTab !== 'misventas' || subTabMisVentas !== 'ventas') return;
   pintarMisVentas(ventas, false);
 }function pintarMisVentas(ventas, esCache){
+  const sheetBody = document.getElementById('misVentasCuerpo'); // scope local: no pisa la barra de sub-pestañas
+  if(!sheetBody) return;
   if(ventas.length === 0){
     sheetBody.innerHTML = '<div class="empty">Aún no tienes ventas registradas.</div>';
     return;
@@ -7997,11 +8015,20 @@ async function _ejecutarCancelacionVenta(venta, indices){
   const nuevoTotal = totalRedondeado(itemsActualizados);
 
   // 1) Fuente de verdad: se actualiza en Firestore (items + total, y si se
-  //    cancela toda la nota, también el flag general "cancelada")
+  //    cancela toda la nota, también el flag general "cancelada").
+  //    Se usa set(..., {merge:true}) en vez de update(): si esta venta se
+  //    creó sin señal y su guardado en Firestore se quedó pendiente en OTRO
+  //    dispositivo (mientras el Sheet sí se alcanzó a escribir por su
+  //    propio camino), el documento nunca llegó a existir aquí — un
+  //    update() a un doc inexistente falla con "not-found" y la
+  //    cancelación no pasaba de ahí, sin ningún aviso claro. set()+merge
+  //    recrea el documento completo (con lo que ya se sabe por el Sheet) si
+  //    hacía falta, y si ya existía simplemente combina los campos, igual
+  //    que antes.
   try{
     const upd = { items: itemsActualizados, total: nuevoTotal };
     if(seCancelaCompleta){ upd.cancelada = true; upd.canceladaEn = ahora; upd.canceladaPor = usuarioActual; }
-    await dbVentaRuta.collection('ventas_ruta').doc(idInterno).update(upd);
+    await dbVentaRuta.collection('ventas_ruta').doc(idInterno).set(Object.assign({}, venta, upd), { merge: true });
   } catch(err){
     mostrarToast('No se pudo cancelar (revisa tu señal): ' + (err.code || err.message));
     return;
