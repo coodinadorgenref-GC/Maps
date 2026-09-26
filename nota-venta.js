@@ -278,9 +278,15 @@ function generarPdfNotaVenta(venta) {
   doc.setFont(undefined, 'bold');
   doc.text('Vendedor: ' + (venta.vendedorNombre || venta.vendedor || ''), PW - MX, y, { align: 'right' });
   doc.setFont(undefined, 'normal');
-  const idFirebase = /^V-/.test(String(venta.idInterno || '')) ? String(venta.idInterno) : '';
+  // Antes exigía que empezara exactamente con "V-"; si por lo que sea el
+  // idInterno no traía ese prefijo (fila vieja migrada, u otro formato) el
+  // folio de Firebase simplemente desaparecía del pie. Ahora se muestra en
+  // cuanto hay un idInterno real (distinto del folio visible GC-####).
+  const idInternoTxt = String(venta.idInterno || '').trim();
+  const idFirebase = (idInternoTxt && idInternoTxt !== String(venta.folio || '').trim()) ? idInternoTxt : '';
   if (idFirebase) doc.text('ID de venta: ' + idFirebase, PW - MX, y + 4, { align: 'right' });
-  y += 8;
+  if (venta.folioGeneral) doc.text('Folio bodega: ' + String(venta.folioGeneral), PW - MX, y + (idFirebase ? 8 : 4), { align: 'right' });
+  y += (idFirebase && venta.folioGeneral) ? 12 : 8;
 
 
   // ---- Marcas que manejamos (pie de página) ----
