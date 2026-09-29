@@ -1,303 +1,218 @@
 diff --git a/index.html b/index.html
-index 07b81d2..ce469db 100644
+index ce469db..a806ba4 100644
 --- a/index.html
 +++ b/index.html
-@@ -570,6 +570,16 @@
-     display:block; font-size:10.5px; color:var(--text-dim);
-     margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-   }
-+  .filtro-multi-btn{
-+    width:100%; background:var(--surface-2); border:1px solid var(--line);
-+    color:var(--text); border-radius:9px; padding:8px 6px; font-size:12px;
-+    font-family:inherit; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-+  }
-+  .filtro-multi-btn.activo{ border-color:var(--teal); color:var(--teal); font-weight:600; }
-+  .filtro-multi-btn.abierto{ box-shadow:0 0 0 2px var(--teal); }
-+  .filtro-multi-panel{ background:var(--surface-2); border:1px solid var(--line); border-radius:12px; padding:10px; margin:-4px 0 12px; }
-+  .filtro-multi-titulo{ display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); margin-bottom:8px; }
-+  .filtro-multi-panel .chip-row{ flex-wrap:wrap; max-height:190px; overflow-y:auto; padding-bottom:0; margin-bottom:0; }
-   .filtro-compacto-item select{
-     width:100%; background:var(--surface-2); border:1px solid var(--line);
-     color:var(--text); border-radius:9px; padding:8px 4px; font-size:12px;
-@@ -2851,6 +2861,13 @@ async function renderTraspasos(){
- const ESTATUS = ['Prospecto','Visitado','Cliente','Competencia','Unidad de negocio','Descartado'];
- const FRECUENCIA = ['Semanal','Quincenal','Mensual','Ocasional'];
- const TIPO_NEGOCIO_OPTS = ['Refaccionaria','Taller'];
-+// Un negocio puede ser Refaccionaria, Taller o AMBOS. Se guarda como texto en la misma columna
-+// del Sheet ("Refaccionaria, Taller"); los valores viejos ("Taller") siguen siendo válidos.
-+function tiposNegocioDe(valor){
-+  const v = String(valor == null ? '' : valor).toLowerCase();
-+  return TIPO_NEGOCIO_OPTS.filter(t => v.includes(t.toLowerCase()));
+@@ -2317,6 +2317,20 @@ function cargarDenueExcluidos(){
+   try{ return JSON.parse(localStorage.getItem(DENUE_EXCLUIDOS_KEY)) || []; }
+   catch(e){ return []; }
+ }
++// Lápidas: ids eliminados a propósito en ESTE dispositivo (cualquier origen, no solo DENUE).
++// Nunca se vuelven a meter desde el Sheet ni desde el catálogo, y si el servidor aún los tiene
++// se reintenta borrarlos en cada sincronización.
++const TOMBS_KEY = 'gc_tombstones_v1';
++function cargarTombs(){ try{ return JSON.parse(localStorage.getItem(TOMBS_KEY)) || {}; } catch(e){ return {}; } }
++function marcarEliminado(id){
++  const t = cargarTombs(); t[String(id)] = Date.now();
++  try{ localStorage.setItem(TOMBS_KEY, JSON.stringify(t)); } catch(e){}
 +}
-+function tipoNegocioTexto(tipos){ return TIPO_NEGOCIO_OPTS.filter(t => tipos.includes(t)).join(', '); }
- const COLOR_ESTATUS = {
-   'Prospecto': '#FF8A1E',
-   'Visitado':  '#2FA89D',
-@@ -2932,7 +2949,7 @@ let basePref = (() => {
++function conjuntoEliminados(){
++  const set = new Set(Object.keys(cargarTombs()));
++  cargarDenueExcluidos().forEach(id => set.add(String(id)));
++  return set;
++}
+ function agregarDenueExcluido(id){
+   const lista = cargarDenueExcluidos();
+   if(!lista.includes(id)){
+@@ -2330,10 +2344,14 @@ function agregarDenueExcluido(id){
+ // "Última edición gana" usando actualizadoEn; lo que sigue pendiente de subir
+ // (pendienteSync) nunca se pisa con lo que venga del servidor todavía.
+ let sincronizando = false;
++let ultimaSyncFin = 0;
++let ultimaSyncInfo = null;   // { total, subida, bajada, kb, n } en ms / KB / registros: para saber qué tarda
+ async function syncPendientes(){
+-  if(!SHEET_ENDPOINT || !navigator.onLine || sincronizando) return;
++  if(!SHEET_ENDPOINT || !navigator.onLine || sincronizando) return null;
+   sincronizando = true;
+   actualizarHeader();
++  const t0 = performance.now();
++  let info = null;
+   try{
+     const pendientes = prospectos.filter(p => p.pendienteSync);
+     const eliminados = cargarPendientesEliminar();
+@@ -2346,28 +2364,76 @@ async function syncPendientes(){
+         body: JSON.stringify({ upserts: pendientes, deletes: eliminados })
+       });
+     }
+-
+-    const resp = await fetchConTimeout(SHEET_ENDPOINT);
+-    const remotos = await resp.json();
++    const t1 = performance.now();
++
++    // La lista completa puede pesar varios MB (las fotos de fachada viajan dentro): con señal
++    // regular 25 s no alcanzaba y el sync se cortaba siempre, por eso aquí se da más margen.
++    const resp = await fetchConTimeout(SHEET_ENDPOINT, undefined, 90000);
++    const texto = await resp.text();
++    let remotos;
++    try{ remotos = JSON.parse(texto); } catch(e){ throw new Error('respuesta no válida'); }
++    if(!Array.isArray(remotos)) throw new Error('respuesta no válida');
++    const t2 = performance.now();
++
++    const elim = conjuntoEliminados();
++    const idsRemotos = new Set();
++    const idxLocal = new Map(prospectos.map((x, i) => [String(x.id), i]));
++    let cambios = 0;
+ 
+     remotos.forEach(r => {
++      if(!r || r.id == null) return;
++      const k = String(r.id);
++      idsRemotos.add(k);
++      // Lo que se eliminó a propósito aquí NO se vuelve a meter (antes reaparecía).
++      if(elim.has(k)) return;
+       normalizarProspecto(r);
+-      const i = prospectos.findIndex(p => p.id === r.id);
+-      if(i === -1){
+-        prospectos.push(r);
++      const i = idxLocal.get(k);
++      if(i === undefined){
++        prospectos.push({ ...r, enServidor: true });
++        idxLocal.set(k, prospectos.length - 1);
++        cambios++;
+       } else if(!prospectos[i].pendienteSync && (r.actualizadoEn || 0) >= (prospectos[i].actualizadoEn || 0)){
+-        prospectos[i] = { ...prospectos[i], ...r, pendienteSync: false };
++        if((r.actualizadoEn || 0) !== (prospectos[i].actualizadoEn || 0) || !prospectos[i].enServidor) cambios++;
++        prospectos[i] = { ...prospectos[i], ...r, pendienteSync: false, enServidor: true };
++      } else if(!prospectos[i].enServidor){
++        prospectos[i].enServidor = true;
+       }
+     });
+ 
+-    prospectos.forEach(p => {
+-      if(pendientes.some(x => x.id === p.id)) p.pendienteSync = false;
++    // Lo subido: solo se da por entregado si el Sheet ya lo devuelve. Antes se marcaba como
++    // enviado aunque el servidor hubiera fallado, y ese cambio se perdía sin avisar.
++    prospectos.forEach(x => {
++      if(x.pendienteSync && pendientes.some(q => q.id === x.id) && idsRemotos.has(String(x.id))){
++        x.pendienteSync = false; x.enServidor = true;
++      }
+     });
+ 
+-    guardarPendientesEliminar([]);
++    // Borrados de este dispositivo: solo se quitan de la cola cuando el Sheet ya no los trae.
++    // Los que siguen ahí se reintentan en la próxima vuelta (antes se vaciaba la cola siempre).
++    guardarPendientesEliminar(eliminados.filter(id => idsRemotos.has(String(id))));
++
++    // Borrados en OTRO dispositivo: lo que ya había llegado del Sheet (enServidor) y el Sheet
++    // dejó de traer se quita aquí. Protecciones: nunca con una lista vacía ni si "desaparecen"
++    // muchos de golpe (respuesta incompleta), y no se toca lo que está por subir o en edición.
++    const conMarca = prospectos.filter(x => x.enServidor).length;
++    const idsQuitar = new Set(prospectos
++      .filter(x => x.enServidor && !x.pendienteSync && x.id !== editandoId && !idsRemotos.has(String(x.id)))
++      .map(x => String(x.id)));
++    if(idsQuitar.size > 0 && remotos.length > 0 && idsQuitar.size <= Math.max(3, Math.ceil(conMarca * 0.25))){
++      prospectos.filter(x => idsQuitar.has(String(x.id)) && x.origen === 'DENUE').forEach(x => agregarDenueExcluido(x.id));
++      prospectos = prospectos.filter(x => !idsQuitar.has(String(x.id)));
++      idsQuitar.forEach(id => { seleccionRuta.delete(id); });
++      cambios += idsQuitar.size;
++    }
++
+     guardarProspectos(prospectos);
+-    renderMarcadores();
+-    if(currentTab === 'lista') renderLista();
++    if(cambios > 0){
++      renderMarcadores();
++      if(currentTab === 'lista') renderLista();
++    }
++
++    info = { total: performance.now() - t0, subida: t1 - t0, bajada: t2 - t1, kb: texto.length / 1024, n: remotos.length, cambios };
++    ultimaSyncInfo = info;
+ 
+     // Reutiliza este mismo ciclo (carga, reconexión, cada 5 min) para la
+     // venta en ruta: refresca precios y reintenta ventas que no llegaron
+@@ -2385,8 +2451,16 @@ async function syncPendientes(){
+     // próximo evento "online" o el siguiente intervalo.
+   } finally {
+     sincronizando = false;
++    ultimaSyncFin = Date.now();
+     actualizarHeader();
+   }
++  return info;
++}
++// Sincroniza si pasó suficiente tiempo desde la última vez (para foco / regreso a la app).
++function syncSiToca(minMs){
++  if(document.hidden || sincronizando) return;
++  if(Date.now() - ultimaSyncFin < minMs) return;
++  syncPendientes();
+ }
+ 
+ /* ---------- Precios y ventas en ruta (recursos "precios" y "ventasRuta" del Sheet) ---------- */
+@@ -2949,7 +3023,7 @@ let basePref = (() => {
    let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
    return (v === 'clasico' || v === 'positron') ? v : 'liberty';
  })();
--const APP_BUILD = '28-sep · fichas 1';   // sello para saber si el celular ya cargó la versión nueva de la app
-+const APP_BUILD = '29-sep · fichas 2';   // sello para saber si el celular ya cargó la versión nueva de la app
+-const APP_BUILD = '29-sep · fichas 2';   // sello para saber si el celular ya cargó la versión nueva de la app
++const APP_BUILD = '29-sep · sync 1';   // sello para saber si el celular ya cargó la versión nueva de la app
  let estadoBase = { fase: 'inicio', detalle: '' };
  let ultimoErrorGL = '';
  function textoEstadoBase(){
-@@ -4351,11 +4368,12 @@ function aplicarModoMapa(valor){
- const marcadoresPorId = new Map();
+@@ -6509,12 +6583,12 @@ function manejarArchivoImportado(ev){
+ function fusionarImportados(datos, opts = {}){
+   const silencioso = !!opts.silencioso;
+   const existentes = new Set(prospectos.map(p => p.id));
+-  const excluidos = new Set(cargarDenueExcluidos());
++  const excluidos = conjuntoEliminados();
+   let nuevos = 0, actualizados = 0;
+   datos.forEach(d => {
+     normalizarProspecto(d);
+     if(!d.id || d.lat == null || d.lng == null || isNaN(d.lat) || isNaN(d.lng)) return;
+-    if(excluidos.has(d.id)) return; // se eliminó a propósito en este dispositivo: no se reintroduce
++    if(excluidos.has(String(d.id))) return; // se eliminó a propósito en este dispositivo: no se reintroduce
+     if(existentes.has(d.id)){
+       const i = prospectos.findIndex(p => p.id === d.id);
+       // No se pisa el trabajo ya hecho en campo: solo se actualiza si sigue como estaba desde la importación
+@@ -7158,6 +7232,7 @@ function eliminarProspectoPorId(id){
+   const nombre = p ? p.nombre : 'esta ubicación';
+   if(!confirm(`¿Eliminar definitivamente "${nombre}"? Ya no aparecerá en el mapa ni en la lista.`)) return false;
+   if(p && p.origen === 'DENUE') agregarDenueExcluido(id);
++  marcarEliminado(id);
+   prospectos = prospectos.filter(x => x.id !== id);
+   seleccionRuta.delete(id);
+   const eliminados = cargarPendientesEliminar();
+@@ -7209,8 +7284,13 @@ window.addEventListener('online', () => { actualizarHeader(); syncPendientes();
+ document.getElementById('syncWrap').addEventListener('click', () => {
+   if(!SHEET_ENDPOINT){ mostrarToast('Aún no hay Sheet compartido configurado (todo vive local en este dispositivo)'); return; }
+   if(!navigator.onLine){ mostrarToast('Sin señal ahora mismo'); return; }
++  if(sincronizando){ mostrarToast('Ya está sincronizando…'); return; }
+   mostrarToast('Buscando cambios de otros dispositivos…');
+-  syncPendientes();
++  syncPendientes().then(info => {
++    if(!info){ mostrarToast('No se pudo sincronizar (sin respuesta del Sheet). Se reintenta solo.'); return; }
++    const seg = v => (v / 1000).toFixed(1) + ' s';
++    mostrarToast(`Sincronizado en ${seg(info.total)} · ${info.n} registros · ${info.kb >= 1024 ? (info.kb / 1024).toFixed(1) + ' MB' : Math.round(info.kb) + ' KB'} · ${info.cambios} cambio(s)`);
++  });
+ });
+ window.addEventListener('offline', actualizarHeader);
  
- function pasaFiltro(p){
--  const okEstatus = estadoFiltro.estatus === 'Todos' || p.estatus === estadoFiltro.estatus;
--  const okEstado = estadoFiltro.estado === 'Todos' || !p.estado || p.estado === estadoFiltro.estado;
--  const okLocalidad = estadoFiltro.localidad === 'Todas' || p.localidad === estadoFiltro.localidad;
--  const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
--  const okTipoNegocio = estadoFiltro.tipoNegocio === 'Todos' || p.tipoNegocio === estadoFiltro.tipoNegocio;
-+  const f = estadoFiltro;
-+  const okEstatus = !f.estatus.length || f.estatus.includes(p.estatus);
-+  const okEstado = !f.estado.length || !p.estado || f.estado.includes(p.estado);
-+  const okLocalidad = !f.localidad.length || f.localidad.includes(p.localidad);
-+  const okFrecuencia = !f.frecuencia.length || f.frecuencia.includes(p.frecuencia);
-+  const okTipoNegocio = !f.tipoNegocio.length || tiposNegocioDe(p.tipoNegocio).some(t => f.tipoNegocio.includes(t));
-   const okPrioridad = !estadoFiltro.soloPrioridad || !!p.prioridad;
-   const okVencidos = !estadoFiltro.soloVencidos || estaVencido(p);
-   const okBusqueda = (() => {
-@@ -5170,7 +5188,17 @@ async function detectarLugarParaTemp(lat, lng){
- const sheet = document.getElementById('sheet');
- const sheetBody = document.getElementById('sheetBody');
- let currentTab = 'lista';
--let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', tipoNegocio: 'Todos', soloPrioridad: false, soloVencidos: false, radioKm: '100' };
-+// Filtros de selección múltiple: arreglo vacío = sin filtrar (todos); con valores = cualquiera de ellos.
-+let estadoFiltro = { estatus: [], estado: [], localidad: [], frecuencia: [], tipoNegocio: [], soloPrioridad: false, soloVencidos: false, radioKm: '100' };
-+const FILTROS_MULTI = [
-+  { clave: 'estatus',     etiqueta: 'Estatus',         opciones: () => ESTATUS },
-+  { clave: 'frecuencia',  etiqueta: 'Frecuencia',      opciones: () => FRECUENCIA },
-+  { clave: 'estado',      etiqueta: 'Estado',          opciones: () => ESTADOS },
-+  { clave: 'localidad',   etiqueta: 'Localidad',       opciones: () => localidadesDisponibles() },
-+  { clave: 'tipoNegocio', etiqueta: 'Tipo de negocio', opciones: () => TIPO_NEGOCIO_OPTS }
-+];
-+let filtroMultiAbierto = null; // clave del filtro cuyo panel de opciones está desplegado
-+function resumenFiltroMulti(sel){ return !sel.length ? 'Todos' : (sel.length === 1 ? sel[0] : sel[0] + ' +' + (sel.length - 1)); }
- let radioCentro = null; // {lat,lng} desde donde se mide "Distancia a la redonda" en la lista
+@@ -8438,7 +8518,9 @@ function iniciarAppMapasSiHaceFalta(){
+   if(prospectos.length > 0){ ajustarVistaATodos(); }
+   cargarDenueCompartido();
+   syncPendientes();
+-  setInterval(syncPendientes, 5 * 60 * 1000); // reintenta cada 5 min mientras la app siga abierta
++  setInterval(() => syncSiToca(90 * 1000), 2 * 60 * 1000); // cada 2 min mientras la app esté a la vista
++  document.addEventListener('visibilitychange', () => { if(!document.hidden) syncSiToca(15 * 1000); });
++  window.addEventListener('focus', () => syncSiToca(15 * 1000));
+   activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando solo lo cercano (100 km); el mapa sigue mostrando todo
+ }
  
- // El filtro de distancia solo agrupa/oculta en la LISTA de prospectos; el
-@@ -5977,8 +6005,7 @@ function renderLista(){
- 
-   const localidades = localidadesDisponibles();
- 
--  const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia', 'tipoNegocio']
--    .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length
-+  const filtrosActivos = FILTROS_MULTI.filter(fm => estadoFiltro[fm.clave].length > 0).length
-     + (textoBusqueda ? 1 : 0)
-     + (estadoFiltro.soloPrioridad ? 1 : 0)
-     + (estadoFiltro.soloVencidos ? 1 : 0)
-@@ -6021,41 +6048,11 @@ function renderLista(){
-         </div>
-       </div>
-       <div class="filtros-fila">
-+        ${FILTROS_MULTI.map(fm => `
-         <div class="filtro-compacto-item">
--          <label>Estatus</label>
--          <select id="selEstatus">
--            <option value="Todos">Todos</option>
--            ${ESTATUS.map(e => `<option value="${e}" ${estadoFiltro.estatus===e?'selected':''}>${e}</option>`).join('')}
--          </select>
--        </div>
--        <div class="filtro-compacto-item">
--          <label>Frecuencia</label>
--          <select id="selFrecuencia">
--            <option value="Todas">Todas</option>
--            ${FRECUENCIA.map(f => `<option value="${f}" ${estadoFiltro.frecuencia===f?'selected':''}>${f}</option>`).join('')}
--          </select>
--        </div>
--        <div class="filtro-compacto-item">
--          <label>Estado</label>
--          <select id="selEstado">
--            <option value="Todos">Todos</option>
--            ${ESTADOS.map(e => `<option value="${e}" ${estadoFiltro.estado===e?'selected':''}>${e}</option>`).join('')}
--          </select>
--        </div>
--        <div class="filtro-compacto-item">
--          <label>Localidad</label>
--          <select id="selLocalidad">
--            <option value="Todas">Todas</option>
--            ${localidades.map(l => `<option value="${escapeHtml(l)}" ${estadoFiltro.localidad===l?'selected':''}>${escapeHtml(l)}</option>`).join('')}
--          </select>
--        </div>
--        <div class="filtro-compacto-item">
--          <label>Tipo de negocio</label>
--          <select id="selTipoNegocio">
--            <option value="Todos">Todos</option>
--            ${TIPO_NEGOCIO_OPTS.map(t => `<option value="${t}" ${estadoFiltro.tipoNegocio===t?'selected':''}>${t}</option>`).join('')}
--          </select>
--        </div>
-+          <label>${fm.etiqueta}</label>
-+          <button type="button" class="filtro-multi-btn ${estadoFiltro[fm.clave].length ? 'activo' : ''} ${filtroMultiAbierto === fm.clave ? 'abierto' : ''}" data-filtro="${fm.clave}">${escapeHtml(resumenFiltroMulti(estadoFiltro[fm.clave]))} ▾</button>
-+        </div>`).join('')}
-         <div class="filtro-compacto-item">
-           <label>Distancia</label>
-           <select id="selRadio">
-@@ -6063,6 +6060,15 @@ function renderLista(){
-           </select>
-         </div>
-       </div>
-+      ${(() => {
-+        const fm = FILTROS_MULTI.find(x => x.clave === filtroMultiAbierto);
-+        if(!fm) return '<div style="font-size:11px; color:var(--text-dim); margin:-6px 0 10px;">Toca un filtro para elegir una o varias opciones.</div>';
-+        const opciones = fm.opciones();
-+        return `<div class="filtro-multi-panel">
-+          <div class="filtro-multi-titulo"><span>${fm.etiqueta}: elige una o varias</span><button type="button" class="chip" id="btnFiltroLimpiar">Limpiar</button></div>
-+          <div class="chip-row">${opciones.length ? opciones.map(o => `<button type="button" class="chip ${estadoFiltro[fm.clave].includes(o) ? 'active' : ''}" data-valor="${escapeHtml(o)}">${escapeHtml(o)}</button>`).join('') : '<span style="font-size:12px; color:var(--text-dim);">Sin opciones todavía.</span>'}</div>
-+        </div>`;
-+      })()}
-       <div style="font-size:11px; color:var(--text-dim); margin:-6px 0 12px;">
-         "Distancia" solo filtra esta lista, usando tu ubicación actual. En el mapa puedes seguir tocando cualquier prospecto, aunque esté más lejos.
-       </div>
-@@ -6088,33 +6094,21 @@ function renderLista(){
-     ${items || '<div class="empty">Nada que mostrar con estos filtros.</div>'}
-   `;
- 
--  const selEstatus = document.getElementById('selEstatus');
--  if(selEstatus) selEstatus.addEventListener('change', () => {
--    estadoFiltro.estatus = selEstatus.value;
--    renderLista();
--    renderMarcadores();
--  });
--  const selEstado = document.getElementById('selEstado');
--  if(selEstado) selEstado.addEventListener('change', () => {
--    estadoFiltro.estado = selEstado.value;
-+  sheetBody.querySelectorAll('.filtro-multi-btn').forEach(btn => btn.addEventListener('click', () => {
-+    filtroMultiAbierto = filtroMultiAbierto === btn.dataset.filtro ? null : btn.dataset.filtro;
-     renderLista();
--    renderMarcadores();
--  });
--  const selFrecuencia = document.getElementById('selFrecuencia');
--  if(selFrecuencia) selFrecuencia.addEventListener('change', () => {
--    estadoFiltro.frecuencia = selFrecuencia.value;
--    renderLista();
--    renderMarcadores();
--  });
--  const selLocalidad = document.getElementById('selLocalidad');
--  if(selLocalidad) selLocalidad.addEventListener('change', () => {
--    estadoFiltro.localidad = selLocalidad.value;
-+  }));
-+  sheetBody.querySelectorAll('.filtro-multi-panel .chip-row .chip').forEach(ch => ch.addEventListener('click', () => {
-+    const arr = estadoFiltro[filtroMultiAbierto];
-+    if(!arr) return;
-+    const i = arr.indexOf(ch.dataset.valor);
-+    if(i >= 0) arr.splice(i, 1); else arr.push(ch.dataset.valor);
-     renderLista();
-     renderMarcadores();
--  });
--  const selTipoNegocio = document.getElementById('selTipoNegocio');
--  if(selTipoNegocio) selTipoNegocio.addEventListener('change', () => {
--    estadoFiltro.tipoNegocio = selTipoNegocio.value;
-+  }));
-+  const btnFiltroLimpiar = document.getElementById('btnFiltroLimpiar');
-+  if(btnFiltroLimpiar) btnFiltroLimpiar.addEventListener('click', () => {
-+    estadoFiltro[filtroMultiAbierto] = [];
-     renderLista();
-     renderMarcadores();
-   });
-@@ -6815,10 +6809,11 @@ function renderFormAlta(){
-     </div>
-     <div class="field">
-       <label>Tipo de negocio</label>
--      <select id="fTipoNegocio">
--        <option value="">Sin definir</option>
--        ${TIPO_NEGOCIO_OPTS.map(t => `<option ${p && p.tipoNegocio===t ? 'selected':''}>${t}</option>`).join('')}
--      </select>
-+      <input type="hidden" id="fTipoNegocio" value="${escapeHtml(tipoNegocioTexto(tiposNegocioDe(p && p.tipoNegocio)))}">
-+      <div class="chip-row" id="fTipoNegocioChips" style="flex-wrap:wrap; padding-bottom:0; margin-bottom:0;">
-+        ${TIPO_NEGOCIO_OPTS.map(t => `<button type="button" class="chip ${tiposNegocioDe(p && p.tipoNegocio).includes(t) ? 'active' : ''}" data-tipo="${t}" style="padding:9px 16px; font-size:14px;">${t}</button>`).join('')}
-+      </div>
-+      <div style="font-size:11px; color:var(--text-dim); margin-top:5px;">Marca uno o los dos. Sin marcar = sin definir.</div>
-     </div>
-     <div class="field" id="campoModoOperacion" style="display:none;">
-       <label>Modo de operación</label>
-@@ -6912,13 +6907,18 @@ function renderFormAlta(){
- 
-   const actualizarVisibilidadModoOperacion = () => {
-     document.getElementById('campoModoOperacion').style.display =
--      document.getElementById('fTipoNegocio').value === 'Taller' ? 'block' : 'none';
-+      tiposNegocioDe(document.getElementById('fTipoNegocio').value).includes('Taller') ? 'block' : 'none';
-   };
-   const actualizarVisibilidadMotivoDescarte = () => {
-     document.getElementById('campoMotivoDescarte').style.display =
-       document.getElementById('fEstatus').value === 'Descartado' ? 'block' : 'none';
-   };
--  document.getElementById('fTipoNegocio').addEventListener('change', actualizarVisibilidadModoOperacion);
-+  document.querySelectorAll('#fTipoNegocioChips .chip').forEach(btn => btn.addEventListener('click', () => {
-+    btn.classList.toggle('active');
-+    const marcados = [...document.querySelectorAll('#fTipoNegocioChips .chip.active')].map(b => b.dataset.tipo);
-+    document.getElementById('fTipoNegocio').value = tipoNegocioTexto(marcados);
-+    actualizarVisibilidadModoOperacion();
-+  }));
-   document.getElementById('fEstatus').addEventListener('change', actualizarVisibilidadMotivoDescarte);
-   actualizarVisibilidadModoOperacion();
-   actualizarVisibilidadMotivoDescarte();
-@@ -7010,23 +7010,30 @@ function comprimirFotoFachada(file){
-     const url = URL.createObjectURL(file);
-     img.onload = () => {
-       URL.revokeObjectURL(url);
--      const anchoMax = 640;
--      const escala = Math.min(1, anchoMax / img.width);
-+      // Antes solo se bajaba la calidad con el ancho fijo en 640 px: las fotos con mucho detalle
-+      // (letreros, cables, fachadas llenas de cosas) no cabían ni con la calidad al mínimo y
-+      // salía "la imagen sigue pesando mucho". Ahora, si no cabe, se hace la foto más chica
-+      // (640 → 520 → 420 → 340 → 280 → 220 → 170 px) y se vuelve a intentar.
-+      const LIMITE = 45000; // celda de Sheets: 50,000 caracteres, con margen
-+      const anchos = [640, 520, 420, 340, 280, 220, 170];
-+      const calidades = [0.62, 0.5, 0.4, 0.3, 0.22];
-       const canvas = document.createElement('canvas');
--      canvas.width = Math.round(img.width * escala);
--      canvas.height = Math.round(img.height * escala);
-       const ctx = canvas.getContext('2d');
--      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
--      // Baja la calidad hasta que quepa cómodo en una celda de Sheets
--      // (límite real 50,000 caracteres; se deja margen).
--      let calidad = 0.6;
--      let dataUrl = canvas.toDataURL('image/jpeg', calidad);
--      while(dataUrl.length > 45000 && calidad > 0.2){
--        calidad -= 0.1;
--        dataUrl = canvas.toDataURL('image/jpeg', calidad);
-+      for(const anchoMax of anchos){
-+        const escala = Math.min(1, anchoMax / img.width);
-+        canvas.width = Math.max(1, Math.round(img.width * escala));
-+        canvas.height = Math.max(1, Math.round(img.height * escala));
-+        ctx.imageSmoothingEnabled = true;
-+        ctx.imageSmoothingQuality = 'high';
-+        ctx.fillStyle = '#fff';
-+        ctx.fillRect(0, 0, canvas.width, canvas.height); // por si la foto trae transparencia
-+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-+        for(const calidad of calidades){
-+          const dataUrl = canvas.toDataURL('image/jpeg', calidad);
-+          if(dataUrl.length <= LIMITE){ resolve(dataUrl); return; }
-+        }
-       }
--      if(dataUrl.length > 45000){ reject(new Error('La imagen sigue pesando mucho, intenta con otra')); return; }
--      resolve(dataUrl);
-+      reject(new Error('no se pudo reducir lo suficiente, prueba con otra toma'));
-     };
-     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen')); };
-     img.src = url;
-@@ -7099,7 +7106,7 @@ function guardarDesdeForm(){
-   // Si es "Otro" y no se alcanzó a confirmar (blur) antes de tocar Guardar,
-   // se toma el texto tal cual está escrito para no perder la captura.
-   const selModoOp = document.getElementById('fModoOperacion').value;
--  const modoOperacionTaller = tipoNegocio === 'Taller'
-+  const modoOperacionTaller = tiposNegocioDe(tipoNegocio).includes('Taller')
-     ? (selModoOp === '__otro__' ? document.getElementById('fModoOperacionOtro').value.trim() : selModoOp)
-     : '';
-   const selMotivo = document.getElementById('fMotivoDescarte').value;
 diff --git a/sw.js b/sw.js
-index 2b4cba9..6157219 100644
+index 6157219..cfad49c 100644
 --- a/sw.js
 +++ b/sw.js
 @@ -3,7 +3,7 @@
  // para que la herramienta funcione sin señal una vez usada al menos una vez
  // en la zona donde se necesita.
  
--const CACHE_SHELL = 'rutas-gc-shell-v42';
-+const CACHE_SHELL = 'rutas-gc-shell-v43';
+-const CACHE_SHELL = 'rutas-gc-shell-v43';
++const CACHE_SHELL = 'rutas-gc-shell-v44';
  const CACHE_TILES = 'rutas-gc-tiles-v1';
  
  const SHELL_ASSETS = [
