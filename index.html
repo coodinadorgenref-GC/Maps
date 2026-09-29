@@ -515,6 +515,7 @@
   .sheet-tabs{
     display:flex; gap:6px; padding:0 14px 10px;
     border-bottom:1px solid var(--line);
+    position:relative; /* para poder centrar .tab-title en toda la barra, sin importar cuánto mida el botón de volver */
   }
   .tab{
     flex:1; text-align:center; padding:9px 0; border-radius:10px;
@@ -525,7 +526,17 @@
     padding:9px 12px; border-radius:10px; font-size:13px; font-weight:600;
     color:var(--text); background:transparent; border:none;
   }
-  .tab-title{ flex:1; text-align:center; padding:9px 0; font-size:13px; font-weight:600; color:var(--text); }
+  /* Antes era flex:1 + text-align:center: como el botón de volver ("‹ Mapa",
+     "‹ Ventas en ruta"...) no mide lo mismo en cada pantalla y no hay nada
+     simétrico del otro lado, el título solo quedaba centrado en el espacio
+     que le sobraba — no en toda la barra, por eso se veía recorrido a la
+     derecha. position:absolute lo centra en el ancho total de la barra sin
+     importar cuánto mida el botón de volver. */
+  .tab-title{
+    position:absolute; left:0; right:0; top:0;
+    text-align:center; padding:9px 0; font-size:13px; font-weight:600; color:var(--text);
+    pointer-events:none;
+  }
   .sheet-body{ overflow-y:auto; padding:14px 16px 24px; }
 
   .field{ margin-bottom:12px; }
@@ -769,14 +780,7 @@
   <div class="drawer-flyout-header">Clima</div>
   <button class="drawer-item" id="btnClima"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Pronóstico</span></button>
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
-  <button class="drawer-item" id="btnNubes" data-mantener="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Satélite</span><span class="estado"></span><span class="chev">›</span></button>
-  <div class="drawer-submenu" id="satMenu" hidden>
-    <button class="drawer-item drawer-subitem" data-sat="rapida"><span class="txt">⚡ Rápida</span><span class="marca"></span></button>
-    <button class="drawer-item drawer-subitem" data-sat="visible"><span class="txt">🔍 Alta resolución (de día)</span><span class="marca"></span></button>
-    <button class="drawer-item drawer-subitem" data-sat="tormentas"><span class="txt">⛈️ Cimas de tormenta</span><span class="marca"></span></button>
-    <button class="drawer-item drawer-subitem" data-sat="nasa"><span class="txt">🛰️ NASA</span><span class="marca"></span></button>
-    <button class="drawer-item drawer-subitem" id="satApagar" hidden><span class="txt">✕ Ocultar satélite</span></button>
-  </div>
+  <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Satélite</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnRayos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg><span class="txt">Rayos y tormentas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
@@ -2588,7 +2592,8 @@ function filasVentaParaSheet(venta){
       anticipo: venta.anticipo != null ? venta.anticipo : '',
       saldoPendiente: venta.saldoPendiente != null ? venta.saldoPendiente : '',
       traspasoId: venta.traspasoId || '',
-      folioGeneral: venta.folioGeneral || ''
+      folioGeneral: venta.folioGeneral || '',
+      cancelada: it.cancelado ? 'SI' : ''
     };
   });
 }
@@ -2905,7 +2910,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '26-sep · vivo 2';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '28-sep · vivo 3';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -3152,7 +3157,6 @@ function actualizarLeyenda(){
   document.getElementById('leyViento').hidden = !vientoVisible;
   document.getElementById('leyTemp').hidden = !tempVisible;
   document.getElementById('leyRayos').hidden = !rayosVisible;
-  if(typeof pintarSatMenu === 'function') pintarSatMenu();
   // Sobre el satélite (oscuro de noche) el viento usa una paleta clara; la barra de la leyenda la sigue.
   document.querySelector('#leyViento .barra').classList.toggle('claro', nubesVisible);
   document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible || rayosVisible);
@@ -3278,28 +3282,14 @@ let nubesBuscando = false;
 let nubesIntervalId = null;
 let nubesInfo = null; // { ts, pref, url, nz, tiempo, fuente, atrib }
 
-/* ---------- SSEC RealEarth (Universidad de Wisconsin): satélite rápido y rayos ----------
-   GOES-19 (el satélite "East") en mosaicos gratuitos y sin llave, con un retraso de pocos minutos
-   (NASA GIBS tarda ~40). El servicio avisa que no garantiza disponibilidad, así que las nubes
-   caen solas a NASA GIBS si RealEarth no responde. Todas las consultas de imagen se hacen como
-   imágenes normales (no necesitan permisos especiales del navegador). */
+/* ---------- SSEC RealEarth (Universidad de Wisconsin): rayos, respaldo de rapidez ----------
+   GOES-19 (el satélite "East") en mosaicos gratuitos y sin llave. Se usa SOLO para "Rayos y
+   tormentas" — para nubes/satélite se quitaron sus variantes (Rápida/Alta resolución/Cimas de
+   tormenta): su plan gratuito tiene un tope diario de megapíxeles y, al pasarse, TODAS sus teselas
+   salen con una marca de agua "Size limit exceeded" encima de la imagen. NASA GIBS no tiene ese
+   límite (siempre disponible, sin marca de agua) aunque publica con más retraso (~40 min vs pocos
+   minutos), así que ahora es la única fuente de satélite/nubes de la app. */
 const RT = 'https://realearth.ssec.wisc.edu';
-const FUENTES_NUBES = {
-  rapida:    { rt: 'G19-ABI-FD-geo-color',     nombre: 'Rápida',                       op: 0.6 },
-  visible:   { rt: 'G19-ABI-FD-BAND02',        nombre: 'Alta resolución (solo de día)', op: 0.7 },
-  // IR Sandwich = visible + infrarrojo a color: resalta las cimas frías de las tormentas fuertes. De noche el
-  // visible sale negro, así que ahí se usa el infrarrojo mejorado (IR).
-  tormentas: { rt: 'G19-ABI-FD-ir-sandwich',   nombre: 'Cimas de tormenta',            op: 0.75 },
-  ir:        { rt: 'G19-ABI-FD-BAND13-GRAD',   nombre: 'Infrarrojo mejorado',          op: 0.7 },
-  nasa:      { nombre: 'NASA GIBS',                                                     op: 0.6 }
-};
-// v2: al reestrenar el menú, la fuente predeterminada pasó a NASA (siempre disponible); "Rápida" (RealEarth)
-// tiene un límite gratuito diario y puede mostrar una marca de agua si se agota.
-const NUBES_FUENTE_KEY = 'gc_nubes_fuente_v2';
-let nubesFuentePref = (() => {
-  let v = null; try{ v = localStorage.getItem(NUBES_FUENTE_KEY); } catch(e){}
-  return FUENTES_NUBES[v] ? v : 'nasa';
-})();
 const dormir = ms => new Promise(r => setTimeout(r, ms));
 
 /* Presupuesto de RealEarth. Su plan gratuito permite ~500 megapíxeles por cada 24 h (por conexión); al pasarse,
@@ -3418,21 +3408,6 @@ function probarImagen(url, ms){
   });
 }
 
-let ultimoMotivoRT = '';
-async function buscarNubesRT(clave){
-  const c = map.getCenter();
-  let etiqueta = 'SSEC · GOES-19';
-  if(clave === 'visible' && !esDeDia(c.lat, c.lng)){ ultimoMotivoRT = 'la banda visible no sirve de noche'; return null; }
-  if(clave === 'tormentas' && !esDeDia(c.lat, c.lng)){ clave = 'ir'; etiqueta = 'SSEC · GOES-19 (infrarrojo, de noche)'; }
-  const id = FUENTES_NUBES[clave].rt;
-  const h = await rtUltimaHora(id);
-  const plantilla = await rtPlantillaQueResponde(id, h, 4);
-  if(!plantilla){ ultimoMotivoRT = `sin imágenes de ${id}` + (h ? '' : ' (y no se pudo leer la hora)'); return null; }
-  const nz = await rtZoomNativo(plantilla, id);
-  return { url: plantilla, nz, tiempo: h ? h.ms : null, fuente: etiqueta, op: FUENTES_NUBES[clave].op,
-           atrib: 'Nubes: NOAA GOES-19 · <a href="https://realearth.ssec.wisc.edu" target="_blank" rel="noopener">SSEC RealEarth</a>' };
-}
-
 async function buscarNubesGIBS(){
   // Se empieza 20 min atrás y se retrocede de 10 en 10 hasta ~100 min.
   const base = Math.floor((Date.now() - 20 * 60 * 1000) / NUBES_PASO_MS) * NUBES_PASO_MS;
@@ -3448,26 +3423,14 @@ async function buscarNubesGIBS(){
   return null;
 }
 
+// Única fuente de satélite/nubes: NASA GIBS (sin límite diario ni marca de agua).
 async function buscarImagenNubes(){
-  if(nubesInfo && nubesInfo.pref === nubesFuentePref && (Date.now() - nubesInfo.ts) < 5 * 60 * 1000) return nubesInfo;
-  let info = null, motivo = '';
-  if(nubesFuentePref !== 'nasa' && rtPresupuestoAgotado()){
-    motivo = 'se alcanzó el límite diario gratuito de RealEarth';
-  } else if(nubesFuentePref !== 'nasa'){
-    info = await buscarNubesRT(nubesFuentePref);
-    if(!info) motivo = ultimoMotivoRT;
-    // De noche la banda visible no sirve: se pasa a la versión "Rápida" antes de recurrir a NASA.
-    if(!info && nubesFuentePref === 'visible'){ info = await buscarNubesRT('rapida'); if(info) info.fuente = 'SSEC · GOES-19 (color)'; }
-  }
-  if(!info){
-    info = await buscarNubesGIBS();
-    if(info && nubesFuentePref !== 'nasa') info.fuente = 'NASA (respaldo)';
-  }
-  if(!info){ setEstadoSat('nubes', 'ninguna fuente respondió' + (motivo ? ' · ' + motivo : '')); return null; }
-  nubesInfo = { ...info, ts: Date.now(), pref: nubesFuentePref };
+  if(nubesInfo && (Date.now() - nubesInfo.ts) < 5 * 60 * 1000) return nubesInfo;
+  const info = await buscarNubesGIBS();
+  if(!info){ setEstadoSat('nubes', 'NASA GIBS no respondió'); return null; }
+  nubesInfo = { ...info, ts: Date.now() };
   let est = info.fuente;
   if(info.tiempo){ const { hora, min } = textoEdad(info.tiempo); est += ` · imagen de las ${hora} (hace ${min} min)`; }
-  if(/respaldo/.test(info.fuente) && motivo) est += ` · RealEarth: ${motivo}`;
   setEstadoSat('nubes', est);
   return nubesInfo;
 }
@@ -3476,10 +3439,8 @@ function aplicarCapaNubes(info){
   if(capaNubes){ quitarSuavizado(capaNubes); map.removeLayer(capaNubes); capaNubes = null; }
   capaNubes = L.tileLayer(info.url, {
     opacity:info.op || 0.6, maxZoom:18, maxNativeZoom:info.nz, zIndex:4, className:'capa-suave', ...ROT_TILE,
-    ...(/SSEC/.test(info.fuente) ? { updateWhenIdle: true, keepBuffer: 1 } : {}),
     attribution: info.atrib
   }).addTo(map);
-  if(/SSEC/.test(info.fuente)) contarTeselasRT(capaNubes);
   registrarSuavizado(capaNubes, info.nz);
   let txt = 'Imagen más reciente disponible';
   if(info.tiempo){ const { hora, min } = textoEdad(info.tiempo); txt = `Imagen de las ${hora} · hace ${min} min`; }
@@ -3519,30 +3480,10 @@ function desactivarNubes(){
   actualizarLeyenda();
 }
 
-/* Menú "Satélite": al tocarlo se despliegan las fuentes; elegir una enciende la capa (o cambia de fuente). */
-function pintarSatMenu(){
-  document.querySelectorAll('#satMenu [data-sat]').forEach(b => b.classList.toggle('sel', nubesVisible && b.dataset.sat === nubesFuentePref));
-  const off = document.getElementById('satApagar'); if(off) off.hidden = !nubesVisible;
-}
 document.getElementById('btnNubes').addEventListener('click', () => {
-  const menu = document.getElementById('satMenu');
-  menu.hidden = !menu.hidden;
-  document.getElementById('btnNubes').classList.toggle('abierto', !menu.hidden);
-  pintarSatMenu();
+  if(!navigator.onLine){ mostrarToast('Sin señal: el satélite necesita conexión a internet'); return; }
+  if(nubesVisible) desactivarNubes(); else activarNubes();
 });
-document.querySelectorAll('#satMenu [data-sat]').forEach(b => {
-  b.addEventListener('click', () => {
-    if(!navigator.onLine){ mostrarToast('Sin señal: el satélite necesita conexión a internet'); return; }
-    const v = b.dataset.sat;
-    if(nubesVisible && v === nubesFuentePref) return; // ya está esa fuente: solo se cierra el menú
-    nubesFuentePref = v;
-    try{ localStorage.setItem(NUBES_FUENTE_KEY, v); } catch(e){}
-    nubesInfo = null;
-    if(nubesVisible) refrescarNubes(); else activarNubes();
-    pintarSatMenu();
-  });
-});
-document.getElementById('satApagar').addEventListener('click', () => { desactivarNubes(); pintarSatMenu(); });
 
 /* ---------- Rayos y tormentas: destellos de GOES (GLM) vía SSEC RealEarth ----------
    El sensor GLM del satélite detecta rayos (nube-nube y nube-tierra) y RealEarth los publica cada
@@ -4392,6 +4333,7 @@ function pasaFiltro(p){
   const okEstado = estadoFiltro.estado === 'Todos' || !p.estado || p.estado === estadoFiltro.estado;
   const okLocalidad = estadoFiltro.localidad === 'Todas' || p.localidad === estadoFiltro.localidad;
   const okFrecuencia = estadoFiltro.frecuencia === 'Todas' || p.frecuencia === estadoFiltro.frecuencia;
+  const okTipoNegocio = estadoFiltro.tipoNegocio === 'Todos' || p.tipoNegocio === estadoFiltro.tipoNegocio;
   const okPrioridad = !estadoFiltro.soloPrioridad || !!p.prioridad;
   const okVencidos = !estadoFiltro.soloVencidos || estaVencido(p);
   const okBusqueda = (() => {
@@ -4409,7 +4351,7 @@ function pasaFiltro(p){
     }
     return false;
   })();
-  return okEstatus && okEstado && okLocalidad && okFrecuencia && okPrioridad && okVencidos && okBusqueda;
+  return okEstatus && okEstado && okLocalidad && okFrecuencia && okTipoNegocio && okPrioridad && okVencidos && okBusqueda;
 }
 
 function localidadesDisponibles(){
@@ -5206,7 +5148,7 @@ async function detectarLugarParaTemp(lat, lng){
 const sheet = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheetBody');
 let currentTab = 'lista';
-let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', soloPrioridad: false, soloVencidos: false, radioKm: '100' };
+let estadoFiltro = { estatus: 'Todos', estado: 'Todos', localidad: 'Todas', frecuencia: 'Todas', tipoNegocio: 'Todos', soloPrioridad: false, soloVencidos: false, radioKm: '100' };
 let radioCentro = null; // {lat,lng} desde donde se mide "Distancia a la redonda" en la lista
 
 // El filtro de distancia solo agrupa/oculta en la LISTA de prospectos; el
@@ -5893,7 +5835,14 @@ function renderAjustes(){
     <div class="save-row">
       <button class="btn primary" id="btnImportarAjustes" style="flex:1">⭳ Importar CSV / JSON</button>
     </div>
-    <div style="font-size:11px; color:var(--text-dim); margin-top:22px; text-align:center;">Versión ${APP_BUILD}</div>
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Identificador de versión</div>
+    <div style="background:var(--surface-2); border-radius:14px; padding:16px; text-align:center; margin-bottom:10px;">
+      <div style="font-size:17px; font-weight:700; color:var(--teal);">${APP_BUILD}</div>
+    </div>
+    <div class="save-row" style="margin-bottom:10px;">
+      <button class="btn" id="btnForzarRecarga" style="flex:1;">↻ Forzar recarga (limpiar caché)</button>
+    </div>
+    <div style="font-size:11px; color:var(--text-dim); text-align:center;">Úsalo si sospechas que tu celular se quedó con una versión vieja de la app.</div>
   `;
   sheetBody.querySelectorAll('[data-tema]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -5931,6 +5880,27 @@ function renderAjustes(){
   document.getElementById('btnZonaOfflineAjustes').addEventListener('click', () => {
     cambiarTab('zonas', 'mapa');
   });
+  document.getElementById('btnForzarRecarga').addEventListener('click', forzarRecargaApp);
+}
+
+// Borra el caché del Service Worker (shell + tiles) y lo da de baja antes de
+// recargar — a diferencia de location.reload(true) (que en navegadores
+// modernos no sirve de nada cuando hay un Service Worker interceptando las
+// peticiones), esto SÍ garantiza que el celular deje de servir el shell
+// viejo que tenía guardado y descargue la versión nueva desde cero.
+async function forzarRecargaApp(){
+  mostrarToast('Limpiando caché…');
+  try{
+    if('caches' in window){
+      const claves = await caches.keys();
+      await Promise.all(claves.map(k => caches.delete(k)));
+    }
+    if('serviceWorker' in navigator){
+      const registros = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registros.map(r => r.unregister()));
+    }
+  } catch(err){ /* aunque falle algo de lo anterior, igual se recarga */ }
+  location.reload();
 }
 
 /* ---------- Vista: Zonas guardadas sin señal ---------- */
@@ -5985,7 +5955,7 @@ function renderLista(){
 
   const localidades = localidadesDisponibles();
 
-  const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia']
+  const filtrosActivos = ['estatus', 'estado', 'localidad', 'frecuencia', 'tipoNegocio']
     .filter(k => estadoFiltro[k] !== 'Todos' && estadoFiltro[k] !== 'Todas').length
     + (textoBusqueda ? 1 : 0)
     + (estadoFiltro.soloPrioridad ? 1 : 0)
@@ -6058,6 +6028,13 @@ function renderLista(){
           </select>
         </div>
         <div class="filtro-compacto-item">
+          <label>Tipo de negocio</label>
+          <select id="selTipoNegocio">
+            <option value="Todos">Todos</option>
+            ${TIPO_NEGOCIO_OPTS.map(t => `<option value="${t}" ${estadoFiltro.tipoNegocio===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="filtro-compacto-item">
           <label>Distancia</label>
           <select id="selRadio">
             ${['Sin límite','10','25','50','100'].map(v => `<option value="${v}" ${estadoFiltro.radioKm===v?'selected':''}>${v === 'Sin límite' ? 'Sin límite' : v + ' km'}</option>`).join('')}
@@ -6110,6 +6087,12 @@ function renderLista(){
   const selLocalidad = document.getElementById('selLocalidad');
   if(selLocalidad) selLocalidad.addEventListener('change', () => {
     estadoFiltro.localidad = selLocalidad.value;
+    renderLista();
+    renderMarcadores();
+  });
+  const selTipoNegocio = document.getElementById('selTipoNegocio');
+  if(selTipoNegocio) selTipoNegocio.addEventListener('change', () => {
+    estadoFiltro.tipoNegocio = selTipoNegocio.value;
     renderLista();
     renderMarcadores();
   });
@@ -7389,10 +7372,15 @@ function sincronizarResaltadoEdicion(){
       if(mOriginal && markersLayer.hasLayer(mOriginal)) markersLayer.removeLayer(mOriginal);
     }
   } else if(resaltadoModo === 'edicion'){
-    const idPrevio = resaltadoId;
+    // Antes se intentaba reinsertar el mismo objeto "mOriginal" que se había
+    // quitado al entrar a editar — frágil: si mientras tanto se guardó el
+    // cambio (que ya reconstruye TODOS los pines con renderMarcadores) ese
+    // marcador viejo quedaba huérfano y el punto no volvía a aparecer hasta
+    // salir y entrar de nuevo a la app. Reconstruir todos los pines aquí
+    // mismo es más caro pero siempre correcto, y solo pasa una vez al salir
+    // de la ficha de edición (no en cada tecla).
     quitarResaltado();
-    const mOriginal = marcadoresPorId.get(idPrevio);
-    if(mOriginal && !markersLayer.hasLayer(mOriginal)) markersLayer.addLayer(mOriginal);
+    renderMarcadores();
   }
 }
 
@@ -7450,8 +7438,6 @@ function abrirDrawer(){
 }
 function cerrarDrawer(){
   cerrarFlyout();
-  const sm = document.getElementById('satMenu');
-  if(sm){ sm.hidden = true; document.getElementById('btnNubes').classList.remove('abierto'); }
   drawerScrim.classList.remove('open');
   drawerEl.classList.remove('open');
   drawerEl.setAttribute('aria-hidden', 'true');
@@ -8020,22 +8006,26 @@ async function _ejecutarCancelacionVenta(venta, indices){
   //    creó sin señal y su guardado en Firestore se quedó pendiente en OTRO
   //    dispositivo (mientras el Sheet sí se alcanzó a escribir por su
   //    propio camino), el documento nunca llegó a existir aquí — un
-  //    update() a un doc inexistente falla con "not-found" y la
-  //    cancelación no pasaba de ahí, sin ningún aviso claro. set()+merge
-  //    recrea el documento completo (con lo que ya se sabe por el Sheet) si
-  //    hacía falta, y si ya existía simplemente combina los campos, igual
-  //    que antes.
+  //    update() a un doc inexistente falla con "not-found".
+  //    Si esta escritura falla por CUALQUIER motivo (sin señal incluido),
+  //    ya NO se aborta la cancelación aquí: antes, cancelar sin datos no
+  //    hacía nada. Ahora el cambio se aplica igual del lado local (abajo) y
+  //    se deja en la misma cola de respaldo que ya usan las ventas nuevas
+  //    (encolarVentaFirestorePendiente + reintentarVentasFirestorePendientes,
+  //    que ya corre sola en cada ciclo de sync) — la cancelación queda
+  //    activa de inmediato y se sincroniza sola en cuanto vuelva la señal.
+  const upd = { items: itemsActualizados, total: nuevoTotal };
+  if(seCancelaCompleta){ upd.cancelada = true; upd.canceladaEn = ahora; upd.canceladaPor = usuarioActual; }
+  let firestoreOk = false;
   try{
-    const upd = { items: itemsActualizados, total: nuevoTotal };
-    if(seCancelaCompleta){ upd.cancelada = true; upd.canceladaEn = ahora; upd.canceladaPor = usuarioActual; }
     await dbVentaRuta.collection('ventas_ruta').doc(idInterno).set(Object.assign({}, venta, upd), { merge: true });
-  } catch(err){
-    mostrarToast('No se pudo cancelar (revisa tu señal): ' + (err.code || err.message));
-    return;
-  }
+    firestoreOk = true;
+  } catch(err){ /* sin señal (u otro error): se aplica local + se encola, ver abajo */ }
+
   venta.items = itemsActualizados;
   venta.total = nuevoTotal;
   if(seCancelaCompleta) venta.cancelada = true;
+  if(!firestoreOk) encolarVentaFirestorePendiente(venta);
 
   // 2) Si NO es pedido, regresar al almacén móvil lo que sí se descontó, y
   //    dejar rastro del movimiento (bitácora aparte, no solo el saldo nuevo)
@@ -8085,16 +8075,13 @@ async function _ejecutarCancelacionVenta(venta, indices){
   }
   if(filasMovimiento.length) await sincronizarMovimientosASheet(filasMovimiento); // bitácora, cola offline propia
 
-  // 3) Reflejar la cancelación en el Sheet (ventasRuta) para que el reporte no la cuente
-  try{
-    const filas = filasVentaParaSheet(venta).map(function(f, i){
-      f.cancelada = (itemsActualizados[i] && itemsActualizados[i].cancelado) ? 'SI' : '';
-      return f;
-    });
-    await fetch(SHEET_ENDPOINT, { method: 'POST', body: JSON.stringify({ recurso: 'ventasRuta', upserts: filas }) });
-  } catch(err){
-    // No es crítico: Firestore ya quedó marcada. Se puede reintentar en el próximo sync si hace falta.
-  }
+  // 3) Reflejar la cancelación en el Sheet (ventasRuta) para que el reporte
+  //    no la cuente. filasVentaParaSheet ya marca "cancelada" por línea
+  //    leyendo it.cancelado de cada item (ver más abajo), así que basta con
+  //    reusar el mismo sincronizador que usan las ventas nuevas — que ya
+  //    trae su propia cola offline (reintentarVentasRutaPendientes) en vez
+  //    de perderse en silencio si no hay señal.
+  await sincronizarVentaRutaASheet(venta);
 
   // 4) Reflejar en la caché local de "Mis ventas"
   const cache = _cargarMisVentasCache() || [];
