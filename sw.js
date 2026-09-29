@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v41';
+const CACHE_SHELL = 'rutas-gc-shell-v42';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -14,20 +14,47 @@ const SHELL_ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './denue-import.json',
+  './leaflet-rotate.js',
+  './logos-marcas.js',
+  './fronteras.json',
+  './localidades.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css',
   'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css',
-  'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js'
+  'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js',
+  // Firebase (bloquea el arranque de la app si no carga) y librerías de PDF/Excel:
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js'
 ];
 
+// Precarga tolerante: cada archivo por separado. Antes un solo cache.addAll: si UNO fallaba
+// (por ejemplo por señal débil) no se guardaba NINGUNO y la app quedaba sin caché.
+// Si el servidor externo no permite CORS se guarda igual la respuesta "opaca", que
+// sirve para cargar el <script> sin conexión.
+async function precargarShell(){
+  const cache = await caches.open(CACHE_SHELL);
+  await Promise.all(SHELL_ASSETS.map(async (url) => {
+    try{
+      if(await cache.match(url)) return;
+      const resp = await fetch(url, { cache: 'reload' });
+      if(resp && (resp.ok || resp.type === 'opaque')){ await cache.put(url, resp); return; }
+    } catch(e){}
+    try{
+      const resp = await fetch(new Request(url, { mode: 'no-cors' }));
+      if(resp) await cache.put(url, resp);
+    } catch(e){}
+  }));
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_SHELL).then((cache) => cache.addAll(SHELL_ASSETS)).catch(() => {
-      // Si falla el precache (p.ej. sin señal en la primera instalación),
-      // no tronar la instalación; se irá cacheando bajo demanda con fetch.
-    })
-  );
+  event.waitUntil(precargarShell().catch(() => {
+    // Si falla el precache (p.ej. sin señal en la primera instalación),
+    // no tronar la instalación; se irá cacheando bajo demanda con fetch.
+  }));
   self.skipWaiting();
 });
 
@@ -102,14 +129,21 @@ self.addEventListener('fetch', (event) => {
   // esta petición puntual — sin esto, el "fetch de red" de aquí podía
   // recibir una respuesta vieja igual, y la app tardaba mucho más de lo
   // esperado en reflejar cambios nuevos.
+  const esNavegacion = request.mode === 'navigate';
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.match(request, esNavegacion ? { ignoreSearch: true } : undefined).then((cachedDirecto) => {
+      const cached = cachedDirecto || (esNavegacion ? caches.match('./index.html') : null);
+      return Promise.resolve(cached);
+    }).then((cached) => {
       const network = fetch(request, { cache: 'reload' })
         .then((response) => {
           // Clonamos de inmediato, antes de que nadie más pueda leer el
           // cuerpo de la respuesta — evita el error "Response body is
           // already used" si esta misma respuesta llega a tocarse dos veces.
-          if (response && response.status === 200) {
+          // Las respuestas opacas (sin CORS) solo se guardan si son scripts/estilos: cada una
+          // cuenta ~7 MB de cuota en Chrome, no conviene guardar imágenes así.
+          const opacaUtil = response && response.type === 'opaque' && (request.destination === 'script' || request.destination === 'style');
+          if (response && (response.status === 200 || opacaUtil)) {
             const copy = response.clone();
             caches.open(CACHE_SHELL).then((cache) => cache.put(request, copy)).catch(() => {});
           }
