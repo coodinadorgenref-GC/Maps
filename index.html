@@ -615,6 +615,7 @@
   }
 
   .save-row{ display:flex; gap:8px; margin-top:6px; }
+  .save-row.fija{ position:sticky; bottom:0; z-index:3; background:var(--surface); padding:10px 0 14px; }
 
   .chip-row{ display:flex; gap:6px; overflow-x:auto; padding-bottom:10px; margin-bottom:6px; }
   .chip{
@@ -1657,9 +1658,7 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
       (esPedido ? "Pedido " : "Venta ") + venta.folio + " registrado."
       + (skusManuales.length ? " Ojo: " + skusManuales.join(", ") + " se capturó sin precio de catálogo." : "")
     );
-    compartirTicketVenta(venta, pdfBlob).catch(function(err){
-      console.warn("No se pudo compartir el ticket automáticamente:", err);
-    });
+    mostrarEnvioTicket(venta, pdfBlob);
   } catch (err) {
     errEl.innerText = "No se pudo guardar la venta: " + err.message;
     errEl.style.display = "block";
@@ -1674,27 +1673,76 @@ function generarPdfTicketVenta(venta){
 }
  
 /* ---------- Compartir por WhatsApp ---------- */
+// navigator.share() solo funciona dentro de un toque reciente del usuario. Antes se
+// llamaba automáticamente después de guardar (con esperas de red y de PDF de por
+// medio), el navegador lo rechazaba y caía al respaldo SIN el PDF. Ahora, al guardar,
+// aparece una tarjeta con un botón "Enviar PDF por WhatsApp": ese toque sí es válido.
+function telefonoParaWhatsApp(tel){
+  const d = String(tel || '').replace(/\D/g, '');
+  return d.length === 10 ? '52' + d : d;
+}
 async function compartirTicketVenta(venta, pdfBlob){
   const archivo = new File([pdfBlob], venta.folio + ".pdf", { type: "application/pdf" });
-  const textoResumen = "Ticket " + venta.folio + " — " + venta.cliente + " — $" + venta.total.toFixed(2);
- 
-  // Android Chrome / apps compatibles: comparte el PDF directo al
-  // WhatsApp del cliente desde el share sheet nativo.
+  const textoResumen = (venta.tipoNota === "pedido" ? "Pedido " : "Nota de venta ") + venta.folio + " — " + venta.cliente + " — $" + venta.total.toFixed(2);
+
+  // Android Chrome / iOS recientes: comparte el PDF directo; en la hoja se elige WhatsApp
+  // y el chat del cliente.
   if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
     try {
-      await navigator.share({ files: [archivo], title: "Ticket " + venta.folio, text: textoResumen });
-      return;
-    } catch (e) { /* el usuario canceló el share sheet: sigue al respaldo */ }
+      await navigator.share({ files: [archivo], title: venta.folio, text: textoResumen });
+      return true;
+    } catch (e) {
+      if (e && e.name === "AbortError") return false; // cerró la hoja a propósito
+    }
   }
- 
-  // Respaldo (iOS Safari y navegadores sin Web Share con archivos):
-  // descarga el PDF y abre WhatsApp solo con el texto — el vendedor
-  // adjunta el PDF ya descargado manualmente en el chat.
+
+  // Respaldo (navegadores sin compartir archivos): baja el PDF y abre el chat de WhatsApp
+  // YA en el número del cliente; ahí se adjunta el PDF recién descargado.
   const url = URL.createObjectURL(pdfBlob);
   const a = document.createElement("a");
   a.href = url; a.download = venta.folio + ".pdf"; a.click();
-  URL.revokeObjectURL(url);
-  window.open("https://wa.me/?text=" + encodeURIComponent(textoResumen + " (adjunta el PDF que se acaba de descargar)"), "_blank");
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  const num = telefonoParaWhatsApp(venta.telefono);
+  mostrarToast && mostrarToast("PDF descargado: adjúntalo en el chat de WhatsApp");
+  setTimeout(function(){
+    location.href = "https://wa.me/" + num + "?text=" + encodeURIComponent(textoResumen + " (adjunto el PDF)");
+  }, 900);
+  return true;
+}
+function descargarPdfTicket(venta, pdfBlob){
+  const url = URL.createObjectURL(pdfBlob);
+  const a = document.createElement("a");
+  a.href = url; a.download = venta.folio + ".pdf"; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+function mostrarEnvioTicket(venta, pdfBlob){
+  const previo = document.getElementById("ticketEnvioOverlay");
+  if(previo) previo.remove();
+  const esPedido = venta.tipoNota === "pedido";
+  const ov = document.createElement("div");
+  ov.id = "ticketEnvioOverlay";
+  ov.className = "venta-overlay";
+  ov.innerHTML =
+    '<div class="venta-card" style="max-width:380px;">'
+    + '<div class="venta-titulo"><span>' + (esPedido ? "Pedido listo" : "Venta registrada") + '</span>'
+    + '<button type="button" data-cerrar aria-label="Cerrar">✕</button></div>'
+    + '<div class="venta-folio">' + escapeHtml(venta.folio) + ' · $' + venta.total.toFixed(2) + '</div>'
+    + '<div style="font-size:13px; margin:6px 0 14px;">' + escapeHtml(venta.cliente || "")
+    + (venta.telefono ? '<br><span style="color:var(--text-dim);">' + escapeHtml(venta.telefono) + '</span>' : '') + '</div>'
+    + '<button type="button" class="btn primary" data-wa style="width:100%; margin-bottom:8px;">📲 Enviar PDF por WhatsApp</button>'
+    + '<button type="button" class="btn" data-pdf style="width:100%; margin-bottom:8px;">⬇️ Solo descargar PDF</button>'
+    + '<button type="button" class="btn" data-cerrar style="width:100%;">Listo</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const cerrar = function(){ ov.remove(); };
+  ov.querySelectorAll("[data-cerrar]").forEach(function(b){ b.addEventListener("click", cerrar); });
+  ov.querySelector("[data-pdf]").addEventListener("click", function(){ descargarPdfTicket(venta, pdfBlob); });
+  // El share se invoca de forma síncrona dentro del toque (sin await antes).
+  ov.querySelector("[data-wa]").addEventListener("click", function(){
+    compartirTicketVenta(venta, pdfBlob).then(function(ok){ if(ok) cerrar(); }).catch(function(err){
+      console.warn("No se pudo compartir el ticket:", err);
+    });
+  });
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -2293,6 +2341,7 @@ function normalizarProspecto(p){
   if(!p || typeof p !== 'object') return p;
   CAMPOS_TEXTO.forEach(k => { if(p[k] != null && typeof p[k] !== 'string') p[k] = String(p[k]); });
   ['lat','lng'].forEach(k => { if(typeof p[k] === 'string' && p[k].trim() !== '' && isFinite(p[k])) p[k] = Number(p[k]); });
+  if(typeof p.proximaVisita === 'string'){ p.proximaVisita = (p.proximaVisita.trim() !== '' && isFinite(p.proximaVisita)) ? Number(p.proximaVisita) : null; }
   return p;
 }
 
@@ -2956,7 +3005,19 @@ const ESTADOS = ['Yucatán','Quintana Roo'];
 // "Ocasional" no tiene calendario fijo: nunca se marca como vencido.
 const DIAS_POR_FRECUENCIA = { 'Semanal': 7, 'Quincenal': 15, 'Mensual': 30 };
 
+// Día de visita elegido a mano. Vale mientras sea posterior a la última visita
+// registrada: al marcar la visita (fecha de última visita igual o mayor) se vuelve a
+// usar el cálculo por frecuencia, sin tener que borrarlo.
+function proximaVisitaManual(p){
+  const t = Number(p.proximaVisita);
+  if(!t || !isFinite(t)) return null;
+  if(p.fechaUltimaVisita && t <= p.fechaUltimaVisita) return null;
+  return t;
+}
+function inicioDelDia(t){ const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function diasParaVisita(p){
+  const manual = proximaVisitaManual(p);
+  if(manual) return Math.round((inicioDelDia(manual) - inicioDelDia(Date.now())) / 86400000);
   const intervalo = DIAS_POR_FRECUENCIA[p.frecuencia];
   if(!intervalo || !p.fechaUltimaVisita) return null;
   const proxima = p.fechaUltimaVisita + intervalo * 86400000;
@@ -3023,7 +3084,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '29-sep · sync 1';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '30-sep · ajustes 1';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -4562,7 +4623,7 @@ function renderMarcadores(){
       m.prospectoEstatus = p.estatus;
       m.on('popupopen', e => {
         const b = e.popup.getElement() && e.popup.getElement().querySelector('.pop-venta');
-        if(b) b.onclick = () => { m.closePopup(); abrirVentaRuta(p.nombre, p.contactoTel); };
+        if(b) b.onclick = () => { m.closePopup(); abrirVentaRuta(p.nombre, telefonoDeProspecto(p)); };
       });
 
       // Mantener presionado ~3s muestra la etiqueta (popup) sin entrar a
@@ -4577,7 +4638,12 @@ function renderMarcadores(){
           etiquetaMostrada = false;
           temporizadorPress = setTimeout(() => { etiquetaMostrada = true; m.openPopup(); }, 3000);
         };
-        const cancelarPress = () => { if(temporizadorPress){ clearTimeout(temporizadorPress); temporizadorPress = null; } };
+        const cancelarPress = () => {
+          if(temporizadorPress){ clearTimeout(temporizadorPress); temporizadorPress = null; }
+          // Si tras la pulsación larga no llegó ningún "click" (el dedo se movió), la
+          // bandera se quedaba en true y el siguiente toque real se ignoraba.
+          if(etiquetaMostrada) setTimeout(() => { etiquetaMostrada = false; }, 700);
+        };
         el.addEventListener('touchstart', iniciarPress, { passive: true });
         el.addEventListener('touchend', cancelarPress);
         el.addEventListener('touchmove', cancelarPress);
@@ -5805,7 +5871,8 @@ function renderAgenda(){
 
   const filas = visitas.map(({ p, dias }) => {
     const vencido = dias <= 0;
-    const fecha = new Date(Date.now() + Math.max(dias, 0) * 86400000);
+    const manual = proximaVisitaManual(p);
+    const fecha = manual ? new Date(manual) : new Date(Date.now() + Math.max(dias, 0) * 86400000);
     const diaTxt = vencido ? 'Vencido' : fecha.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
     const poblacion = p.localidad || p.municipio || '—';
     return `
@@ -6838,7 +6905,6 @@ function renderFormAlta(){
       <div class="loc-row" style="margin-bottom:0;">
         ${!p ? `<button class="btn" type="button" id="btnMostrarEnlaceMaps">🔗 Enlace</button>` : ''}
         <button class="btn" type="button" id="btnAbrirEnMaps">📍 Abrir / compartir ubicación</button>
-        <button class="btn" type="button" id="btnMostrarContacto">💬 Contacto</button>
       </div>
       ${!p ? `<div id="bloqueEnlaceMaps" style="display:none; margin-top:8px;">
         <div class="loc-row" style="margin-bottom:4px;">
@@ -6847,15 +6913,15 @@ function renderFormAlta(){
         </div>
         <div style="font-size:10px; color:var(--text-dim);">Enlaces cortos (goo.gl): ábrelos una vez y pega la URL larga.</div>
       </div>` : ''}
-      <div id="bloqueContacto" style="display:${p && (p.contactoNombre || p.contactoTel) ? 'block' : 'none'}; margin-top:10px;">
+      <div id="bloqueContacto" style="display:block; margin-top:10px;">
         <div class="fila-2col">
           <div class="field" style="margin-bottom:0;">
             <label>Nombre del contacto</label>
-            <input type="text" id="fContactoNombre" placeholder="Ej. Don Miguel" value="${p ? escapeHtml(p.contactoNombre||'') : ''}">
+            <input type="text" id="fContactoNombre" placeholder="Ej. Don Miguel" autocomplete="off" autocapitalize="words" enterkeyhint="next" value="${p ? escapeHtml(p.contactoNombre||'') : ''}">
           </div>
           <div class="field" style="margin-bottom:0;">
             <label>Teléfono (WhatsApp)</label>
-            <input type="tel" inputmode="numeric" pattern="[0-9]*" id="fContactoTel" placeholder="Ej. 9851234567" value="${p ? escapeHtml(p.contactoTel||'') : ''}">
+            <input type="tel" inputmode="numeric" pattern="[0-9]*" id="fContactoTel" placeholder="Ej. 9851234567" autocomplete="off" enterkeyhint="done" value="${p ? escapeHtml(p.contactoTel||'') : ''}">
           </div>
         </div>
         <div class="loc-row" style="margin-top:10px; margin-bottom:0;">
@@ -6879,7 +6945,7 @@ function renderFormAlta(){
 
     <div class="field">
       <label>Nombre del negocio</label>
-      <input type="text" id="fNombre" placeholder="Ej. Refaccionaria Los 3 Hermanos" value="${p ? escapeHtml(p.nombre) : ''}">
+      <input type="text" id="fNombre" placeholder="Ej. Refaccionaria Los 3 Hermanos" autocomplete="off" autocapitalize="words" enterkeyhint="next" value="${p ? escapeHtml(p.nombre) : ''}">
     </div>
     <div class="field">
       <label>Tipo de negocio</label>
@@ -6894,18 +6960,24 @@ function renderFormAlta(){
       <select id="fModoOperacion"></select>
       <input type="text" id="fModoOperacionOtro" placeholder="Escribe el modo de operación…" style="display:none; margin-top:6px;">
     </div>
-    <div class="fila-2col">
+    <div>
       <div class="field">
         <label>Estatus</label>
-        <select id="fEstatus">
+        <select id="fEstatus" style="display:none;">
           ${ESTATUS.map(e => `<option ${p && p.estatus===e ? 'selected':''}>${e}</option>`).join('')}
         </select>
+        <div class="chip-row chips-sel" data-sel="fEstatus" style="flex-wrap:wrap; padding-bottom:0; margin-bottom:0;">
+          ${ESTATUS.map(e => `<button type="button" class="chip ${((p && p.estatus) || ESTATUS[0])===e ? 'active':''}" data-valor="${e}">${e}</button>`).join('')}
+        </div>
       </div>
-      <div class="field">
-        <label>Frecuencia de visita</label>
-        <select id="fFrecuencia">
-          ${FRECUENCIA.map(f => `<option ${p && p.frecuencia===f ? 'selected':''}>${f}</option>`).join('')}
-        </select>
+    </div>
+    <div class="field">
+      <label>Frecuencia de visita</label>
+      <select id="fFrecuencia" style="display:none;">
+        ${FRECUENCIA.map(f => `<option ${p && p.frecuencia===f ? 'selected':''}>${f}</option>`).join('')}
+      </select>
+      <div class="chip-row chips-sel" data-sel="fFrecuencia" style="flex-wrap:wrap; padding-bottom:0; margin-bottom:0;">
+        ${FRECUENCIA.map(f => `<button type="button" class="chip ${((p && p.frecuencia) || FRECUENCIA[0])===f ? 'active':''}" data-valor="${f}">${f}</button>`).join('')}
       </div>
     </div>
     <div class="field" id="campoMotivoDescarte" style="display:none;">
@@ -6914,11 +6986,25 @@ function renderFormAlta(){
       <input type="text" id="fMotivoDescarteOtro" placeholder="Escribe el motivo…" style="display:none; margin-top:6px;">
     </div>
     <div class="field">
-      <label>Fecha de última visita</label>
-      <input type="date" id="fFechaVisita" value="${p && p.fechaUltimaVisita ? new Date(p.fechaUltimaVisita).toISOString().slice(0,10) : ''}">
+      <label>Última visita</label>
+      <div class="loc-row" style="margin-bottom:0;">
+        <input type="date" id="fFechaVisita" style="flex:1; min-width:0;" value="${p && p.fechaUltimaVisita ? fechaLocalISO(new Date(p.fechaUltimaVisita)) : ''}">
+        <button class="btn" type="button" id="btnVisitaHoy" style="flex:0 0 auto;">Hoy</button>
+      </div>
     </div>
     <div class="field">
-      <button class="btn" type="button" id="btnVisitaHoy" style="width:100%;">Marcar visitado hoy</button>
+      <label>Siguiente visita</label>
+      <div class="loc-row" style="margin-bottom:6px;">
+        <input type="date" id="fProxVisita" style="flex:1; min-width:0;" value="${p && proximaVisitaManual(p) ? fechaLocalISO(new Date(proximaVisitaManual(p))) : ''}">
+      </div>
+      <div class="chip-row" id="chipsProxVisita" style="flex-wrap:wrap; padding-bottom:0; margin-bottom:0;">
+        <button type="button" class="chip" data-dias="1">Mañana</button>
+        <button type="button" class="chip" data-dias="3">En 3 días</button>
+        <button type="button" class="chip" data-dias="7">En 1 semana</button>
+        <button type="button" class="chip" data-dias="14">En 2 semanas</button>
+        <button type="button" class="chip" data-dias="0">Quitar</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-dim); margin-top:5px;">Si la dejas vacía se calcula con la frecuencia y la última visita.</div>
     </div>
     ${p && textoEstadoVisita(p) ? `<div style="font-size:12px; color:${estaVencido(p) ? 'var(--danger)' : 'var(--text-dim)'}; margin:0 0 12px;">${textoEstadoVisita(p)}</div>` : ''}
     <div class="field">
@@ -6932,7 +7018,7 @@ function renderFormAlta(){
       </label>
     </div>
 
-    <div class="save-row">
+    <div class="save-row fija">
       <button class="btn primary" id="btnGuardar" style="flex:2">Guardar</button>
       ${p ? '<button class="btn danger" id="btnEliminar">Eliminar</button>' : ''}
     </div>
@@ -7018,11 +7104,33 @@ function renderFormAlta(){
     });
   }
   document.getElementById('btnVisitaHoy').addEventListener('click', () => {
-    document.getElementById('fFechaVisita').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('fFechaVisita').value = fechaLocalISO();
   });
-  document.getElementById('btnMostrarContacto').addEventListener('click', () => {
-    const bloque = document.getElementById('bloqueContacto');
-    bloque.style.display = bloque.style.display === 'none' ? 'block' : 'none';
+  // Chips de un toque para Estatus y Frecuencia (actualizan el <select> oculto).
+  document.querySelectorAll('.chips-sel').forEach(fila => {
+    const sel = document.getElementById(fila.dataset.sel);
+    fila.querySelectorAll('.chip').forEach(btn => btn.addEventListener('click', () => {
+      sel.value = btn.dataset.valor;
+      fila.querySelectorAll('.chip').forEach(b => b.classList.toggle('active', b === btn));
+      sel.dispatchEvent(new Event('change'));
+    }));
+  });
+  // Siguiente visita: atajos de fecha.
+  document.querySelectorAll('#chipsProxVisita .chip').forEach(btn => btn.addEventListener('click', () => {
+    const dias = Number(btn.dataset.dias);
+    const f = document.getElementById('fProxVisita');
+    if(!dias){ f.value = ''; return; }
+    const d = new Date(); d.setDate(d.getDate() + dias);
+    f.value = fechaLocalISO(d);
+  }));
+  // Enter pasa al siguiente campo (nombre → contacto → teléfono).
+  [['fNombre','fContactoNombre'],['fContactoNombre','fContactoTel']].forEach(([a, b]) => {
+    document.getElementById(a).addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ e.preventDefault(); document.getElementById(b).focus(); }
+    });
+  });
+  document.getElementById('fContactoTel').addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); e.target.blur(); }
   });
   document.getElementById('fContactoTel').addEventListener('input', (e) => {
     const limpio = e.target.value.replace(/\D/g, '');
@@ -7114,6 +7222,23 @@ function comprimirFotoFachada(file){
   });
 }
 
+// Fecha local AAAA-MM-DD (toISOString() usa UTC y en México, después de las 6 pm,
+// devolvía el día siguiente).
+function fechaLocalISO(d){
+  d = d || new Date();
+  const z = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+}
+// Teléfono del prospecto: el capturado a mano o, si no hay, el que trae el DENUE
+// dentro de las notas ("… · 9871012139"), para que Nueva venta / WhatsApp lo precarguen.
+function telefonoDeProspecto(p){
+  if(!p) return '';
+  const propio = String(p.contactoTel || '').replace(/\D/g, '');
+  if(propio) return propio;
+  const m = String(p.notas || '').match(/(?<!\d)(\d{10})(?!\d)/);
+  return m ? m[1] : '';
+}
+
 // Abre WhatsApp con el mensaje ya escrito (no lo envía solo: se revisa antes
 // de mandarlo). El número se normaliza a formato internacional; si trae 10
 // dígitos se asume México (+52).
@@ -7129,7 +7254,7 @@ function enviarWhatsApp(telefono, nombreContacto, nombreNegocio){
 
   const saludo = nombreContacto ? ` ${nombreContacto}` : '';
   const negocio = nombreNegocio || 'su negocio';
-  const mensaje = `Hola buen día${saludo}, soy Henry de Valladolid, pasé a ${negocio} para hacerle refacciones para motocicletas`;
+  const mensaje = `Hola buen día${saludo}, soy Henry de Valladolid, pasé a ${negocio} para ofrecerle refacciones para motocicletas`;
 
   location.href = `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
@@ -7175,6 +7300,8 @@ function guardarDesdeForm(){
   const prioridad = document.getElementById('fPrioridad').checked;
   const fechaVisitaTexto = document.getElementById('fFechaVisita').value;
   const fechaUltimaVisita = fechaVisitaTexto ? new Date(fechaVisitaTexto + 'T12:00:00').getTime() : null;
+  const proxTexto = document.getElementById('fProxVisita').value;
+  const proximaVisita = proxTexto ? new Date(proxTexto + 'T12:00:00').getTime() : null;
   const contactoNombre = document.getElementById('fContactoNombre').value.trim();
   const contactoTel = document.getElementById('fContactoTel').value.trim();
   // Si es "Otro" y no se alcanzó a confirmar (blur) antes de tocar Guardar,
@@ -7195,7 +7322,7 @@ function guardarDesdeForm(){
 
   if(editandoId){
     const p = prospectos.find(x => x.id === editandoId);
-    Object.assign(p, { nombre, tipoNegocio, modoOperacionTaller, estatus, motivoDescarte, frecuencia, notas, prioridad, fechaUltimaVisita, contactoNombre, contactoTel, foto: tempFotoFachada || '', lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
+    Object.assign(p, { nombre, tipoNegocio, modoOperacionTaller, estatus, motivoDescarte, frecuencia, notas, prioridad, fechaUltimaVisita, proximaVisita, contactoNombre, contactoTel, foto: tempFotoFachada || '', lat: tempCoord.lat, lng: tempCoord.lng, pendienteSync: true, actualizadoEn: Date.now() });
     if(tempLugar){ p.municipio = tempLugar.municipio; p.localidad = tempLugar.localidad; }
   } else {
     prospectos.push({
@@ -7207,6 +7334,7 @@ function guardarDesdeForm(){
       localidad: tempLugar ? tempLugar.localidad : '',
       origen: 'Manual',
       fechaUltimaVisita,
+      proximaVisita,
       pendienteSync: true,
       actualizadoEn: Date.now()
     });
@@ -7470,7 +7598,7 @@ function resaltarProspecto(id, opciones){
     const b = e.popup.getElement() && e.popup.getElement().querySelector('.pop-ficha');
     if(b) b.onclick = () => abrirDetalle(id, 'mapa');
     const bv = e.popup.getElement() && e.popup.getElement().querySelector('.pop-venta');
-    if(bv) bv.onclick = () => { pin.closePopup(); abrirVentaRuta(p.nombre, p.contactoTel); };
+    if(bv) bv.onclick = () => { pin.closePopup(); abrirVentaRuta(p.nombre, telefonoDeProspecto(p)); };
   });
   pin.on('popupclose', () => { if(resaltadoId === id && resaltadoModo === 'busqueda'){ quitarResaltado(); sincronizarResaltadoEdicion(); } });
 
@@ -7495,7 +7623,18 @@ function sincronizarResaltadoEdicion(){
     if(resaltadoModo === 'edicion' && resaltadoId === editandoId) return;
     const p = prospectos.find(x => x.id === editandoId);
     if(p && typeof p.lat === 'number' && typeof p.lng === 'number'){
-      ponerResaltado(p, 'edicion', false);
+      // Antes este pin no era tocable: con la hoja bajada (para ver el mapa) el punto no
+      // respondía y no había forma de volver a abrir su tarjeta. Ahora muestra la tarjeta.
+      const pinEd = ponerResaltado(p, 'edicion', true);
+      pinEd.bindPopup(contenidoPopupResaltado(p), { autoClose:false, closeOnClick:true, maxWidth:260,
+        autoPanPaddingTopLeft:[12, 150], autoPanPaddingBottomRight:[12, 40] });
+      pinEd.on('popupopen', e => {
+        const el = e.popup.getElement();
+        const bf = el && el.querySelector('.pop-ficha');
+        if(bf) bf.onclick = () => { pinEd.closePopup(); abrirSheet(); }; // sin re-render: no pierde lo capturado
+        const bv = el && el.querySelector('.pop-venta');
+        if(bv) bv.onclick = () => { pinEd.closePopup(); abrirVentaRuta(p.nombre, telefonoDeProspecto(p)); };
+      });
       const mOriginal = marcadoresPorId.get(editandoId);
       if(mOriginal && markersLayer.hasLayer(mOriginal)){ markersLayer.removeLayer(mOriginal); marcadorOcultoEdicionId = editandoId; }
     }
