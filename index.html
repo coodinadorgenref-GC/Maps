@@ -6,7 +6,15 @@
 <title>Prospectos & Rutas GC</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#14181C">
-<link rel="apple-touch-icon" href="icon-192.png">
+<!-- Ícono de la pestaña del navegador (favicon) -->
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<!-- Instalable en iPhone (Safari) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rutas GC">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
@@ -204,26 +212,26 @@
     position:fixed; inset:0; z-index:5000;
     background:var(--bg);
     display:flex; align-items:center; justify-content:center;
-    padding:24px; padding-top:calc(24px + env(safe-area-inset-top));
-    padding-bottom:calc(24px + env(safe-area-inset-bottom));
+    padding:16px; padding-top:calc(16px + env(safe-area-inset-top));
+    padding-bottom:calc(16px + env(safe-area-inset-bottom));
   }
   .login-overlay[hidden]{ display:none; }
   .login-card{
-    width:100%; max-width:360px;
-    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
-    padding:26px 22px;
+    width:100%; max-width:448px;
+    background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:32px;
   }
-  .login-titulo{ font-size:19px; font-weight:700; letter-spacing:-0.2px; text-align:center; }
-  .login-sub{ font-size:12.5px; color:var(--text-dim); text-align:center; margin-top:4px; margin-bottom:20px; }
-  .login-campo{ margin-bottom:14px; }
+  .login-titulo{ font-size:24px; font-weight:700; letter-spacing:-0.2px; text-align:center; }
+  .login-sub{ font-size:14px; color:var(--text-dim); text-align:center; margin-top:6px; margin-bottom:24px; }
+  .login-campo{ margin-bottom:16px; }
   .login-campo label{ font-size:12px; color:var(--text-dim); display:block; margin-bottom:6px; }
   .login-campo input{
     width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
-    color:var(--text); border-radius:10px; padding:11px 12px; font-size:15px; outline:none;
+    color:var(--text); border-radius:12px; padding:12px 16px; font-size:16px; outline:none;
   }
   .login-campo input:focus{ border-color:var(--accent); }
   .login-pin-wrap{ position:relative; }
-  .login-pin-wrap input{ padding-right:40px; }
+  .login-pin-wrap input{ padding-right:44px; }
   .login-ojo{
     position:absolute; right:10px; top:50%; transform:translateY(-50%);
     background:none; border:none; color:var(--text-dim); cursor:pointer; padding:4px;
@@ -231,8 +239,8 @@
   .login-recordarme{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim); margin-bottom:16px; }
   .login-recordarme input{ width:16px; height:16px; }
   .login-btn{
-    width:100%; background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px;
-    padding:12px; font-size:15px; font-weight:700; cursor:pointer;
+    width:100%; background:var(--accent); color:var(--accent-ink); border:none; border-radius:12px;
+    padding:12px 16px; font-size:16px; font-weight:700; cursor:pointer;
   }
   .login-btn:disabled{ opacity:.6; cursor:default; }
   .login-error{
@@ -3084,7 +3092,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron') ? v : 'liberty';
 })();
-const APP_BUILD = '30-sep · ajustes 1';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '03-Oct · v 1 · Coo';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
