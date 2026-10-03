@@ -247,6 +247,8 @@
     display:none; background:rgba(214,95,95,.12); color:var(--danger); border:1px solid rgba(214,95,95,.35);
     font-size:12.5px; font-weight:600; padding:9px 10px; border-radius:10px; margin-bottom:14px; text-align:center;
   }
+  .ciclon-nombre{ background:rgba(20,24,28,.9); color:#fff; border:0; border-radius:8px; padding:3px 8px; font-weight:700; font-size:11.5px; box-shadow:none; }
+  .ciclon-nombre::before{ display:none; }
   .sesion-badge{ font-size:11.5px; color:var(--text-dim); margin-top:2px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
   .sesion-badge b{ color:var(--text); }
   .sesion-rol-chip{
@@ -806,6 +808,7 @@
   <button class="drawer-item" id="btnRadar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z"/></svg><span class="txt">Radar de lluvia</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Satélite</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnRayos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg><span class="txt">Rayos y tormentas</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnCiclones"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1.8" fill="currentColor"/><path d="M12 8.2a3.8 3.8 0 0 1 3.8 3.8M12 15.8A3.8 3.8 0 0 1 8.2 12M20 9A9 9 0 0 0 9 4M4 15a9 9 0 0 0 11 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Huracanes y tormentas tropicales</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnFronteras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V5l5-2 6 3 5-2v15l-5 2-6-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2"/></svg><span class="txt">Fronteras y estados</span><span class="estado"></span></button>
@@ -841,6 +844,10 @@
   <div id="leyRayos" hidden>
     <div class="titulo">⚡ Rayos · satélite GOES</div>
     <div class="nota" id="rayosNota">Buscando datos…</div>
+  </div>
+  <div id="leyCiclones" hidden>
+    <div class="titulo">🌀 Ciclones tropicales · NHC</div>
+    <div class="nota" id="ciclonesNota">Consultando…</div>
   </div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
@@ -3090,9 +3097,9 @@ const ATRIB_GL = '<a href="https://openfreemap.org" target="_blank" rel="noopene
 
 let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
-  return (v === 'clasico' || v === 'positron') ? v : 'liberty';
+  return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '03-Oct · v 1 · Coo';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '03-oct · clima 1 · Coo';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -3178,8 +3185,63 @@ function mostrarGL(){
   map.attributionControl.addAttribution(ATRIB_GL);
 }
 
+/* ---------- Mapa base "Satélite" ----------
+   Vista general: imagen real de la Tierra (NASA VIIRS, diaria, ~250 m, dominio público, sin llave): se ve nítida
+   alejado y a escala regional. Al acercar (zoom 10+) se puede sumar imagen de alta resolución de Esri (0.5–1 m)
+   SOLO si pegas tu propia llave gratuita en Configuración: el servicio de Esri la pide y no quiero que la app
+   dependa de un acceso sin llave que podría cortarse o no estar permitido para uso comercial. */
+const ESRI_KEY_KEY = 'gc_esri_key_v1';
+function esriKeyLeer(){ try{ return localStorage.getItem(ESRI_KEY_KEY) || ''; } catch(e){ return ''; } }
+function esriKeyGuardar(v){ try{ if(v) localStorage.setItem(ESRI_KEY_KEY, v); else localStorage.removeItem(ESRI_KEY_KEY); } catch(e){} }
+let capaBaseSat = null;
+const URL_VIIRS = f => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${f}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`;
+function quitarBaseSat(){ if(capaBaseSat){ capaBaseSat.eachLayer(l => quitarSuavizado(l)); map.removeLayer(capaBaseSat); capaBaseSat = null; } }
+
+async function buscarFechaViirs(){
+  // El mosaico del día se publica con retraso: se prueba ayer, antier y hace 3 días (UTC).
+  for(let d = 1; d <= 3; d++){
+    const f = new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+    if(await probarImagen(URL_VIIRS(f).replace('{z}', '3').replace('{y}', '3').replace('{x}', '2'))) return f;
+  }
+  return null;
+}
+
+async function usarBaseSatelite(){
+  const token = ++baseToken;
+  glActivo = false;
+  if(glDiv){ glDiv.style.opacity = '0'; glDiv.style.display = 'none'; }
+  map.getContainer().classList.remove('base-gl');
+  map.attributionControl.removeAttribution(ATRIB_GL);
+  setEstadoBase('clasico', 'imagen de satélite');
+  // Mientras se busca la imagen se deja el mapa clásico para que nunca quede en blanco.
+  if(!map.hasLayer(capaBaseOSM)){ capaBaseOSM.setOpacity(1); capaBaseOSM.addTo(map); }
+  map.setMaxZoom(18);
+  const fecha = await buscarFechaViirs();
+  if(token !== baseToken) return;
+  if(!fecha){ mostrarToast('No hay imagen de satélite disponible ahora; se usa el mapa clásico'); return; }
+  quitarBaseSat();
+  const capas = [ L.tileLayer(URL_VIIRS(fecha), {
+    maxZoom: 18, maxNativeZoom: 9, zIndex: 2, className: 'capa-suave', ...ROT_TILE,
+    attribution: 'Imagen: NASA GIBS · VIIRS ' + fecha
+  }) ];
+  const llave = esriKeyLeer();
+  if(llave){
+    const esri = L.tileLayer(`https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=${encodeURIComponent(llave)}`, {
+      minZoom: 10, maxZoom: 18, zIndex: 3, ...ROT_TILE, attribution: 'Imagen: Esri, Vantor, Earthstar Geographics'
+    });
+    let ok = 0, mal = 0;
+    esri.on('tileload', () => { ok++; });
+    esri.on('tileerror', () => { mal++; if(mal === 6 && !ok){ mostrarToast('La llave de Esri no funcionó; se queda la imagen de NASA'); map.removeLayer(esri); } });
+    capas.push(esri);
+  }
+  capaBaseSat = L.layerGroup(capas).addTo(map);
+  map.removeLayer(capaBaseOSM);
+  registrarSuavizado(capas[0], 9);
+}
+
 function usarBaseClasica(motivo){
   glActivo = false;
+  quitarBaseSat();
   if(estadoBase.fase !== 'fallo') setEstadoBase('clasico', motivo || '');
   if(glDiv){ glDiv.style.opacity = '0'; glDiv.style.display = 'none'; }
   if(!map.hasLayer(capaBaseOSM)){ capaBaseOSM.setOpacity(1); capaBaseOSM.addTo(map); }
@@ -3223,6 +3285,7 @@ function crearGL(estilo){
 async function activarBaseVectorial(clave){
   const token = ++baseToken;
   glActivo = true;
+  quitarBaseSat();
   try{
     if(!soportaWebGL2()) throw new Error('el navegador no ofrece WebGL2 (algunos lo bloquean por privacidad)');
     setEstadoBase('libreria');
@@ -3249,6 +3312,7 @@ async function activarBaseVectorial(clave){
 }
 
 function aplicarBaseSegunPreferencia(){
+  if(basePref === 'satelite' && navigator.onLine){ usarBaseSatelite(); return; }
   if(basePref === 'clasico' || !navigator.onLine){
     baseToken++;
     setEstadoBase('clasico', basePref === 'clasico' ? 'por tu elección' : 'sin conexión');
@@ -3339,9 +3403,10 @@ function actualizarLeyenda(){
   document.getElementById('leyViento').hidden = !vientoVisible;
   document.getElementById('leyTemp').hidden = !tempVisible;
   document.getElementById('leyRayos').hidden = !rayosVisible;
+  document.getElementById('leyCiclones').hidden = !ciclonesVisible;
   // Sobre el satélite (oscuro de noche) el viento usa una paleta clara; la barra de la leyenda la sigue.
   document.querySelector('#leyViento .barra').classList.toggle('claro', nubesVisible);
-  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible || rayosVisible);
+  document.getElementById('radarLegend').classList.toggle('visible', radarVisible || nubesVisible || vientoVisible || tempVisible || rayosVisible || ciclonesVisible);
 }
 
 async function actualizarFrameRadar(){
@@ -3624,10 +3689,22 @@ function aplicarCapaNubes(info){
     attribution: info.atrib
   }).addTo(map);
   registrarSuavizado(capaNubes, info.nz);
+  ajustarOpacidadNubes();
   let txt = 'Imagen más reciente disponible';
   if(info.tiempo){ const { hora, min } = textoEdad(info.tiempo); txt = `Imagen de las ${hora} · hace ${min} min`; }
   document.getElementById('nubesHora').textContent = `${txt} · ${info.fuente}`;
 }
+
+// El satélite en vivo (GOES) solo llega a ~2 km por píxel: al acercar se vuelve borroso. Por eso su opacidad baja
+// con el zoom y deja ver el mapa (o la imagen nítida del mapa base "Satélite") que está debajo.
+function ajustarOpacidadNubes(){
+  if(!capaNubes) return;
+  const base = (nubesInfo && nubesInfo.op) || 0.6;
+  const z = map.getZoom();
+  const f = z <= 7 ? 1 : Math.max(0.35, 1 - (z - 7) * 0.18);
+  capaNubes.setOpacity(base * f);
+}
+map.on('zoomend', ajustarOpacidadNubes);
 
 async function refrescarNubes(){
   if(!nubesVisible) return;
@@ -3732,7 +3809,13 @@ async function aplicarRayos(){
   setEstadoSat('rayos', `${rayosInfo.id}` + (h ? ` · datos de las ${textoEdad(h.ms).hora} (hace ${textoEdad(h.ms).min} min)` : ' · lo más reciente disponible'));
 }
 
+// RealEarth (gratis) se queda sin cuota y cubre el mapa de negro con "Size limit exceeded". Se apaga hasta
+// tener una fuente de rayos confiable; el botón se oculta. Para probarlo de nuevo: ponerlo en true.
+const RAYOS_HABILITADO = false;
+if(!RAYOS_HABILITADO){ const b = document.getElementById('btnRayos'); if(b) b.style.display = 'none'; }
+
 async function activarRayos(){
+  if(!RAYOS_HABILITADO) return;
   if(rayosBuscando) return;
   rayosBuscando = true;
   mostrarToast('Buscando datos de rayos…');
@@ -3786,6 +3869,172 @@ document.getElementById('btnRayos').addEventListener('click', () => {
   const pane = map.createPane(nombre, padre);
   pane.style.zIndex = z;
   pane.style.pointerEvents = 'none';
+});
+
+/* ---------- Huracanes y tormentas tropicales (NHC / NOAA, oficial y gratuito) ----------
+   El Centro Nacional de Huracanes publica un servicio abierto con la posición actual, la trayectoria pronosticada
+   (hasta 120 h), el "cono" de incertidumbre y el recorrido pasado. Los nombres de las capas se buscan en vivo
+   (no se asumen) y se guarda la última respuesta para verla sin conexión. El cono cubre el recorrido probable del
+   centro (~2 de cada 3 veces): el viento y la lluvia pueden llegar fuera de él. */
+const NHC_BASE = 'https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather_summary/MapServer';
+const CICLONES_KEY = 'gc_ciclones_v1';
+const CICLONES_REFRESCO_MS = 30 * 60 * 1000;
+let ciclonesVisible = false, capaCiclones = null, ciclonesTimer = null, ciclonesCargando = false;
+map.createPane('ciclonesPane', ROTACION ? map._rotatePane : undefined).style.zIndex = 445;
+
+async function jsonConTiempo(url, ms){
+  const ctl = new AbortController();
+  const corte = setTimeout(() => ctl.abort(), ms || 15000);
+  try{
+    const r = await fetch(url, { cache: 'no-store', signal: ctl.signal });
+    if(!r.ok) throw new Error('http ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(corte); }
+}
+function nhcNum(p, claves){
+  for(const k of claves){ const v = p[k]; if(v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) return Number(v); }
+  return null;
+}
+function nhcTxt(p, claves){
+  for(const k of claves){ const v = p[k]; if(typeof v === 'string' && v.trim()) return v.trim(); }
+  return '';
+}
+function nhcCategoria(kt){
+  if(kt == null) return { txt: 'Sistema tropical', color: '#7a8793' };
+  if(kt < 34)  return { txt: 'Depresión tropical', color: '#5aa9c9' };
+  if(kt < 64)  return { txt: 'Tormenta tropical',  color: '#2fb39a' };
+  if(kt < 83)  return { txt: 'Huracán cat. 1', color: '#f2c230' };
+  if(kt < 96)  return { txt: 'Huracán cat. 2', color: '#f59a23' };
+  if(kt < 113) return { txt: 'Huracán cat. 3', color: '#ee6a2a' };
+  if(kt < 137) return { txt: 'Huracán cat. 4', color: '#d8362f' };
+  return { txt: 'Huracán cat. 5', color: '#b3207e' };
+}
+function haceTexto(ms){
+  const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`;
+}
+
+async function nhcDescargar(){
+  const meta = await jsonConTiempo(NHC_BASE + '?f=json');
+  const hojas = (meta.layers || []).filter(l => !l.subLayerIds || !l.subLayerIds.length);
+  const buscar = re => hojas.filter(l => re.test(l.name || '')).slice(0, 12);
+  const grupos = {
+    conos: buscar(/cone/i), rutas: buscar(/forecast\s*track/i), puntos: buscar(/forecast\s*(points?|position)/i),
+    pasadoPts: buscar(/past\s*points?/i), pasadoRutas: buscar(/past\s*track/i)
+  };
+  const salida = { ts: Date.now() };
+  for(const [clave, capas] of Object.entries(grupos)){
+    const lotes = await Promise.all(capas.map(async l => {
+      try{
+        const j = await jsonConTiempo(`${NHC_BASE}/${l.id}/query?where=1%3D1&outFields=*&outSR=4326&f=geojson`);
+        return (j && j.features) || [];
+      } catch(e){ return []; }
+    }));
+    salida[clave] = lotes.flat();
+  }
+  return salida;
+}
+function nhcGuardar(d){ try{ localStorage.setItem(CICLONES_KEY, JSON.stringify(d)); } catch(e){} }
+function nhcLeerGuardado(){ try{ return JSON.parse(localStorage.getItem(CICLONES_KEY) || 'null'); } catch(e){ return null; } }
+
+function pintarCiclones(d, desdeGuardado){
+  if(capaCiclones){ map.removeLayer(capaCiclones); capaCiclones = null; }
+  const pane = 'ciclonesPane';
+  const capas = [];
+  const geo = (features, opts) => L.geoJSON({ type: 'FeatureCollection', features: features || [] }, { pane, ...opts });
+  // Cono: contorno oscuro debajo + blanco encima, para que se lea sobre mapa claro, satélite o radar.
+  capas.push(geo(d.conos, { interactive: false, style: { color: '#14181C', weight: 4, opacity: .35, fillOpacity: 0 } }));
+  capas.push(geo(d.conos, { interactive: false, style: { color: '#ffffff', weight: 1.6, opacity: .95, fillColor: '#ffffff', fillOpacity: .2 } }));
+  capas.push(geo(d.pasadoRutas, { interactive: false, style: { color: '#4a5560', weight: 2.2, opacity: .9, dashArray: '2 5' } }));
+  capas.push(geo(d.rutas, { interactive: false, style: { color: '#ffffff', weight: 5, opacity: .7 } }));
+  capas.push(geo(d.rutas, { interactive: false, style: { color: '#c0392b', weight: 2.4, opacity: .95 } }));
+
+  // Puntos de pronóstico; el de menor plazo de cada tormenta es "ahora" y lleva etiqueta.
+  const porTormenta = {};
+  (d.puntos || []).forEach(f => {
+    const p = f.properties || {};
+    const nombre = nhcTxt(p, ['STORMNAME', 'stormname', 'NAME']) || 'Sistema';
+    const tau = nhcNum(p, ['TAU', 'tau', 'FCSTPRD', 'fcstprd']);
+    const t = porTormenta[nombre];
+    if(!t || (tau != null && tau < t.tau)) porTormenta[nombre] = { f, tau: tau == null ? 999 : tau };
+  });
+  const ahoraSet = new Set(Object.values(porTormenta).map(o => o.f));
+  const resumen = [];
+  (d.puntos || []).forEach(f => {
+    if(!f.geometry || !f.geometry.coordinates) return;
+    const p = f.properties || {};
+    const kt = nhcNum(p, ['MAXWIND', 'maxwind', 'INTENSITY', 'intensity']);
+    const cat = nhcCategoria(kt);
+    const nombre = nhcTxt(p, ['STORMNAME', 'stormname', 'NAME']) || 'Sistema';
+    const fecha = nhcTxt(p, ['FLDATELBL', 'DATELBL', 'datelbl', 'FLDATELBL']);
+    const kmh = kt != null ? Math.round(kt * 1.852) : null;
+    const [lng, lat] = f.geometry.coordinates;
+    const esAhora = ahoraSet.has(f);
+    const m = L.circleMarker([lat, lng], {
+      pane, radius: esAhora ? 11 : 6.5, color: '#ffffff', weight: esAhora ? 3 : 1.6,
+      fillColor: cat.color, fillOpacity: 1, bubblingMouseEvents: false
+    });
+    const detalle = `${escapeHtml(cat.txt)}${kmh != null ? ' · ' + kmh + ' km/h' : ''}${fecha ? '<br>' + escapeHtml(fecha) : ''}`;
+    m.bindTooltip(`<b>${escapeHtml(nombre)}</b><br>${detalle}`, { direction: 'top' });
+    if(esAhora){
+      m.bindTooltip(`${escapeHtml(nombre)} · ${escapeHtml(cat.txt)}`, { permanent: true, direction: 'right', offset: [10, 0], className: 'ciclon-nombre' });
+      resumen.push(`<b>${escapeHtml(nombre)}</b> · ${escapeHtml(cat.txt)}${kmh != null ? ' · vientos de ' + kmh + ' km/h' : ''}`);
+    }
+    capas.push(m);
+  });
+
+  capaCiclones = L.featureGroup(capas).addTo(map);
+  const nota = document.getElementById('ciclonesNota');
+  const edad = desdeGuardado ? ` · datos guardados de hace ${haceTexto(d.ts)} (sin conexión)` : ` · actualizado a las ${new Date(d.ts).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`;
+  if(!resumen.length){
+    nota.innerHTML = `Sin ciclones tropicales activos en este momento${edad}.`;
+  } else {
+    nota.innerHTML = resumen.join('<br>') + `<br>El cono muestra el recorrido probable del centro (~2 de cada 3 veces); el viento y la lluvia pueden afectar fuera de él${edad}.`;
+    const b = capaCiclones.getBounds();
+    if(b.isValid() && !map.getBounds().intersects(b)) map.fitBounds(b, { padding: [40, 40], maxZoom: 6 });
+  }
+}
+
+async function cargarCiclones(){
+  if(navigator.onLine){
+    try{
+      const d = await nhcDescargar();
+      nhcGuardar(d);
+      return { d, guardado: false };
+    } catch(e){ console.warn('NHC no respondió:', e && e.message); }
+  }
+  const g = nhcLeerGuardado();
+  return g ? { d: g, guardado: true } : null;
+}
+
+async function activarCiclones(){
+  if(ciclonesCargando) return;
+  ciclonesCargando = true;
+  mostrarToast('Consultando ciclones tropicales…');
+  try{
+    const r = await cargarCiclones();
+    if(!r){ mostrarToast('No se pudo consultar el Centro Nacional de Huracanes'); return; }
+    ciclonesVisible = true;
+    document.getElementById('btnCiclones').classList.add('active');
+    actualizarLeyenda();
+    pintarCiclones(r.d, r.guardado);
+    if(ciclonesTimer) clearInterval(ciclonesTimer);
+    ciclonesTimer = setInterval(async () => {
+      if(!ciclonesVisible || document.hidden || !navigator.onLine) return;
+      const n = await cargarCiclones();
+      if(n && ciclonesVisible) pintarCiclones(n.d, n.guardado);
+    }, CICLONES_REFRESCO_MS);
+  } finally { ciclonesCargando = false; }
+}
+function desactivarCiclones(){
+  if(capaCiclones){ map.removeLayer(capaCiclones); capaCiclones = null; }
+  ciclonesVisible = false;
+  document.getElementById('btnCiclones').classList.remove('active');
+  if(ciclonesTimer){ clearInterval(ciclonesTimer); ciclonesTimer = null; }
+  actualizarLeyenda();
+}
+document.getElementById('btnCiclones').addEventListener('click', () => {
+  if(ciclonesVisible) desactivarCiclones(); else activarCiclones();
 });
 
 /* ----- Fronteras ----- */
@@ -6018,9 +6267,14 @@ function renderAjustes(){
 
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Mapa base</div>
     <div class="chip-row" style="flex-wrap:wrap; margin-bottom:${estadoBase.fase === 'fallo' ? '8px' : '22px'};">
-      ${[['liberty', '🗺️ Vectorial'], ['positron', '◽ Vectorial claro'], ['clasico', '🖼️ Clásico']]
+      ${[['liberty', '🗺️ Vectorial'], ['positron', '◽ Vectorial claro'], ['satelite', '🛰️ Satélite'], ['clasico', '🖼️ Clásico']]
         .map(([v, t]) => `<button class="chip ${basePref === v ? 'active' : ''}" data-base-mapa="${v}">${t}</button>`).join('')}
     </div>
+    ${basePref === 'satelite' ? `
+      <div class="save-row" style="margin-bottom:22px; gap:8px;">
+        <input id="inpEsriKey" type="password" autocomplete="off" value="${escapeHtml(esriKeyLeer())}" placeholder="Llave de Esri (opcional)" style="flex:1; min-width:0; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px 12px; font-size:14px; outline:none;">
+        <button class="btn" id="btnEsriKey">Guardar</button>
+      </div>` : ''}
     ${estadoBase.fase === 'fallo' ? `
       <div style="font-size:12.5px; margin-bottom:8px;">⚠️ No se pudo cargar el mapa vectorial; se usa el clásico.</div>
       <div class="chip-row" style="margin-bottom:22px;"><button class="chip" data-base-reintentar="1">↻ Reintentar</button></div>` : ''}
@@ -6066,6 +6320,12 @@ function renderAjustes(){
       aplicarBaseSegunPreferencia();
       renderAjustes();
     });
+  });
+  const btnEsri = document.getElementById('btnEsriKey');
+  if(btnEsri) btnEsri.addEventListener('click', () => {
+    esriKeyGuardar(document.getElementById('inpEsriKey').value.trim());
+    mostrarToast('Llave guardada');
+    if(basePref === 'satelite') aplicarBaseSegunPreferencia();
   });
   sheetBody.querySelectorAll('[data-modo-mapa]').forEach(btn => {
     btn.addEventListener('click', () => {
