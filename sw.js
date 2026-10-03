@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v46';
+const CACHE_SHELL = 'rutas-gc-shell-v47';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -98,7 +98,7 @@ self.addEventListener('fetch', (event) => {
   // red. Antes caían en cache-first y devolvían la respuesta de la vez
   // anterior, por lo que el radar/pronóstico podían mostrarse desfasados.
   // Sin señal simplemente fallan y la app ya avisa.
-  if (/api\.rainviewer\.com|api\.open-meteo\.com|gibs\.earthdata\.nasa\.gov/.test(url)) return;
+  if (/api\.rainviewer\.com|api\.open-meteo\.com|gibs\.earthdata\.nasa\.gov|mapservices\.weather\.noaa\.gov|ibasemaps-api\.arcgis\.com/.test(url)) return;
 
   // Mapa vectorial (mosaicos, estilos, tipografías) y su librería: directo a la red y a la caché HTTP del
   // navegador. Si pasaran por aquí se guardarían en el shell sin límite y con `cache:'reload'` irían más lentas.
