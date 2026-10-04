@@ -2441,7 +2441,30 @@ function agregarDenueExcluido(id){
 // Sheet compartido, y luego trae lo más reciente de los demás dispositivos.
 // "Última edición gana" usando actualizadoEn; lo que sigue pendiente de subir
 // (pendienteSync) nunca se pisa con lo que venga del servidor todavía.
+const CAMPOS_COMPARAR_SYNC = ['nombre','lat','lng','estatus','frecuencia','notas','prioridad','fechaUltimaVisita','proximaVisita',
+  'contactoNombre','contactoTel','tipoNegocio','modoOperacionTaller','motivoDescarte','foto','municipio','localidad','estado'];
+// ¿El registro del Sheet trae algo distinto a lo que se ve aquí? Solo compara columnas que el Sheet sí devuelve.
+function prospectoDifiere(local, r){
+  const norm = v => (v == null || v === '') ? '' : String(v);
+  return CAMPOS_COMPARAR_SYNC.some(k => (k in r) && norm(local[k]) !== norm(r[k]));
+}
+// Si el Sheet rechaza o no confirma lo que se mandó, antes no se enteraba nadie. Aviso como mucho cada 10 min.
+let ultimoAvisoSubida = 0;
+function avisarSiSubidaFallo(texto, n){
+  let rj = null; try{ rj = JSON.parse(texto); } catch(e){}
+  let msg = '';
+  if(!rj) msg = 'el Sheet no confirmó el guardado';
+  else if(rj.ok === false) msg = rj.error ? String(rj.error) : 'el Sheet rechazó el guardado';
+  else if(Array.isArray(rj.errores) && rj.errores.length) msg = rj.errores.length + ' con error (' + rj.errores[0].motivo + ')';
+  if(!msg) return;
+  console.warn('Subida al Sheet:', msg, rj);
+  if(Date.now() - ultimoAvisoSubida > 10 * 60 * 1000){
+    ultimoAvisoSubida = Date.now();
+    mostrarToast('No se pudieron subir ' + n + ' cambio' + (n === 1 ? '' : 's') + ': ' + msg + '. Se reintenta solo.');
+  }
+}
 let sincronizando = false;
+let ultimoErrorSync = null;   // { ts, msg } de la última sincronización que falló; null si la última salió bien
 let ultimaSyncFin = 0;
 let ultimaSyncInfo = null;   // { total, subida, bajada, kb, n } en ms / KB / registros: para saber qué tarda
 async function syncPendientes(){
@@ -2457,10 +2480,11 @@ async function syncPendientes(){
     if(pendientes.length > 0 || eliminados.length > 0){
       // Sin headers personalizados a propósito: evita el preflight CORS que
       // Apps Script no maneja bien. El body sigue siendo JSON válido.
-      await fetchConTimeout(SHEET_ENDPOINT, {
+      const rp = await fetchConTimeout(SHEET_ENDPOINT, {
         method: 'POST',
         body: JSON.stringify({ upserts: pendientes, deletes: eliminados })
       });
+      avisarSiSubidaFallo(await rp.text().catch(() => ''), pendientes.length + eliminados.length);
     }
     const t1 = performance.now();
 
@@ -2475,6 +2499,7 @@ async function syncPendientes(){
 
     const elim = conjuntoEliminados();
     const idsRemotos = new Set();
+    const remotoPorId = new Map();
     const idxLocal = new Map(prospectos.map((x, i) => [String(x.id), i]));
     let cambios = 0;
 
@@ -2482,6 +2507,7 @@ async function syncPendientes(){
       if(!r || r.id == null) return;
       const k = String(r.id);
       idsRemotos.add(k);
+      remotoPorId.set(k, r);
       // Lo que se eliminó a propósito aquí NO se vuelve a meter (antes reaparecía).
       if(elim.has(k)) return;
       normalizarProspecto(r);
@@ -2491,8 +2517,15 @@ async function syncPendientes(){
         idxLocal.set(k, prospectos.length - 1);
         cambios++;
       } else if(!prospectos[i].pendienteSync && (r.actualizadoEn || 0) >= (prospectos[i].actualizadoEn || 0)){
-        if((r.actualizadoEn || 0) !== (prospectos[i].actualizadoEn || 0) || !prospectos[i].enServidor) cambios++;
+        const proxLocal = prospectos[i].proximaVisita, mismaVersion = (r.actualizadoEn || 0) === (prospectos[i].actualizadoEn || 0);
+        if((r.actualizadoEn || 0) !== (prospectos[i].actualizadoEn || 0) || !prospectos[i].enServidor || prospectoDifiere(prospectos[i], r)) cambios++;
         prospectos[i] = { ...prospectos[i], ...r, pendienteSync: false, enServidor: true };
+        // Mismo registro y el Sheet no trae la fecha de próxima visita (columna recién creada): se conserva la local y se sube.
+        // Si alguien la hubiera borrado a propósito, esa edición cambia actualizadoEn y no entra aquí.
+        if(mismaVersion && 'proximaVisita' in r && (r.proximaVisita == null || r.proximaVisita === '') && proxLocal != null && proxLocal !== ''){
+          prospectos[i].proximaVisita = proxLocal;
+          prospectos[i].pendienteSync = true;
+        }
       } else if(!prospectos[i].enServidor){
         prospectos[i].enServidor = true;
       }
@@ -2502,7 +2535,12 @@ async function syncPendientes(){
     // enviado aunque el servidor hubiera fallado, y ese cambio se perdía sin avisar.
     prospectos.forEach(x => {
       if(x.pendienteSync && pendientes.some(q => q.id === x.id) && idsRemotos.has(String(x.id))){
-        x.pendienteSync = false; x.enServidor = true;
+        // Antes bastaba con que el id existiera en el Sheet: una EDICIÓN que falló (el id ya estaba con los
+        // datos viejos) se daba por entregada y nunca se reintentaba. Ahora el Sheet debe traer esta versión.
+        const rr = remotoPorId.get(String(x.id));
+        if((Number(rr && rr.actualizadoEn) || 0) >= (x.actualizadoEn || 0)){
+          x.pendienteSync = false; x.enServidor = true;
+        }
       }
     });
 
@@ -2530,6 +2568,7 @@ async function syncPendientes(){
       if(currentTab === 'lista') renderLista();
     }
 
+    ultimoErrorSync = null;
     info = { total: performance.now() - t0, subida: t1 - t0, bajada: t2 - t1, kb: texto.length / 1024, n: remotos.length, cambios };
     ultimaSyncInfo = info;
 
@@ -2546,7 +2585,9 @@ async function syncPendientes(){
     reintentarTraspasosPendientes();   // ← nuevo: control interno campo↔bodega
   } catch(err){
     // Sin señal real o el Web App no respondió: se reintenta solo en el
-    // próximo evento "online" o el siguiente intervalo.
+    // próximo evento "online" o el siguiente intervalo. Se recuerda para no mostrar "Sincronizado" en falso.
+    ultimoErrorSync = { ts: Date.now(), msg: String((err && err.message) || err) };
+    console.warn('Sincronización fallida:', ultimoErrorSync.msg);
   } finally {
     sincronizando = false;
     ultimaSyncFin = Date.now();
@@ -3133,7 +3174,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '03-oct · clima 3 · Coor ';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '04-oct · sync 2 · Coo';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -7210,8 +7251,12 @@ function fusionarImportados(datos, opts = {}){
     if(excluidos.has(String(d.id))) return; // se eliminó a propósito en este dispositivo: no se reintroduce
     if(existentes.has(d.id)){
       const i = prospectos.findIndex(p => p.id === d.id);
-      // No se pisa el trabajo ya hecho en campo: solo se actualiza si sigue como estaba desde la importación
-      if(prospectos[i].origen === 'DENUE' && !prospectos[i].pendienteSync){
+      // No se pisa el trabajo ya hecho en campo. Antes solo se protegía lo "pendiente de subir": en cuanto una
+      // edición llegaba al Sheet (pendienteSync = false) el catálogo la sobreescribía en CADA arranque con los
+      // valores originales del DENUE (estatus, notas, visita, hasta la ubicación corregida). Ahora también se
+      // respeta lo que se editó aquí (actualizadoEn) o ya vive en el Sheet (enServidor).
+      const trabajado = prospectos[i].pendienteSync || prospectos[i].enServidor || prospectos[i].actualizadoEn;
+      if(prospectos[i].origen === 'DENUE' && !trabajado){
         prospectos[i] = { ...prospectos[i], ...d };
         actualizados++;
       }
@@ -7954,8 +7999,8 @@ function actualizarHeader(){
     hayPendiente = pendientes > 0;
     txt.textContent = pendientes > 0 ? `${pendientes} sin sincronizar` : 'Local';
   } else {
-    hayPendiente = pendientes > 0 || sincronizando;
-    txt.textContent = sincronizando ? 'Sincronizando…' : (pendientes > 0 ? `${pendientes} por subir` : 'Sincronizado');
+    hayPendiente = pendientes > 0 || sincronizando || !!ultimoErrorSync;
+    txt.textContent = sincronizando ? 'Sincronizando…' : (pendientes > 0 ? `${pendientes} por subir` : (ultimoErrorSync ? 'No se pudo actualizar' : 'Sincronizado'));
   }
   dot.classList.add(hayPendiente ? 'pend' : 'ok');
   badge.className = hayPendiente ? 'menu-badge pend' : 'menu-badge';
