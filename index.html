@@ -247,6 +247,23 @@
     display:none; background:rgba(214,95,95,.12); color:var(--danger); border:1px solid rgba(214,95,95,.35);
     font-size:12.5px; font-weight:600; padding:9px 10px; border-radius:10px; margin-bottom:14px; text-align:center;
   }
+  .radar-legend{ max-height:42vh; overflow:auto; }
+  body.lluvia-activa .radar-legend{ bottom:calc(164px + env(safe-area-inset-bottom)); }
+  .lluvia-bar{
+    position:fixed; left:12px; right:84px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:1160;
+    background:rgba(20,24,28,.88); backdrop-filter:blur(6px); color:#fff;
+    border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:10px 12px;
+  }
+  .lluvia-bar[hidden]{ display:none; }
+  html[data-theme="claro"] .lluvia-bar{ background:rgba(255,255,255,.93); color:var(--text); border-color:var(--line); }
+  @media (pointer: fine){ .lluvia-bar{ left:60px; right:auto; width:min(520px, calc(100vw - 160px)); } }
+  .lluvia-fila{ display:flex; align-items:center; gap:8px; }
+  .lluvia-fila input[type=range]{ flex:1; min-width:0; accent-color:var(--accent); }
+  .lluvia-hora{ font-weight:700; font-size:13px; margin:4px 0 6px; text-transform:capitalize; }
+  .lluvia-etiq{ font-size:11.5px; opacity:.8; white-space:nowrap; }
+  .lluvia-bar .nota{ font-size:11.5px; opacity:.85; margin-top:6px; }
+  .lluvia-etq{ background:transparent; border:0; }
+  .lluvia-pct{ display:inline-block; background:rgba(29,63,191,.9); color:#fff; font-weight:700; font-size:12px; border-radius:10px; padding:1px 7px; border:1.5px solid #fff; }
   .ciclon-nombre{ background:rgba(20,24,28,.9); color:#fff; border:0; border-radius:8px; padding:3px 8px; font-weight:700; font-size:11.5px; box-shadow:none; }
   .ciclon-nombre::before{ display:none; }
   .sesion-badge{ font-size:11.5px; color:var(--text-dim); margin-top:2px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
@@ -809,6 +826,7 @@
   <button class="drawer-item" id="btnNubes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg><span class="txt">Satélite</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnRayos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z"/></svg><span class="txt">Rayos y tormentas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnCiclones"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1.8" fill="currentColor"/><path d="M12 8.2a3.8 3.8 0 0 1 3.8 3.8M12 15.8A3.8 3.8 0 0 1 8.2 12M20 9A9 9 0 0 0 9 4M4 15a9 9 0 0 0 11 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Huracanes y tormentas tropicales</span><span class="estado"></span></button>
+  <button class="drawer-item" id="btnLluviaEdos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-3.5 4-6 7-6 10a6 6 0 0 0 12 0c0-3-2.5-6-6-10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9.5 14.5a2.6 2.6 0 0 0 2.5 2.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Lluvia por estado (pronóstico)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnViento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="txt">Viento (animación)</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnTemp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="17" r="1.6"/></svg><span class="txt">Temperaturas</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnFronteras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V5l5-2 6 3 5-2v15l-5 2-6-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2"/></svg><span class="txt">Fronteras y estados</span><span class="estado"></span></button>
@@ -840,6 +858,7 @@
   <div id="leyNubes" hidden>
     <div class="titulo">Satélite · GOES-East</div>
     <div class="nota" id="nubesHora">Buscando imagen…</div>
+    <div class="nota"><button type="button" class="mini-btn" id="btnNubesPlay">▶ Últimas 3 h</button></div>
   </div>
   <div id="leyRayos" hidden>
     <div class="titulo">⚡ Rayos · satélite GOES</div>
@@ -849,6 +868,21 @@
     <div class="titulo">🌀 Ciclones tropicales · NHC</div>
     <div class="nota" id="ciclonesNota">Consultando…</div>
   </div>
+</div>
+<div class="lluvia-bar" id="lluviaBar" hidden>
+  <div class="lluvia-fila">
+    <button type="button" class="mini-btn" id="lluviaPlay" aria-label="Reproducir pronóstico">▶</button>
+    <input type="range" id="lluviaSlider" min="0" max="71" value="0" aria-label="Hora del pronóstico">
+    <button type="button" class="mini-btn" id="lluviaPico" title="Ir a la hora con más lluvia">Pico</button>
+    <button type="button" class="mini-btn" id="lluviaCerrar" aria-label="Cerrar pronóstico de lluvia">✕</button>
+  </div>
+  <div class="lluvia-hora" id="lluviaHora">…</div>
+  <div class="lluvia-fila">
+    <span class="lluvia-etiq">Prob. mínima</span>
+    <input type="range" id="lluviaUmbral" min="10" max="100" step="5" value="80" aria-label="Probabilidad mínima de lluvia">
+    <b id="lluviaUmbralTxt">80%</b>
+  </div>
+  <div class="nota" id="lluviaResumen"></div>
 </div>
 <button class="fab" id="btnAdd" title="Agregar prospecto">+</button>
  
@@ -3099,7 +3133,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '03-oct · clima 1 · Coo';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '03-oct · clima 3 · Coor ';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -3527,7 +3561,8 @@ let capaNubes = null;
 let nubesVisible = false;
 let nubesBuscando = false;
 let nubesIntervalId = null;
-let nubesInfo = null; // { ts, pref, url, nz, tiempo, fuente, atrib }
+let nubesInfo = null; // { ts, pref, url, nz, tiempo, fuente, atrib, cfg }
+let nubesAnimando = false, nubesAnimTimer = null, nubesAnimCapas = [], nubesAnimK = -1;
 
 /* ---------- SSEC RealEarth (Universidad de Wisconsin): rayos, respaldo de rapidez ----------
    GOES-19 (el satélite "East") en mosaicos gratuitos y sin llave. Se usa SOLO para "Rayos y
@@ -3665,7 +3700,7 @@ async function buscarNubesGIBS(){
       probarImagen(plantillaNubes(cfg, t).replace('{z}','3').replace('{y}','3').replace('{x}','2'))));
     const idx = ok.findIndex(Boolean);
     if(idx >= 0) return { url: plantillaNubes(cfg, tiempos[idx]), nz: cfg.nz, tiempo: tiempos[idx], fuente: 'NASA GIBS', op: 0.6,
-                          atrib: 'Nubes: NASA GIBS · NOAA GOES-East' };
+                          atrib: 'Nubes: NASA GIBS · NOAA GOES-East', cfg };
   }
   return null;
 }
@@ -3697,17 +3732,19 @@ function aplicarCapaNubes(info){
 
 // El satélite en vivo (GOES) solo llega a ~2 km por píxel: al acercar se vuelve borroso. Por eso su opacidad baja
 // con el zoom y deja ver el mapa (o la imagen nítida del mapa base "Satélite") que está debajo.
-function ajustarOpacidadNubes(){
-  if(!capaNubes) return;
+function opacidadNubes(){
   const base = (nubesInfo && nubesInfo.op) || 0.6;
   const z = map.getZoom();
-  const f = z <= 7 ? 1 : Math.max(0.35, 1 - (z - 7) * 0.18);
-  capaNubes.setOpacity(base * f);
+  return base * (z <= 7 ? 1 : Math.max(0.35, 1 - (z - 7) * 0.18));
+}
+function ajustarOpacidadNubes(){
+  if(nubesAnimando){ nubesAnimCapas.forEach((c, n) => c.setOpacity(n === nubesAnimK ? opacidadNubes() : 0)); return; }
+  if(capaNubes) capaNubes.setOpacity(opacidadNubes());
 }
 map.on('zoomend', ajustarOpacidadNubes);
 
 async function refrescarNubes(){
-  if(!nubesVisible) return;
+  if(!nubesVisible || nubesAnimando) return;
   nubesInfo = null;
   const info = await buscarImagenNubes();
   if(info && nubesVisible) aplicarCapaNubes(info);
@@ -3731,7 +3768,65 @@ async function activarNubes(){
   }
 }
 
+// Animación del satélite (como el "loop" de Zoom Earth): las últimas 3 h en pasos de 30 min.
+function textoNubesActual(){
+  if(!nubesInfo) return;
+  let txt = 'Imagen más reciente disponible';
+  if(nubesInfo.tiempo){ const { hora, min } = textoEdad(nubesInfo.tiempo); txt = `Imagen de las ${hora} · hace ${min} min`; }
+  const el = document.getElementById('nubesHora'); if(el) el.textContent = `${txt} · ${nubesInfo.fuente}`;
+}
+function detenerNubesAnim(){
+  if(!nubesAnimando && !nubesAnimCapas.length) return;
+  nubesAnimando = false;
+  clearInterval(nubesAnimTimer); nubesAnimTimer = null;
+  nubesAnimCapas.forEach(c => { quitarSuavizado(c); map.removeLayer(c); });
+  nubesAnimCapas = []; nubesAnimK = -1;
+  if(capaNubes) capaNubes.setOpacity(opacidadNubes());
+  const b = document.getElementById('btnNubesPlay'); if(b) b.textContent = '▶ Últimas 3 h';
+  textoNubesActual();
+}
+async function reproducirNubes(){
+  if(nubesAnimando){ detenerNubesAnim(); return; }
+  if(!nubesVisible || !capaNubes || !nubesInfo || !nubesInfo.cfg || !nubesInfo.tiempo){ mostrarToast('Primero espera a que cargue el satélite'); return; }
+  if(!navigator.onLine){ mostrarToast('Sin señal: la animación necesita conexión a internet'); return; }
+  const cfg = nubesInfo.cfg, fin = nubesInfo.tiempo, paso = 30 * 60 * 1000;
+  const btn = document.getElementById('btnNubesPlay');
+  btn.textContent = 'Cargando…';
+  nubesAnimando = true;   // permite cancelar mientras se descargan los cuadros
+  const tiempos = Array.from({ length: 7 }, (_, i) => fin - (6 - i) * paso);
+  const ok = await Promise.all(tiempos.map(t => probarImagen(plantillaNubes(cfg, t).replace('{z}', '3').replace('{y}', '3').replace('{x}', '2'))));
+  if(!nubesAnimando) return;
+  const buenos = tiempos.filter((_, i) => ok[i]);
+  if(buenos.length < 2){ nubesAnimando = false; btn.textContent = '▶ Últimas 3 h'; mostrarToast('El satélite no tiene historial disponible ahora'); return; }
+  capaNubes.setOpacity(0);
+  nubesAnimCapas = buenos.map(t => {
+    const c = L.tileLayer(plantillaNubes(cfg, t), { opacity: 0, maxZoom: 18, maxNativeZoom: cfg.nz, zIndex: 4, className: 'capa-suave', ...ROT_TILE }).addTo(map);
+    registrarSuavizado(c, cfg.nz);
+    return c;
+  });
+  btn.textContent = '⏹ Detener';
+  await dormir(2200);   // tiempo para que carguen los mosaicos de todos los cuadros
+  if(!nubesAnimando) return;
+  let i = 0, vueltas = 0;
+  const mostrar = k => {
+    nubesAnimK = k; ajustarOpacidadNubes();
+    document.getElementById('nubesHora').textContent = `Animación · imagen de las ${textoEdad(buenos[k]).hora} (${k + 1}/${buenos.length})`;
+  };
+  mostrar(0);
+  nubesAnimTimer = setInterval(() => {
+    i++;
+    if(i >= buenos.length){
+      vueltas++;
+      if(vueltas >= 3){ detenerNubesAnim(); return; }   // tras 3 vueltas se detiene solo (cuida la batería)
+      i = 0;
+    }
+    mostrar(i);
+  }, 700);
+}
+document.getElementById('btnNubesPlay').addEventListener('click', reproducirNubes);
+
 function desactivarNubes(){
+  detenerNubesAnim();
   if(capaNubes){ quitarSuavizado(capaNubes); map.removeLayer(capaNubes); capaNubes = null; }
   nubesVisible = false;
   document.getElementById('btnNubes').classList.remove('active');
@@ -4036,6 +4131,195 @@ function desactivarCiclones(){
 document.getElementById('btnCiclones').addEventListener('click', () => {
   if(ciclonesVisible) desactivarCiclones(); else activarCiclones();
 });
+
+/* ---------- Lluvia por estado: pronóstico a 72 h con umbral de probabilidad ----------
+   Para cada estado se consultan 1-3 puntos (según su tamaño) a Open-Meteo (modelos ICON/GFS/ECMWF, gratis): 60 puntos
+   en una sola llamada. Cada estado muestra el valor MÁS ALTO entre sus puntos, o sea "hay probabilidad de X% de
+   lluvia en alguna zona del estado" — no una medición ni un promedio. Ningún pronóstico garantiza un porcentaje de
+   acierto: el control "Prob. mínima" (80% por defecto) solo oculta lo que el modelo ve menos probable.
+   La última descarga se guarda para verla sin conexión. */
+const LLUVIA_KEY = 'gc_lluvia_edos_v1', LLUVIA_UMBRAL_KEY = 'gc_lluvia_umbral_v1', LLUVIA_USO_KEY = 'gc_lluvia_edos_uso_v1';
+const LLUVIA_TTL_MS = 60 * 60 * 1000, LLUVIA_PASOS = 72, LLUVIA_MAX_DIA = 40;   // 40 descargas × 60 puntos = 2,400 de las 10,000 llamadas/día
+map.createPane('lluviaPane', ROTACION ? map._rotatePane : undefined).style.zIndex = 425;
+let lluviaVisible = false, lluviaGeo = null, lluviaDatos = null, lluviaBase = 0, lluviaN = 0, lluviaIdx = 0;
+let lluviaCapa = null, lluviaEtiquetas = null, lluviaPlayTimer = null, lluviaRefTimer = null, lluviaCargando = false;
+let lluviaUmbral = (() => { let v = NaN; try{ v = Number(localStorage.getItem(LLUVIA_UMBRAL_KEY)); } catch(e){} return v >= 10 && v <= 100 ? v : 80; })();
+
+function lluviaLeerGuardado(){ try{ return JSON.parse(localStorage.getItem(LLUVIA_KEY) || 'null'); } catch(e){ return null; } }
+function lluviaInicio(d){
+  const t0 = Math.floor(Date.now() / 3600000) * 3600000;
+  return d.horas.findIndex(h => Date.parse(h + 'Z') >= t0);
+}
+async function lluviaDescargar(){
+  if(!registrarUso(LLUVIA_USO_KEY, LLUVIA_MAX_DIA)) throw new Error('limite');
+  const pts = [];
+  lluviaGeo.features.forEach(f => f.properties.p.forEach(([la, lo]) => pts.push({ n: f.properties.n, la, lo })));
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${pts.map(q => q.la).join(',')}&longitude=${pts.map(q => q.lo).join(',')}`
+    + `&hourly=precipitation_probability,precipitation&forecast_days=4&timezone=UTC`;
+  const j = await jsonConTiempo(url, 20000);
+  const arr = Array.isArray(j) ? j : [j];
+  if(arr.length !== pts.length) throw new Error('formato');
+  const horas = arr[0].hourly.time;
+  const est = {};
+  arr.forEach((r, i) => {
+    const e = est[pts[i].n] || (est[pts[i].n] = { prob: horas.map(() => 0), mm: horas.map(() => 0) });
+    const pr = r.hourly.precipitation_probability || [], mm = r.hourly.precipitation || [];
+    horas.forEach((_, k) => {
+      if(typeof pr[k] === 'number' && pr[k] > e.prob[k]) e.prob[k] = pr[k];
+      if(typeof mm[k] === 'number' && mm[k] > e.mm[k]) e.mm[k] = mm[k];
+    });
+  });
+  return { ts: Date.now(), horas, est };
+}
+async function lluviaCargarDatos(){
+  const g = lluviaLeerGuardado();
+  if(g && Date.now() - g.ts < LLUVIA_TTL_MS && lluviaInicio(g) >= 0) return { d: g, guardado: false };
+  if(navigator.onLine){
+    try{
+      const d = await lluviaDescargar();
+      try{ localStorage.setItem(LLUVIA_KEY, JSON.stringify(d)); } catch(e){}
+      return { d, guardado: false };
+    } catch(e){
+      console.warn('Pronóstico de lluvia:', e && e.message);
+      if(e && e.message === 'limite') mostrarToast('Se alcanzó el límite diario de consultas de clima; se usa el último pronóstico guardado');
+    }
+  }
+  if(g && lluviaInicio(g) >= 0) return { d: g, guardado: true };
+  return null;
+}
+
+function lluviaColor(p){
+  const t = Math.min(1, Math.max(0, (p - 50) / 50)), a = [110, 190, 240], b = [30, 60, 190];
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
+}
+function lluviaHoraTxt(k){
+  return new Date(Date.parse(lluviaDatos.horas[k] + 'Z'))
+    .toLocaleString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function lluviaPopup(n){
+  const e = lluviaDatos && lluviaDatos.est[n]; if(!e) return escapeHtml(n);
+  const k = lluviaBase + lluviaIdx, fin = Math.min(lluviaDatos.horas.length, k + 24);
+  let max = -1, kmax = k;
+  for(let i = k; i < fin; i++) if(e.prob[i] > max){ max = e.prob[i]; kmax = i; }
+  return `<b>${escapeHtml(n)}</b><br>${escapeHtml(lluviaHoraTxt(k))}<br>Probabilidad de lluvia: <b>${e.prob[k]}%</b>`
+    + (e.mm[k] > 0 ? ` · hasta ${e.mm[k].toFixed(1)} mm/h` : '')
+    + `<br>Máx. en las próximas 24 h: <b>${max}%</b> (${escapeHtml(lluviaHoraTxt(kmax))})`
+    + `<br><span style="font-size:11px; opacity:.75;">Valor más alto entre los puntos de consulta del estado (modelo Open-Meteo): indica lluvia en alguna zona, no en todo el estado.</span>`;
+}
+function lluviaResumenTexto(sobre, d, guardado){
+  const edad = `actualizado hace ${haceTexto(d.ts)}` + (guardado || !navigator.onLine ? ' · sin conexión' : '');
+  if(!sobre.length) return `Ningún estado llega a ${lluviaUmbral}% a esta hora · ${edad}`;
+  const top = sobre.reduce((a, b) => b.p > a.p ? b : a);
+  return `${sobre.length} estado${sobre.length === 1 ? '' : 's'} con ≥ ${lluviaUmbral}% · mayor: ${escapeHtml(top.n)} ${top.p}% · ${edad}`;
+}
+function lluviaPintar(){
+  if(!lluviaCapa || !lluviaDatos) return;
+  const k = lluviaBase + lluviaIdx, sobre = [];
+  lluviaCapa.eachLayer(l => {
+    const n = l.feature.properties.n, e = lluviaDatos.est[n], p = e ? e.prob[k] : 0;
+    if(p >= lluviaUmbral){
+      l.setStyle({ fillColor: lluviaColor(p), fillOpacity: .5, color: '#1d3fbf', weight: 1.6, opacity: .9 });
+      sobre.push({ n, p, pt: l.feature.properties.p[0] });
+    } else {
+      l.setStyle({ fillColor: '#000', fillOpacity: 0.001, color: '#6b7a88', weight: .8, opacity: .35 });
+    }
+  });
+  lluviaEtiquetas.clearLayers();
+  sobre.forEach(o => L.marker(o.pt, { pane: 'tempPane', interactive: false, keyboard: false,
+    icon: L.divIcon({ className: 'lluvia-etq', html: `<span class="lluvia-pct">${o.p}%</span>`, iconSize: [46, 20], iconAnchor: [23, 10] }) }).addTo(lluviaEtiquetas));
+  document.getElementById('lluviaHora').textContent = lluviaHoraTxt(k);
+  document.getElementById('lluviaSlider').value = lluviaIdx;
+  document.getElementById('lluviaResumen').innerHTML = lluviaResumenTexto(sobre, lluviaDatos, lluviaDatos._guardado);
+}
+function lluviaPararPlay(){
+  if(lluviaPlayTimer){ clearInterval(lluviaPlayTimer); lluviaPlayTimer = null; }
+  const b = document.getElementById('lluviaPlay'); if(b) b.textContent = '▶';
+}
+function lluviaPlay(){
+  if(lluviaPlayTimer){ lluviaPararPlay(); return; }
+  if(lluviaIdx >= lluviaN - 1) lluviaIdx = 0;
+  document.getElementById('lluviaPlay').textContent = '⏸';
+  lluviaPlayTimer = setInterval(() => {
+    if(lluviaIdx >= lluviaN - 1){ lluviaPararPlay(); return; }
+    lluviaIdx++; lluviaPintar();
+  }, 700);
+}
+function lluviaIrAlPico(){
+  let mejor = 0, puntaje = -1;
+  for(let i = 0; i < lluviaN; i++){
+    let n = 0, suma = 0;
+    Object.values(lluviaDatos.est).forEach(e => { const p = e.prob[lluviaBase + i]; if(p >= lluviaUmbral){ n++; suma += p; } });
+    const sc = n * 1000 + suma;
+    if(sc > puntaje){ puntaje = sc; mejor = i; }
+  }
+  lluviaIdx = mejor; lluviaPintar();
+}
+function lluviaAplicarDatos(r){
+  lluviaDatos = r.d; lluviaDatos._guardado = r.guardado;
+  lluviaBase = lluviaInicio(r.d);
+  lluviaN = Math.max(1, Math.min(LLUVIA_PASOS, r.d.horas.length - lluviaBase));
+  lluviaIdx = Math.min(lluviaIdx, lluviaN - 1);
+  const sl = document.getElementById('lluviaSlider'); sl.max = lluviaN - 1;
+  lluviaPintar();
+}
+
+async function activarLluvia(){
+  if(lluviaCargando) return;
+  lluviaCargando = true;
+  mostrarToast('Consultando pronóstico de lluvia…');
+  try{
+    if(!lluviaGeo){
+      try{
+        const resp = await fetch('./estados.json');
+        if(!resp.ok) throw new Error('sin archivo');
+        lluviaGeo = await resp.json();
+      } catch(e){ mostrarToast('No se pudo cargar estados.json (¿ya lo subiste al repo?)'); return; }
+    }
+    const r = await lluviaCargarDatos();
+    if(!r){ mostrarToast(navigator.onLine ? 'No se pudo obtener el pronóstico de lluvia' : 'Sin señal y sin pronóstico guardado todavía'); return; }
+    if(lluviaCapa) map.removeLayer(lluviaCapa);
+    if(lluviaEtiquetas) map.removeLayer(lluviaEtiquetas);
+    lluviaCapa = L.geoJSON(lluviaGeo, { pane: 'lluviaPane', bubblingMouseEvents: true,
+      style: () => ({ fillColor: '#000', fillOpacity: 0.001, color: '#6b7a88', weight: .8, opacity: .35 }),
+      onEachFeature: (f, l) => l.bindPopup(() => lluviaPopup(f.properties.n)) }).addTo(map);
+    lluviaEtiquetas = L.layerGroup().addTo(map);
+    lluviaVisible = true;
+    document.getElementById('btnLluviaEdos').classList.add('active');
+    document.getElementById('lluviaBar').hidden = false;
+    document.body.classList.add('lluvia-activa');
+    lluviaAplicarDatos(r);
+    if(lluviaRefTimer) clearInterval(lluviaRefTimer);
+    lluviaRefTimer = setInterval(async () => {
+      if(!lluviaVisible || document.hidden) return;
+      const n = await lluviaCargarDatos();
+      if(n && lluviaVisible) lluviaAplicarDatos(n);
+    }, 30 * 60 * 1000);
+  } finally { lluviaCargando = false; }
+}
+function desactivarLluvia(){
+  lluviaPararPlay();
+  if(lluviaCapa){ map.removeLayer(lluviaCapa); lluviaCapa = null; }
+  if(lluviaEtiquetas){ map.removeLayer(lluviaEtiquetas); lluviaEtiquetas = null; }
+  lluviaVisible = false;
+  document.getElementById('btnLluviaEdos').classList.remove('active');
+  document.getElementById('lluviaBar').hidden = true;
+  document.body.classList.remove('lluvia-activa');
+  if(lluviaRefTimer){ clearInterval(lluviaRefTimer); lluviaRefTimer = null; }
+}
+document.getElementById('btnLluviaEdos').addEventListener('click', () => { if(lluviaVisible) desactivarLluvia(); else activarLluvia(); });
+document.getElementById('lluviaCerrar').addEventListener('click', desactivarLluvia);
+document.getElementById('lluviaPlay').addEventListener('click', lluviaPlay);
+document.getElementById('lluviaPico').addEventListener('click', () => { lluviaPararPlay(); if(lluviaDatos) lluviaIrAlPico(); });
+document.getElementById('lluviaSlider').addEventListener('input', e => { lluviaPararPlay(); lluviaIdx = Number(e.target.value); lluviaPintar(); });
+(() => {
+  const inp = document.getElementById('lluviaUmbral'), txt = document.getElementById('lluviaUmbralTxt');
+  inp.value = lluviaUmbral; txt.textContent = lluviaUmbral + '%';
+  inp.addEventListener('input', () => {
+    lluviaUmbral = Number(inp.value); txt.textContent = lluviaUmbral + '%';
+    try{ localStorage.setItem(LLUVIA_UMBRAL_KEY, String(lluviaUmbral)); } catch(e){}
+    lluviaPintar();
+  });
+})();
 
 /* ----- Fronteras ----- */
 let fronterasDatos = null;
