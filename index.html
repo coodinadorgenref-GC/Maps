@@ -275,6 +275,17 @@
   .sesion-rol-chip.rol-admin{ background:rgba(176,22,34,.15); color:#d65f5f; border:1px solid rgba(176,22,34,.35); }
   .sesion-rol-chip.rol-vendedor{ background:rgba(20,157,143,.15); color:var(--teal); border:1px solid rgba(20,157,143,.35); }
   .drawer-item.salir svg{ color:var(--danger); }
+  /* Confirmación y aviso de "Cerrando sesión…" (reemplaza al confirm() nativo) */
+  .cs-overlay{ position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.55); }
+  .cs-card{ width:100%; max-width:320px; background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 12px 40px rgba(0,0,0,.35); }
+  .cs-titulo{ font-weight:700; font-size:16px; margin-bottom:6px; }
+  .cs-texto{ font-size:13px; color:var(--text-dim); line-height:1.4; }
+  .cs-acciones{ display:flex; gap:10px; margin-top:18px; }
+  .cs-acciones button{ flex:1; padding:11px 12px; border-radius:12px; border:1px solid var(--line); background:var(--surface-2); color:var(--text); font-size:14px; font-weight:600; cursor:pointer; }
+  .cs-acciones button.peligro{ background:var(--danger); border-color:var(--danger); color:#fff; }
+  .cs-cargando{ display:flex; align-items:center; gap:12px; font-weight:600; font-size:15px; }
+  .cs-spin{ flex:0 0 auto; width:20px; height:20px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--teal); animation:csGira .8s linear infinite; }
+  @keyframes csGira{ to{ transform:rotate(360deg); } }
 
   #map{ position:absolute; inset:0; }
   .leaflet-control-attribution{ font-size:9px; }
@@ -1243,12 +1254,54 @@ function detenerControlDeSesionMaps(){
   window.removeEventListener("focus", _onFocoSesionMaps);
 }
 
+let cerrandoSesionMaps = false;
+
+function _overlayCierreSesionMaps(html){
+  let ov = document.getElementById('csOverlay');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.id = 'csOverlay';
+    ov.className = 'cs-overlay';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = '<div class="cs-card" role="dialog" aria-modal="true">' + html + '</div>';
+  return ov;
+}
+function _quitarOverlayCierreSesionMaps(){
+  const ov = document.getElementById('csOverlay');
+  if(ov) ov.remove();
+}
+
+// Paso 1: aviso propio (el confirm() nativo se bloquea o ni aparece en la app instalada).
 function cerrarSesionMaps(){
-  if(!confirm("¿Cerrar sesión?")) return;
-  appVentaRuta.auth().signOut();
-  _liberarSesionMapsEnServidor();
+  if(cerrandoSesionMaps) return;
+  const ov = _overlayCierreSesionMaps(
+    '<div class="cs-titulo">¿Cerrar sesión?</div>' +
+    '<div class="cs-texto">Tendrás que volver a iniciar sesión para entrar a la app.</div>' +
+    '<div class="cs-acciones">' +
+      '<button type="button" id="csCancelar">Cancelar</button>' +
+      '<button type="button" class="peligro" id="csConfirmar">Cerrar sesión</button>' +
+    '</div>');
+  document.getElementById('csCancelar').addEventListener('click', _quitarOverlayCierreSesionMaps);
+  document.getElementById('csConfirmar').addEventListener('click', _ejecutarCierreSesionMaps);
+  ov.addEventListener('click', e => { if(e.target === ov) _quitarOverlayCierreSesionMaps(); });
+}
+
+// Paso 2: feedback inmediato y cierre sin esperas largas. Lo local va primero;
+// Firebase tiene un tope de 800 ms para que nunca deje la pantalla colgada.
+async function _ejecutarCierreSesionMaps(){
+  if(cerrandoSesionMaps) return;
+  cerrandoSesionMaps = true;
+  _overlayCierreSesionMaps('<div class="cs-cargando"><div class="cs-spin"></div><span>Cerrando sesión…</span></div>');
+  _liberarSesionMapsEnServidor();            // sendBeacon: no bloquea
   detenerControlDeSesionMaps();
-  localStorage.removeItem(SESION_MAPS_KEY);
+  try{ localStorage.removeItem(SESION_MAPS_KEY); } catch(e){}
+  try{
+    await Promise.race([
+      appVentaRuta.auth().signOut(),
+      new Promise(res => setTimeout(res, 800))
+    ]);
+  } catch(e){ /* aunque falle Firebase, la sesión local ya se borró */ }
   location.reload();
 }
 
@@ -3174,7 +3227,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '04-oct · sync 2 · Coo';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '05-oct · cerrar 2 · k2120';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
