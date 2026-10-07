@@ -372,6 +372,41 @@
   .vi-precio-wrap{ position:relative; flex:0 0 92px; width:92px; }
   .vi-precio-wrap::before{ content:"$"; position:absolute; left:8px; top:50%; transform:translateY(-50%); color:var(--text-dim); font-size:13.5px; pointer-events:none; }
   .vi-precio-wrap .vi-precio{ width:100%; padding-left:17px; }
+  /* Buscador único de productos (PC y celular) */
+  .venta-buscador{ position:sticky; top:0; z-index:3; background:var(--surface); padding:6px 0 8px; margin-bottom:6px; }
+  .venta-buscador input{
+    width:100%; box-sizing:border-box; background:var(--surface-2); border:1.5px solid var(--teal);
+    color:var(--text); border-radius:10px; padding:11px 12px; font-size:16px; outline:none;
+  }
+  .vr-lista{ max-height:36vh; overflow-y:auto; margin-top:6px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); }
+  .vr-lista:empty{ display:none; }
+  .vr-item{ padding:9px 11px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .vr-item:last-child{ border-bottom:none; }
+  .vr-item.activo{ background:rgba(79,168,160,.22); }
+  .vr-nom{ font-size:13.5px; font-weight:600; overflow-wrap:anywhere; }
+  .vr-meta{ font-size:11.5px; color:var(--text-dim); margin-top:2px; }
+  .vr-vacio{ padding:10px 11px; font-size:12.5px; color:var(--text-dim); }
+  .vr-vacio button{ display:block; width:100%; margin-top:8px; background:var(--ochre); color:#0E1518; border:none; border-radius:8px; padding:8px; font-weight:700; cursor:pointer; }
+  .vv-vacio{ font-size:12.5px; color:var(--text-dim); text-align:center; padding:14px 6px; }
+  .vv-linea{ background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:9px 10px; }
+  .vv-top{ display:flex; gap:8px; align-items:flex-start; }
+  .vv-info{ flex:1 1 auto; min-width:0; }
+  .vv-nombre{ font-size:13.5px; font-weight:600; overflow-wrap:anywhere; }
+  .vv-meta{ font-size:11.5px; color:var(--text-dim); margin-top:2px; overflow-wrap:anywhere; }
+  .vv-sobre{ color:var(--danger); font-weight:700; }
+  .vv-quitar{ background:none; border:none; color:var(--danger); font-size:18px; cursor:pointer; padding:2px 4px; flex:0 0 auto; }
+  .vv-bottom{ display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+  .vv-stepper{ display:flex; align-items:center; gap:6px; }
+  .vv-btn{ width:38px; height:38px; border-radius:8px; border:1px solid var(--line); background:var(--surface); color:var(--text); font-size:20px; line-height:1; cursor:pointer; }
+  .vv-btn:disabled{ opacity:.35; cursor:default; }
+  .vv-cant{
+    width:58px; height:38px; box-sizing:border-box; text-align:center; background:var(--surface);
+    border:1px solid var(--line); color:var(--text); border-radius:8px; font-size:16px; -moz-appearance:textfield;
+  }
+  .vv-cant::-webkit-outer-spin-button, .vv-cant::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .vv-importe{ font-weight:700; font-size:14.5px; }
+  .vv-flash{ animation:vvFlash .6s ease-out; }
+  @keyframes vvFlash{ from{ box-shadow:0 0 0 2px var(--teal); } to{ box-shadow:0 0 0 0 transparent; } }
   .alm-fila{ margin-bottom:8px; }
   .alm-fila .venta-fila-item{ margin-bottom:4px; }
   .alm-fila .vi-obs{
@@ -932,15 +967,19 @@
  
     <div class="venta-campo">
       <label for="ventaCliente">Cliente / prospecto</label>
-      <input type="text" id="ventaCliente" placeholder="Nombre del cliente">
+      <input type="text" id="ventaCliente" placeholder="Nombre del cliente" enterkeyhint="next">
       <div class="venta-campo">
       <label for="ventaTelefono">Teléfono del cliente</label>
-      <input type="tel" inputmode="numeric" id="ventaTelefono" placeholder="Ej. 9851234567">
+      <input type="tel" inputmode="numeric" id="ventaTelefono" placeholder="Ej. 9851234567" enterkeyhint="next">
     </div>
     </div>
  
+    <div class="venta-buscador">
+      <input type="text" id="ventaBuscador" placeholder="Buscar producto por SKU o nombre…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-label="Buscar producto">
+      <div class="vr-lista" id="ventaResultados"></div>
+    </div>
     <div id="ventaItemsLista"></div>
-    <button class="venta-agregar-item" onclick="agregarFilaItemVenta()">+ Agregar producto</button>
+    <button class="venta-agregar-item" onclick="agregarFilaItemVenta()">+ Captura manual (producto fuera de catálogo)</button>
  
     <div class="venta-campo">
       <label for="ventaMetodoPago">Método de pago</label>
@@ -1514,8 +1553,15 @@ function abrirVentaRuta(nombreCliente, telefonoCliente){
   actualizarCamposPagoVenta();
   actualizarTipoNotaVenta();
   renderizarItemsVenta();
-  agregarFilaItemVenta(); // arranca con una fila vacía lista para llenar
+  const buscador = document.getElementById("ventaBuscador");
+  buscador.value = ""; pintarResultadosVenta();
   document.getElementById("ventaOverlay").hidden = false;
+  // PC: el cursor arranca donde hay algo que capturar (cliente si está vacío,
+  // si no directo en el buscador). En celular no se abre el teclado solo.
+  if (esPunteroFinoVenta()) setTimeout(function(){
+    const cli = document.getElementById("ventaCliente");
+    (cli.value.trim() ? buscador : cli).focus();
+  }, 60);
 }
 function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
@@ -1558,6 +1604,7 @@ function actualizarTipoNotaVenta(){
   if (btn) btn.innerText = esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar";
 
   refrescarDatalistSkus();
+  if (typeof pintarResultadosVenta === "function" && document.getElementById("ventaBuscador")) pintarResultadosVenta();
   ventaItemsActuales.forEach(function(it){
     if(!(it.sku || '').trim()) return;
     const r = resolverProductoPorSku(it.sku, esPedido);
@@ -1566,8 +1613,13 @@ function actualizarTipoNotaVenta(){
   renderizarItemsVenta();
 } 
 function agregarFilaItemVenta(){
-  ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0, manual: false });
+  // Captura manual: producto que no está en el catálogo (se marca para revisión).
+  ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0, manual: true });
   renderizarItemsVenta();
+  const w = document.getElementById("ventaItemsLista").lastElementChild;
+  const campo = w && w.querySelector(".vi-sku");
+  if (campo) campo.focus();
+  if (w) w.scrollIntoView({ block: "nearest" });
 }
 function quitarFilaItemVenta(idx){
   ventaItemsActuales.splice(idx, 1);
@@ -1584,42 +1636,85 @@ function actualizarCampoItemVenta(idx, campo, valor){
 }
 function renderizarItemsVenta(){
   const cont = document.getElementById("ventaItemsLista");
-  // El vendedor solo captura SKU y cantidad; producto y precio se llenan
-  // solos desde el catálogo (preciosCache) y se muestran de solo lectura,
-  // fila por fila, para que no se puedan escribir "a mano" y desincronizarse
-  // del precio real — EXCEPTO cuando el SKU no existe todavía en el
-  // catálogo (producto nuevo que el admin no ha capturado en "Precios"):
-  // ahí se desbloquean solo esos dos campos de esa fila para que el
-  // vendedor pueda cerrar la venta de todos modos, sin quedarse frenado
-  // esperando al admin. Esa fila se manda marcada como "manual" para que
-  // se pueda revisar y corregir el precio después.
-  // El admin sí puede editar todo directo siempre (por si hace una venta
-  // de prueba o algo fuera de catálogo).
+  // El vendedor agrega productos desde el buscador (SKU o nombre); la línea
+  // queda de solo lectura (producto y precio salen del catálogo) con cantidad
+  // editable. Solo se muestran los campos editables cuando la línea es de
+  // captura manual (SKU que no está en el catálogo → se marca para revisión)
+  // o cuando quien captura es admin (puede editar todo directo, siempre).
+  if (!ventaItemsActuales.length){
+    cont.innerHTML = '<div class="vv-vacio">Busca por SKU o nombre arriba para agregar productos.</div>';
+    actualizarTotalVenta();
+    return;
+  }
+  const esPedido = esVentaPedido();
   cont.innerHTML = ventaItemsActuales.map(function(it, idx){
-    const bloqueado = !esAdmin && !it.manual;
-    const roAttr = bloqueado ? ' readonly' : '';
-    const avisoManual = (!esAdmin && it.manual)
-      ? '<div class="vi-aviso-manual">SKU no está en catálogo — captura manual, se marcará para revisión</div>' : '';
-    return '<div class="venta-fila-item-wrap">'
-      + '<div class="venta-fila-item">'
-      + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '"'
-      + ' onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)"'
-      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
-      + '<input class="vi-producto' + (it.manual ? ' vi-manual' : '') + '" placeholder="' + (bloqueado ? 'Se llena solo con el SKU' : 'Producto') + '" value="' + escapeHtmlVenta(it.producto) + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
-      + '</div>'
-      + '<div class="venta-fila-item">'
-      + '<input class="vi-cant" type="number" min="1" placeholder="Cant" value="' + it.cantidad + '" onchange="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.blur();}">'
-      + '<span class="vi-precio-wrap"><input class="vi-precio' + (it.manual ? ' vi-manual' : '') + '" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '"' + roAttr + ' onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
-      + '<button class="vi-quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
-      + '</div>'
-      + avisoManual
-      + '</div>';
+    return (esAdmin || it.manual) ? filaEditableVenta(it, idx) : filaCompactaVenta(it, idx, esPedido);
   }).join("");
   actualizarTotalVenta();
+}
+function filaEditableVenta(it, idx){
+  const avisoManual = (!esAdmin && it.manual)
+    ? '<div class="vi-aviso-manual">SKU no está en catálogo — captura manual, se marcará para revisión</div>' : '';
+  return '<div class="venta-fila-item-wrap">'
+    + '<div class="venta-fila-item">'
+    + '<input class="vi-sku" list="listaSkusPrecios" placeholder="SKU" value="' + escapeHtmlVenta(it.sku || "") + '"'
+    + ' onchange="actualizarCampoItemVenta(' + idx + ',\'sku\',this.value)"'
+    + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault(); ventaEnterSkuFila(' + idx + ', this);}">'
+    + '<input class="vi-producto' + (it.manual ? ' vi-manual' : '') + '" placeholder="Producto" value="' + escapeHtmlVenta(it.producto) + '" onchange="actualizarCampoItemVenta(' + idx + ',\'producto\',this.value)">'
+    + '</div>'
+    + '<div class="venta-fila-item">'
+    + '<input class="vi-cant" data-cant="' + idx + '" type="number" inputmode="numeric" min="1" placeholder="Cant" value="' + it.cantidad + '" oninput="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); document.getElementById(\'ventaBuscador\').focus();}">'
+    + '<span class="vi-precio-wrap"><input class="vi-precio' + (it.manual ? ' vi-manual' : '') + '" type="number" min="0" step="0.01" placeholder="Precio" value="' + it.precio + '" onchange="actualizarCampoItemVenta(' + idx + ',\'precio\',this.value)"></span>'
+    + '<button class="vi-quitar" tabindex="-1" onclick="quitarFilaItemVenta(' + idx + ')">✕</button>'
+    + '</div>'
+    + avisoManual
+    + '</div>';
+}
+function stockVentaSku(sku, esPedido){
+  const k = String(sku || "").trim();
+  if (esPedido) return disponibleGC(k);
+  return (inventarioPropio[k] && Number(inventarioPropio[k].cantidad)) || 0;
+}
+function filaCompactaVenta(it, idx, esPedido){
+  const cant = Number(it.cantidad) || 0;
+  const precio = Number(it.precio) || 0;
+  const disp = stockVentaSku(it.sku, esPedido);
+  const sobre = !esPedido && cant > disp;
+  return '<div class="venta-fila-item-wrap vv-linea">'
+    + '<div class="vv-top"><div class="vv-info">'
+    + '<div class="vv-nombre">' + escapeHtmlVenta(it.producto || it.sku) + '</div>'
+    + '<div class="vv-meta">' + escapeHtmlVenta(it.sku) + ' · $' + precio.toFixed(2) + ' c/u · '
+    + '<span class="vv-disp' + (sobre ? ' vv-sobre' : '') + '" data-idx="' + idx + '" data-disp="' + disp + '">' + (esPedido ? 'GC: ' : 'Tienes ') + disp + '</span></div></div>'
+    + '<button type="button" class="vv-quitar" tabindex="-1" aria-label="Quitar" onclick="quitarFilaItemVenta(' + idx + ')">✕</button></div>'
+    + '<div class="vv-bottom"><div class="vv-stepper">'
+    + '<button type="button" class="vv-btn" tabindex="-1" aria-label="Menos" onclick="cambiarCantidadVenta(' + idx + ',-1)"' + (cant <= 1 ? ' disabled' : '') + '>−</button>'
+    + '<input class="vv-cant" data-cant="' + idx + '" type="number" inputmode="numeric" min="1" value="' + cant + '" aria-label="Cantidad" oninput="actualizarCampoItemVenta(' + idx + ',\'cantidad\',this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); document.getElementById(\'ventaBuscador\').focus();}">'
+    + '<button type="button" class="vv-btn" tabindex="-1" aria-label="Más" onclick="cambiarCantidadVenta(' + idx + ',1)">+</button>'
+    + '</div><div class="vv-importe" data-imp="' + idx + '">$' + (cant * precio).toFixed(2) + '</div></div>'
+    + '</div>';
+}
+function actualizarImportesVenta(){
+  const esPedido = esVentaPedido();
+  document.querySelectorAll('#ventaItemsLista [data-imp]').forEach(function(el){
+    const it = ventaItemsActuales[Number(el.getAttribute('data-imp'))]; if(!it) return;
+    el.textContent = '$' + ((Number(it.cantidad) || 0) * (Number(it.precio) || 0)).toFixed(2);
+  });
+  document.querySelectorAll('#ventaItemsLista .vv-disp').forEach(function(el){
+    const it = ventaItemsActuales[Number(el.getAttribute('data-idx'))]; if(!it) return;
+    el.classList.toggle('vv-sobre', !esPedido && (Number(it.cantidad) || 0) > Number(el.getAttribute('data-disp')));
+  });
+}
+function cambiarCantidadVenta(idx, delta){
+  const it = ventaItemsActuales[idx]; if(!it) return;
+  const n = (Number(it.cantidad) || 0) + delta;
+  if (n < 1) return;
+  it.cantidad = n;
+  renderizarItemsVenta();
 }
 function actualizarTotalVenta(){
   const total = totalRedondeado(ventaItemsActuales);
   document.getElementById("ventaTotalMostrado").innerText = "$" + total.toFixed(2);
+  actualizarImportesVenta();
   return total;
 }
 function escapeHtmlVenta(s){
@@ -1628,6 +1723,151 @@ function escapeHtmlVenta(s){
   });
 }
  
+/* ---------- Buscador único de productos (PC y celular) ----------
+   Busca por SKU o por palabras del nombre (sin acentos ni mayúsculas) en el
+   catálogo de precios, tu almacén móvil y — en pedidos — el inventario GC.
+   Todo es local, así que funciona sin señal. */
+let ventaResultados = [];
+let ventaResIdx = 0;
+
+function esPunteroFinoVenta(){
+  return !!(window.matchMedia && window.matchMedia('(pointer: fine)').matches);
+}
+function normBusquedaVenta(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+function buscarProductosVenta(q){
+  const nq = normBusquedaVenta(q);
+  if (!nq) return [];
+  const tokens = nq.split(/\s+/);
+  const esPedido = esVentaPedido();
+  const mapa = {};
+  function poner(sku, producto){
+    sku = String(sku || '').trim(); if (!sku) return;
+    if (!mapa[sku]) mapa[sku] = { sku: sku, producto: '' };
+    if (producto && !mapa[sku].producto) mapa[sku].producto = producto;
+  }
+  Object.keys(preciosCache).forEach(function(k){ poner(k, preciosCache[k] && preciosCache[k].producto); });
+  Object.keys(inventarioPropio).forEach(function(k){ poner(k, inventarioPropio[k] && inventarioPropio[k].producto); });
+  if (esPedido) inventarioGC.forEach(function(x){ poner(x.sku, x.producto); });
+  const encontrados = [];
+  Object.keys(mapa).forEach(function(k){
+    const c = mapa[k];
+    const nsku = normBusquedaVenta(c.sku);
+    const hay = nsku + ' ' + normBusquedaVenta(c.producto);
+    if (!tokens.every(function(t){ return hay.indexOf(t) !== -1; })) return;
+    let score = 3;
+    if (nsku === nq) score = 0; else if (nsku.indexOf(nq) === 0) score = 1; else if (nsku.indexOf(nq) !== -1) score = 2;
+    const prop = inventarioPropio[c.sku];
+    encontrados.push({ sku: c.sku, producto: c.producto, score: score, enAlmacen: !!(prop && Number(prop.cantidad) > 0) });
+  });
+  encontrados.sort(function(a, b){
+    return (a.score - b.score) || ((b.enAlmacen ? 1 : 0) - (a.enAlmacen ? 1 : 0)) || a.sku.localeCompare(b.sku);
+  });
+  return encontrados.slice(0, 8).map(function(r){
+    const info = resolverProductoPorSku(r.sku, esPedido) || {};
+    return { sku: r.sku, producto: r.producto || info.producto || '', precio: Number(info.precio) || 0, disp: stockVentaSku(r.sku, esPedido) };
+  });
+}
+function pintarResultadosVenta(){
+  const cont = document.getElementById('ventaResultados');
+  const q = document.getElementById('ventaBuscador').value;
+  if (!q.trim()){ ventaResultados = []; cont.innerHTML = ''; return; }
+  ventaResultados = buscarProductosVenta(q);
+  ventaResIdx = 0;
+  if (!ventaResultados.length){
+    cont.innerHTML = '<div class="vr-vacio">Sin resultados para «' + escapeHtmlVenta(q.trim()) + '».'
+      + '<button type="button" onclick="agregarManualDesdeBusqueda()">Agregar manualmente</button></div>';
+    return;
+  }
+  const esPedido = esVentaPedido();
+  cont.innerHTML = ventaResultados.map(function(r, i){
+    const sinStock = !esPedido && r.disp <= 0;
+    return '<div class="vr-item' + (i === 0 ? ' activo' : '') + '" data-i="' + i + '" onmousedown="event.preventDefault()" onclick="elegirResultadoVenta(' + i + ')">'
+      + '<div class="vr-nom">' + escapeHtmlVenta(r.producto || r.sku) + '</div>'
+      + '<div class="vr-meta">' + escapeHtmlVenta(r.sku) + ' · $' + r.precio.toFixed(2)
+      + ' · <span' + (sinStock ? ' style="color:var(--danger);font-weight:700"' : '') + '>' + (esPedido ? 'GC: ' : 'Tienes ') + r.disp + '</span></div>'
+      + '</div>';
+  }).join('');
+}
+function moverResultadoVenta(delta){
+  if (!ventaResultados.length) return;
+  ventaResIdx = (ventaResIdx + delta + ventaResultados.length) % ventaResultados.length;
+  document.querySelectorAll('#ventaResultados .vr-item').forEach(function(el, i){
+    el.classList.toggle('activo', i === ventaResIdx);
+    if (i === ventaResIdx) el.scrollIntoView({ block: 'nearest' });
+  });
+}
+function enfocarCantidadVenta(idx){
+  const el = document.querySelector('#ventaItemsLista [data-cant="' + idx + '"]');
+  if (el){ el.focus(); el.select(); }
+}
+function destacarLineaVenta(idx){
+  const w = document.getElementById('ventaItemsLista').children[idx];
+  if (!w) return;
+  w.classList.add('vv-flash');
+  w.scrollIntoView({ block: 'nearest' });
+}
+function elegirResultadoVenta(i){
+  const r = ventaResultados[i]; if (!r) return;
+  let idx = ventaItemsActuales.findIndex(function(it){ return String(it.sku || '').trim() === r.sku; });
+  if (idx >= 0) ventaItemsActuales[idx].cantidad = (Number(ventaItemsActuales[idx].cantidad) || 0) + 1;
+  else {
+    ventaItemsActuales.push({ sku: r.sku, producto: r.producto, cantidad: 1, precio: r.precio, manual: false });
+    idx = ventaItemsActuales.length - 1;
+  }
+  const b = document.getElementById('ventaBuscador');
+  b.value = ''; pintarResultadosVenta();
+  renderizarItemsVenta();
+  destacarLineaVenta(idx);
+  // PC: el cursor salta a la cantidad de esa línea (Enter regresa al buscador).
+  // Celular: se queda en el buscador y la cantidad se ajusta con − / +.
+  if (esPunteroFinoVenta()) enfocarCantidadVenta(idx);
+  else b.focus({ preventScroll: true });
+}
+function agregarManualDesdeBusqueda(){
+  const b = document.getElementById('ventaBuscador');
+  const q = b.value.trim();
+  const it = { sku: '', producto: '', cantidad: 1, precio: 0, manual: true };
+  if (q){ if (/\s/.test(q)) it.producto = q; else it.sku = q; }
+  ventaItemsActuales.push(it);
+  b.value = ''; pintarResultadosVenta();
+  renderizarItemsVenta();
+  const w = document.getElementById('ventaItemsLista').lastElementChild;
+  if (w){
+    const campo = w.querySelector(!it.sku ? '.vi-sku' : (!it.producto ? '.vi-producto' : '.vi-precio'));
+    if (campo) campo.focus();
+    w.scrollIntoView({ block: 'nearest' });
+  }
+}
+function ventaEnterSkuFila(idx, el){
+  el.blur(); // dispara onchange: resuelve el SKU y repinta la fila
+  setTimeout(function(){ enfocarCantidadVenta(idx); }, 0);
+}
+(function(){
+  const b = document.getElementById('ventaBuscador');
+  if (!b) return;
+  b.addEventListener('input', pintarResultadosVenta);
+  b.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowDown'){ e.preventDefault(); moverResultadoVenta(1); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); moverResultadoVenta(-1); }
+    else if (e.key === 'Escape'){ b.value = ''; pintarResultadosVenta(); }
+    else if (e.key === 'Enter'){
+      e.preventDefault();
+      if (ventaResultados.length) elegirResultadoVenta(ventaResIdx);
+      else if (!b.value.trim()){
+        // Buscador vacío + Enter = ya terminé de capturar → pasa al cobro.
+        const sig = esVentaPedido() ? document.getElementById('ventaBtnGuardar') : document.getElementById('ventaMetodoPago');
+        if (sig) sig.focus();
+      }
+    }
+  });
+  // Cliente → Teléfono → Buscador con Enter (en celular, Enter hace de "siguiente").
+  const cli = document.getElementById('ventaCliente'), tel = document.getElementById('ventaTelefono');
+  if (cli) cli.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); tel.focus(); } });
+  if (tel) tel.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); b.focus(); } });
+})();
+
 async function confirmarVentaRuta(){
   const errEl = document.getElementById("ventaError");
 errEl.style.display = "none";
