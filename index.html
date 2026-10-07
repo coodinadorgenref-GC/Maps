@@ -1755,7 +1755,7 @@ function escapeHtmlVenta(s){
    El costo NUNCA llega a esta app: el catálogo calcula el precio y solo manda
    el resultado. BAJAJ y SUZUKI siguen con el precio capturado a mano en la
    hoja "Precios". Las liquidaciones llegan marcadas y su precio es editable. */
-const PRECIOS_VENTA_KEY = 'gc_precios_venta_v1';
+const PRECIOS_VENTA_KEY = 'gc_precios_venta_v3';
 const PRECIOS_VENTA_TTL_MS = 30 * 60 * 1000;
 let preciosCalculados = {}; // sku -> { producto, precio, liquidacion }
 try { const c = JSON.parse(localStorage.getItem(PRECIOS_VENTA_KEY) || 'null'); if (c && c.datos) preciosCalculados = c.datos; } catch(e){}
@@ -9423,6 +9423,11 @@ function resolverProductoPorSku(sku, esPedido){
   const k = String(sku || '').trim(); if(!k) return null;
   const pr = preciosCache[k], prop = inventarioPropio[k];
   const pc = preciosCalculados[k];
+  // Venta normal: si el SKU está en el almacén móvil con precio propio (AlmacenMovil), ese precio manda
+  // sobre el calculado por fórmula. La liquidación sí conserva su precio calculado.
+  if(pc && !esPedido && !pc.liquidacion && prop && Number(prop.precioUnitario) > 0){
+    return { producto: pc.producto || (pr && pr.producto) || prop.producto || '', precio: Number(prop.precioUnitario), liquidacion: false };
+  }
   if(pc) return { producto: pc.producto || (pr && pr.producto) || (prop && prop.producto) || '', precio: pc.precio, liquidacion: pc.liquidacion };
   if(esPedido){
     const gc = inventarioGC.find(function(x){ return String(x.sku).trim() === k; });
@@ -9742,7 +9747,7 @@ function opcionesOrigenVenta(sku){
 }
 
 /* ---------- Precios calculados (ahora con precio de mayoreo) ---------- */
-const PRECIOS_VENTA_KEY2 = 'gc_precios_venta_v2';
+const PRECIOS_VENTA_KEY2 = 'gc_precios_venta_v3';
 try { const c = JSON.parse(localStorage.getItem(PRECIOS_VENTA_KEY2) || 'null'); if (c && c.datos) preciosCalculados = c.datos; } catch(e){}
 
 async function sincronizarPreciosCalculados(){
