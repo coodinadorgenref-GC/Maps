@@ -1023,7 +1023,6 @@
       <a href="#" id="notaVentaAbrirAparte" target="_blank" style="font-size:11.5px; color:var(--text-dim); text-decoration:underline;">¿No se ve bien? Ábrela aparte</a>
     </div>
     <div class="save-row" style="margin-top:10px;">
-      <button class="btn teal" id="notaVentaBtnCopiar" style="flex:1;">📋 Copiar información</button>
       <button class="btn teal" id="notaVentaBtnReenviar" style="flex:1;">↻ Reenviar</button>
     </div>
   </div>
@@ -9022,7 +9021,6 @@ function abrirNotaVentaModal(venta){
     document.getElementById('notaVentaFolio').textContent = venta.folio + ' · $' + venta.total.toFixed(2);
     document.getElementById('notaVentaFrame').src = url;
     document.getElementById('notaVentaAbrirAparte').href = url;
-    document.getElementById('notaVentaBtnCopiar').onclick = () => copiarTextoVenta(venta);
     document.getElementById('notaVentaBtnReenviar').onclick = () => reenviarTicketVenta(venta);
     document.getElementById('notaVentaBtnReenviar').style.display = venta.cancelada ? 'none' : '';
 
@@ -9107,15 +9105,6 @@ function textoVentaPlano(venta){
   }
   return l.join('\n');
 }
-async function copiarTextoVenta(venta){
-  try{
-    await navigator.clipboard.writeText(textoVentaPlano(venta));
-    mostrarToast('Texto de la venta copiado');
-  } catch(err){
-    mostrarToast('No se pudo copiar (revisa permisos del navegador)');
-  }
-}
-
 async function reenviarTicketVenta(venta){
   try{
     const pdfBlob = generarPdfTicketVenta(venta);
