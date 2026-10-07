@@ -211,9 +211,8 @@
   /* ---------- Sesión (login) ---------- */
   .login-overlay{
     position:fixed; inset:0; z-index:5000;
-    background:
-      radial-gradient(circle at 88% 92%, rgba(196,214,0,.22), transparent 52%),
-      linear-gradient(135deg,#14181C 0%,#1C3330 55%,#2B6B64 100%);
+    /* Verde lima de la paleta (--accent #C4D600): de suave a intenso */
+    background:linear-gradient(135deg,#E3EC7E 0%,#C4D600 52%,#8E9C00 100%);
     overflow-y:auto;
     display:flex; align-items:center; justify-content:center;
     padding:16px; padding-top:calc(16px + env(safe-area-inset-top));
@@ -232,7 +231,8 @@
   .login-campo label{ font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); display:block; margin-bottom:8px; }
   .login-campo input{
     width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
-    color:var(--text); border-radius:12px; padding:12px 16px; font-size:16px; line-height:24px; font-weight:500; outline:none;
+    color:var(--text); border-radius:12px; padding:12px 16px; font-family:inherit; font-size:16px; line-height:24px; font-weight:500; outline:none;
+    height:50px; /* igual que el login de REPORTEADOR (24px de texto + 12px×2 de relleno + 1px×2 de borde) */
     transition:border-color .15s, box-shadow .15s;
   }
   .login-campo input:focus{ border-color:var(--accent); box-shadow:0 0 0 2px rgba(196,214,0,.55); }
@@ -246,7 +246,7 @@
   .login-recordarme input{ width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
   .login-btn{
     width:100%; background:var(--accent); color:var(--accent-ink); border:none; border-radius:12px;
-    padding:12px 16px; font-size:16px; line-height:24px; font-weight:700; cursor:pointer;
+    padding:12px 16px; font-family:inherit; font-size:16px; line-height:24px; font-weight:700; cursor:pointer; height:48px;
     box-shadow:0 10px 15px -3px rgba(196,214,0,.28), 0 4px 6px -4px rgba(0,0,0,.35);
     transition:filter .15s, transform .05s;
   }
@@ -415,13 +415,38 @@
   @keyframes vvFlash{ from{ box-shadow:0 0 0 2px var(--teal); } to{ box-shadow:0 0 0 0 transparent; } }
   .alm-fila{ margin-bottom:8px; }
   .alm-fila .venta-fila-item{ margin-bottom:4px; }
-  .pe-fila{ border:1px solid var(--border, #dde1e6); border-radius:12px; padding:10px; margin-bottom:10px; }
-  .pe-sucia{ border-color:#2f8f83; box-shadow:0 0 0 1px #2f8f83 inset; }
-  .pe-r1{ display:flex; gap:6px; margin-bottom:6px; }
-  .pe-fila input{ width:100%; padding:8px 10px; border:1px solid var(--border, #dde1e6); border-radius:8px; font-size:14px; box-sizing:border-box; }
-  .pe-fila label{ display:block; font-size:11px; color:var(--text-dim); }
-  .pe-grid{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:6px; }
-  .pe-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px; }
+  /* Precios especiales: tabla tipo Excel */
+  .pe-tabla-wrap{ border:1px solid var(--line); border-radius:12px; overflow:auto; max-height:50vh; -webkit-overflow-scrolling:touch; background:var(--surface); margin-bottom:10px; }
+  table.pe-tabla{ border-collapse:separate; border-spacing:0; width:100%; min-width:1118px; table-layout:fixed; font-size:13.5px; }
+  .pe-tabla th{ position:sticky; top:0; z-index:3; background:var(--surface-2); color:var(--text-dim); font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); border-right:1px solid var(--line); white-space:nowrap; }
+  .pe-tabla th.pe-r{ text-align:right; }
+  .pe-tabla td{ padding:0; border-bottom:1px solid var(--line); border-right:1px solid var(--line); background:var(--surface); }
+  .pe-tabla th:last-child, .pe-tabla td:last-child{ border-right:none; }
+  .pe-tabla tbody tr:last-child td{ border-bottom:none; }
+  .pe-tabla .pe-c-del{ position:sticky; left:0; z-index:2; }
+  .pe-tabla .pe-c-sku{ position:sticky; left:38px; z-index:2; box-shadow:1px 0 0 var(--line); }
+  .pe-tabla th.pe-c-del, .pe-tabla th.pe-c-sku{ z-index:4; }
+  .pe-tabla td input{ display:block; width:100%; height:38px; min-width:0; margin:0; padding:0 8px; border:none; border-radius:0; outline:none; background:transparent; color:var(--text); font:inherit; box-sizing:border-box; }
+  .pe-tabla td input::placeholder{ color:var(--text-dim); opacity:.55; }
+  .pe-tabla td input:focus{ background:var(--surface); box-shadow:inset 0 0 0 2px var(--teal); }
+  .pe-tabla td.pe-num input{ text-align:right; font-variant-numeric:tabular-nums; }
+  .pe-tabla input[type=date]{ color-scheme:dark; }
+  html[data-theme="claro"] .pe-tabla input[type=date]{ color-scheme:light; }
+  .pe-tabla tr.pe-sucia td{ background:#25393A; }
+  html[data-theme="claro"] .pe-tabla tr.pe-sucia td{ background:#E3F2F0; }
+  .pe-tabla td.pe-dup input{ box-shadow:inset 0 0 0 2px var(--danger); }
+  .pe-del{ display:block; width:100%; height:38px; background:none; border:none; color:var(--danger); font-size:15px; cursor:pointer; padding:0; }
+  .pe-del:active{ background:var(--surface-2); }
+  .pe-tabla col.pe-w-sku{ width:100px; } .pe-tabla col.pe-w-prod{ width:240px; } .pe-tabla col.pe-w-marca{ width:110px; }
+  .pe-solo-pc{ display:inline; }
+  @media (pointer:coarse){ .pe-tabla td input{ font-size:16px; } .pe-solo-pc{ display:none; } }
+  @media (max-width:640px){
+    table.pe-tabla{ min-width:882px; }
+    /* En celular se oculta Marca (opcional) para que los precios queden a la vista; al pegar desde Excel sigue contando como columna */
+    .pe-tabla col.pe-w-marca, .pe-tabla th:nth-child(4), .pe-tabla td:nth-child(4){ display:none; }
+    .pe-tabla col.pe-w-sku{ width:84px; } .pe-tabla col.pe-w-prod{ width:130px; }
+    .pe-tabla .pe-c-sku{ left:38px; }
+  }
   .alm-fila .vi-obs{
     width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
     color:var(--text); border-radius:8px; padding:6px 8px; font-size:12px; font-style:italic;
@@ -3604,7 +3629,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '07-oct · v56 · reff';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '07-oct · v56 · k21';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -9870,10 +9895,36 @@ function _filaEsp(r){
     vigenteDesde: _fechaEsp(r.vigenteDesde), vigenteHasta: _fechaEsp(r.vigenteHasta), _origSku: sku, _dirty: false };
 }
 
+/* ---- Tabla tipo Excel ---- */
+const PE_COLS = ['sku', 'producto', 'marca', 'precioUnitario', 'precioMayoreo', 'minMayoreo', 'vigenteDesde', 'vigenteHasta'];
+const PE_MONEDA = { precioUnitario: 1, precioMayoreo: 1 };
+function peMoneda(n){ n = Number(n) || 0; return n > 0 ? n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : ''; }
+function peFilaVacia(){ return { sku: '', producto: '', marca: '', precioUnitario: 0, precioMayoreo: 0, minMayoreo: 0, vigenteDesde: '', vigenteHasta: '', _origSku: '', _dirty: false }; }
+function peEsVacia(r){ return !r.sku && !r.producto && !r.marca && !r.precioUnitario && !r.precioMayoreo && !r.minMayoreo && !r.vigenteDesde && !r.vigenteHasta; }
+function peAsignar(r, c, v){
+  if (PE_MONEDA[c]) r[c] = Math.max(0, _numEsp(v));
+  else if (c === 'minMayoreo') r[c] = Math.max(0, Math.round(_numEsp(v)));
+  else if (c === 'vigenteDesde' || c === 'vigenteHasta') r[c] = _fechaEsp(v);
+  else r[c] = String(v == null ? '' : v).trim();
+  if (c === 'sku' && r.sku && !r.producto){ // completa el nombre desde el catálogo si lo conoce
+    const cat = preciosCalculados[r.sku] || preciosCache[r.sku];
+    if (cat && cat.producto) r.producto = String(cat.producto);
+  }
+}
+function peVisibles(){
+  const q = String(preciosEspFiltro || '').trim().toLowerCase(), out = [];
+  preciosEspLista.forEach(function(r, i){ if (!q || (r.sku + ' ' + r.producto).toLowerCase().indexOf(q) !== -1) out.push(i); });
+  return out;
+}
+function peLimpiarFiltro(){
+  preciosEspFiltro = '';
+  const b = document.getElementById('peBuscar'); if (b) b.value = '';
+}
+
 function renderPreciosEsp(){
   if (!esAdmin){ sheetBody.innerHTML = '<div class="empty">Solo el administrador puede editar precios especiales.</div>'; return; }
   sheetBody.innerHTML =
-    '<div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">Precios que no siguen la fórmula. <b>Precio normal</b> reemplaza a la fórmula; <b>Mayoreo</b> aplica desde las piezas indicadas. Si dejas vacío el precio normal, ese SKU sigue con la fórmula. El vendedor los recibe al sincronizar y los usa sin internet.</div>'
+    '<div style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">Precios que no siguen la fórmula. <b>Precio normal</b> reemplaza a la fórmula (vacío = sigue la fórmula); <b>Mayoreo</b> aplica desde las piezas indicadas. <span class="pe-solo-pc">Escribe directo en la tabla: <b>Enter</b>, <b>↑ ↓</b> o <b>Tab</b> para moverte, o <b>pega filas desde Excel</b> (Ctrl+V). </span>El vendedor los recibe al sincronizar y los usa sin internet.</div>'
     + '<div class="save-row" style="margin-bottom:6px;">'
     + '<button class="btn" id="btnPePlantilla" style="flex:1;">⬇️ Plantilla</button>'
     + '<button class="btn" id="btnPeExcel" style="flex:1;">⬆️ Subir plantilla</button></div>'
@@ -9881,34 +9932,105 @@ function renderPreciosEsp(){
     + '<div class="field"><div class="search-wrap"><input type="text" id="peBuscar" placeholder="Buscar SKU o producto…" value="' + escapeHtml(preciosEspFiltro) + '"></div></div>'
     + '<div id="peAviso" style="font-size:11.5px; color:var(--text-dim); margin-bottom:8px;"></div>'
     + '<div id="peLista"></div>'
-    + '<button class="venta-agregar-item" id="btnPeAgregar">+ Agregar precio especial</button>'
-    + '<div class="save-row" style="margin-top:10px;"><button class="btn primary" id="btnPeGuardar" style="flex:1;">Guardar cambios</button></div>';
+    + '<button class="venta-agregar-item" id="btnPeAgregar">+ Agregar fila</button>'
+    + '<div class="save-row fija"><button class="btn" id="btnPeDescartar" style="flex:0 0 auto;">Descartar</button><button class="btn primary" id="btnPeGuardar" style="flex:1;">Guardar cambios</button></div>';
   document.getElementById('btnPePlantilla').addEventListener('click', peDescargarPlantilla);
   document.getElementById('btnPeExcel').addEventListener('click', function(){ document.getElementById('peExcelInput').click(); });
   document.getElementById('peExcelInput').addEventListener('change', peImportarExcel);
   document.getElementById('btnPeGuardar').addEventListener('click', guardarPreciosEsp);
+  document.getElementById('btnPeDescartar').addEventListener('click', function(){
+    const n = preciosEspLista.filter(function(r){ return r._dirty; }).length + preciosEspBorrar.size;
+    if (!n){ mostrarToast('No hay cambios sin guardar'); return; }
+    if (!confirm('¿Descartar los ' + n + ' cambio(s) sin guardar y volver a cargar lo guardado?')) return;
+    peLimpiarFiltro();
+    cargarPreciosEsp();
+  });
   document.getElementById('btnPeAgregar').addEventListener('click', function(){
-    preciosEspLista.unshift({ sku: '', producto: '', marca: '', precioUnitario: 0, precioMayoreo: 0, minMayoreo: 0, vigenteDesde: '', vigenteHasta: '', _origSku: '', _dirty: true });
+    if (preciosEspFiltro) peLimpiarFiltro();
+    preciosEspLista.push(peFilaVacia());
     pintarPreciosEsp();
-    const p = document.querySelector('#peLista input[data-c="sku"]'); if (p) p.focus();
+    const wrap = document.querySelector('#peLista .pe-tabla-wrap');
+    if (wrap){ wrap.scrollTop = wrap.scrollHeight; wrap.scrollLeft = 0; }
+    const f = document.querySelector('#peLista tbody tr:last-child input[data-c="sku"]'); if (f) f.focus();
   });
   document.getElementById('peBuscar').addEventListener('input', function(e){ preciosEspFiltro = e.target.value; pintarPreciosEsp(); });
   const cont = document.getElementById('peLista');
+
+  // Guardar el valor de la celda en la fila
   cont.addEventListener('change', function(e){
     const t = e.target, i = t.getAttribute('data-i'), c = t.getAttribute('data-c');
     if (i == null || !c) return;
     const r = preciosEspLista[Number(i)]; if (!r) return;
-    if (c === 'precioUnitario' || c === 'precioMayoreo' || c === 'minMayoreo') r[c] = _numEsp(t.value);
-    else r[c] = String(t.value || '').trim();
+    peAsignar(r, c, t.value);
     r._dirty = true;
-    t.closest('.pe-fila').classList.add('pe-sucia');
+    const tr = t.closest('tr'); if (tr) tr.classList.add('pe-sucia');
+    if (c === 'sku' && r.producto && tr){
+      const ip = tr.querySelector('input[data-c="producto"]'); if (ip && ip !== document.activeElement) ip.value = r.producto;
+    }
     peActualizarAviso();
   });
+  // Dinero: al editar se ve el número limpio, al salir se muestra con $
+  cont.addEventListener('focusin', function(e){
+    const t = e.target; if (!t.getAttribute || !t.getAttribute('data-m')) return;
+    const r = preciosEspLista[Number(t.getAttribute('data-i'))]; if (!r) return;
+    const n = r[t.getAttribute('data-c')];
+    t.value = n ? String(n) : '';
+    try { t.select(); } catch(_){}
+    setTimeout(function(){ try { t.select(); } catch(_){} }, 0); // otra vez: el clic recoloca el cursor después del focus
+  });
+  cont.addEventListener('focusout', function(e){
+    const t = e.target; if (!t.getAttribute || !t.getAttribute('data-m')) return;
+    const r = preciosEspLista[Number(t.getAttribute('data-i'))]; if (!r) return;
+    t.value = peMoneda(r[t.getAttribute('data-c')]);
+  });
+  // Teclado tipo Excel: Enter / Shift+Enter / flechas arriba-abajo
+  cont.addEventListener('keydown', function(e){
+    const t = e.target;
+    if (!t.getAttribute || !t.getAttribute('data-c') || e.isComposing) return;
+    let dir = 0;
+    if (e.key === 'Enter') dir = e.shiftKey ? -1 : 1;
+    else if (t.type !== 'date' && e.key === 'ArrowDown') dir = 1;
+    else if (t.type !== 'date' && e.key === 'ArrowUp') dir = -1;
+    if (!dir) return;
+    e.preventDefault();
+    const trs = Array.prototype.slice.call(cont.querySelectorAll('tbody tr'));
+    const nx = trs[trs.indexOf(t.closest('tr')) + dir]; if (!nx) return;
+    const dst = nx.querySelector('input[data-c="' + t.getAttribute('data-c') + '"]');
+    if (dst){ dst.focus(); try { dst.select(); } catch(_){} }
+  });
+  // Pegar un bloque copiado de Excel: se reparte en las celdas desde la celda activa
+  cont.addEventListener('paste', function(e){
+    const t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute('data-c')) return;
+    const cd = e.clipboardData || window.clipboardData; if (!cd) return;
+    const txt = String(cd.getData('text') || '').replace(/\r/g, '').replace(/\n+$/, '');
+    if (txt.indexOf('\t') === -1 && txt.indexOf('\n') === -1) return; // un solo valor: pegado normal
+    e.preventDefault();
+    let grid = txt.split('\n').map(function(l){ return l.split('\t'); });
+    if (grid.length && /^sku$/i.test(String(grid[0][0] || '').trim())) grid = grid.slice(1); // encabezado copiado
+    if (!grid.length) return;
+    const startC = PE_COLS.indexOf(t.getAttribute('data-c'));
+    const vis = peVisibles();
+    const startPos = Math.max(0, vis.indexOf(Number(t.getAttribute('data-i'))));
+    let nuevas = 0;
+    grid.forEach(function(fila, dr){
+      let idx = vis[startPos + dr];
+      if (idx === undefined){ preciosEspLista.push(peFilaVacia()); idx = preciosEspLista.length - 1; vis.push(idx); nuevas++; }
+      const r = preciosEspLista[idx];
+      fila.forEach(function(v, dc){ const c = PE_COLS[startC + dc]; if (c) peAsignar(r, c, v); });
+      r._dirty = true;
+    });
+    if (nuevas && preciosEspFiltro) peLimpiarFiltro();
+    pintarPreciosEsp();
+    mostrarToast('Pegadas ' + grid.length + ' fila(s). Revisa y toca "Guardar cambios".');
+  });
+  // Quitar fila
   cont.addEventListener('click', function(e){
     const b = e.target.closest('[data-del]'); if (!b) return;
-    const r = preciosEspLista[Number(b.getAttribute('data-del'))]; if (!r) return;
+    const pos = Number(b.getAttribute('data-del'));
+    const r = preciosEspLista[pos]; if (!r) return;
     if (r._origSku) preciosEspBorrar.add(r._origSku);
-    preciosEspLista.splice(Number(b.getAttribute('data-del')), 1);
+    preciosEspLista.splice(pos, 1);
     pintarPreciosEsp();
   });
   cargarPreciosEsp();
@@ -9943,26 +10065,40 @@ function peActualizarAviso(){
 
 function pintarPreciosEsp(){
   const cont = document.getElementById('peLista'); if (!cont) return;
-  const q = String(preciosEspFiltro || '').trim().toLowerCase();
-  const val = function(n){ return n ? n : ''; };
-  const html = preciosEspLista.map(function(r, idx){ return { r: r, idx: idx }; })
-    .filter(function(o){ return !q || (o.r.sku + ' ' + o.r.producto).toLowerCase().indexOf(q) !== -1; })
-    .map(function(o){
-      const r = o.r, i = o.idx;
-      return '<div class="pe-fila' + (r._dirty ? ' pe-sucia' : '') + '">'
-        + '<div class="pe-r1"><input data-i="' + i + '" data-c="sku" placeholder="SKU" value="' + escapeHtml(r.sku) + '">'
-        + '<button class="vi-quitar" data-del="' + i + '" title="Quitar">✕</button></div>'
-        + '<input data-i="' + i + '" data-c="producto" placeholder="Producto (opcional)" value="' + escapeHtml(r.producto) + '">'
-        + '<div class="pe-grid">'
-        + '<label>Precio normal<input type="number" inputmode="decimal" min="0" step="0.01" data-i="' + i + '" data-c="precioUnitario" value="' + val(r.precioUnitario) + '"></label>'
-        + '<label>Mayoreo<input type="number" inputmode="decimal" min="0" step="0.01" data-i="' + i + '" data-c="precioMayoreo" value="' + val(r.precioMayoreo) + '"></label>'
-        + '<label>Desde (pzs)<input type="number" inputmode="numeric" min="2" step="1" data-i="' + i + '" data-c="minMayoreo" value="' + val(r.minMayoreo) + '"></label>'
-        + '</div><div class="pe-grid2">'
-        + '<label>Vigente desde<input type="date" data-i="' + i + '" data-c="vigenteDesde" value="' + escapeHtml(r.vigenteDesde) + '"></label>'
-        + '<label>Vigente hasta<input type="date" data-i="' + i + '" data-c="vigenteHasta" value="' + escapeHtml(r.vigenteHasta) + '"></label>'
-        + '</div></div>';
-    }).join('');
-  cont.innerHTML = html || '<div class="empty">Sin precios especiales' + (q ? ' para esa búsqueda' : ' todavía') + '.</div>';
+  const q = String(preciosEspFiltro || '').trim();
+  const vis = peVisibles();
+  const vieja = cont.querySelector('.pe-tabla-wrap');
+  const st = vieja ? vieja.scrollTop : 0, sl = vieja ? vieja.scrollLeft : 0;
+  if (!vis.length){
+    cont.innerHTML = '<div class="empty">Sin precios especiales' + (q ? ' para esa búsqueda' : ' todavía') + '. Toca "+ Agregar fila" o pega filas desde Excel.</div>';
+    peActualizarAviso(); return;
+  }
+  const cuenta = {};
+  preciosEspLista.forEach(function(r){ const k = normSkuMaps(r.sku); if (k) cuenta[k] = (cuenta[k] || 0) + 1; });
+  const inp = function(i, c, v, ph, extra){
+    return '<input data-i="' + i + '" data-c="' + c + '" value="' + escapeHtml(v) + '" placeholder="' + ph + '" autocomplete="off" ' + (extra || '') + '>';
+  };
+  const filas = vis.map(function(i){
+    const r = preciosEspLista[i];
+    const dup = r.sku && cuenta[normSkuMaps(r.sku)] > 1;
+    return '<tr class="' + (r._dirty ? 'pe-sucia' : '') + '">'
+      + '<td class="pe-c-del"><button class="pe-del" data-del="' + i + '" title="Quitar fila" tabindex="-1">✕</button></td>'
+      + '<td class="pe-c-sku' + (dup ? ' pe-dup' : '') + '"' + (dup ? ' title="SKU repetido"' : '') + '>' + inp(i, 'sku', r.sku, 'SKU', 'autocapitalize="off" spellcheck="false"') + '</td>'
+      + '<td>' + inp(i, 'producto', r.producto, 'Producto (opcional)', 'spellcheck="false"') + '</td>'
+      + '<td>' + inp(i, 'marca', r.marca, 'Marca', 'spellcheck="false"') + '</td>'
+      + '<td class="pe-num">' + inp(i, 'precioUnitario', peMoneda(r.precioUnitario), '$0.00', 'data-m="1" inputmode="decimal"') + '</td>'
+      + '<td class="pe-num">' + inp(i, 'precioMayoreo', peMoneda(r.precioMayoreo), '$0.00', 'data-m="1" inputmode="decimal"') + '</td>'
+      + '<td class="pe-num">' + inp(i, 'minMayoreo', r.minMayoreo ? r.minMayoreo : '', 'pzs', 'inputmode="numeric"') + '</td>'
+      + '<td>' + inp(i, 'vigenteDesde', r.vigenteDesde, '', 'type="date"') + '</td>'
+      + '<td>' + inp(i, 'vigenteHasta', r.vigenteHasta, '', 'type="date"') + '</td>'
+      + '</tr>';
+  }).join('');
+  cont.innerHTML = '<div class="pe-tabla-wrap"><table class="pe-tabla">'
+    + '<colgroup><col style="width:38px"><col class="pe-w-sku"><col class="pe-w-prod"><col class="pe-w-marca"><col style="width:120px"><col style="width:120px"><col style="width:90px"><col style="width:150px"><col style="width:150px"></colgroup>'
+    + '<thead><tr><th class="pe-c-del"></th><th class="pe-c-sku">SKU</th><th>Producto</th><th>Marca</th><th class="pe-r">Precio normal</th><th class="pe-r">Mayoreo</th><th class="pe-r">Desde (pzs)</th><th>Vigente desde</th><th>Vigente hasta</th></tr></thead>'
+    + '<tbody>' + filas + '</tbody></table></div>';
+  const wrap = cont.querySelector('.pe-tabla-wrap');
+  if (wrap){ wrap.scrollTop = st; wrap.scrollLeft = sl; }
   peActualizarAviso();
 }
 
@@ -9975,14 +10111,22 @@ function peDescargarPlantilla(){
   const instr = [
     ['Cómo llenar la plantilla'],
     ['sku: obligatorio. Si ya existe, la fila reemplaza a la que está guardada.'],
-    ['precioUnitario: precio normal (mecánico). Reemplaza a la fórmula. Vacío = sigue la fórmula.'],
+    ['precioUnitario: precio normal (mecánico), en pesos (acepta el signo $). Reemplaza a la fórmula. Vacío = sigue la fórmula.'],
     ['precioMayoreo y minMayoreo: precio de mayoreo y desde cuántas piezas (mínimo 2). Vacíos = sin mayoreo.'],
     ['vigenteDesde / vigenteHasta: opcionales, formato AAAA-MM-DD. Vacíos = siempre vigente.'],
     ['eliminar: escribe SI para quitar ese SKU de los precios especiales.'],
     ['Después de subir el archivo revisa la lista y toca "Guardar cambios".']
   ];
   const libro = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet([enc].concat(filas)), 'PreciosEspeciales');
+  const hoja = XLSX.utils.aoa_to_sheet([enc].concat(filas));
+  hoja['!cols'] = [{ wch: 12 }, { wch: 36 }, { wch: 14 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
+  for (let rr = 1; rr <= filas.length; rr++){ // columnas D y E (precios) con formato de pesos
+    [3, 4].forEach(function(cc){
+      const cel = hoja[XLSX.utils.encode_cell({ r: rr, c: cc })];
+      if (cel && typeof cel.v === 'number') cel.z = '"$"#,##0.00';
+    });
+  }
+  XLSX.utils.book_append_sheet(libro, hoja, 'PreciosEspeciales');
   XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet(instr), 'Instrucciones');
   XLSX.writeFile(libro, 'plantilla_precios_especiales.xlsx');
 }
@@ -10048,6 +10192,9 @@ async function peImportarExcel(ev){
 async function guardarPreciosEsp(){
   if (!navigator.onLine){ mostrarToast('Sin internet: para guardar necesitas conexión'); return; }
   if (!esAdmin || !usuarioActual || !tokenActual){ mostrarToast('Inicia sesión como administrador para guardar'); return; }
+  const antes = preciosEspLista.length; // las filas nuevas totalmente vacías se descartan en silencio
+  preciosEspLista = preciosEspLista.filter(function(r){ return !(peEsVacia(r) && !r._origSku); });
+  if (preciosEspLista.length !== antes) pintarPreciosEsp();
   const usados = new Set(), upserts = [], mayorNoDescuento = [];
   for (const r of preciosEspLista){
     const sku = String(r.sku || '').trim();
