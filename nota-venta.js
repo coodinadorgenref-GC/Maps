@@ -131,6 +131,7 @@ function generarPdfNotaVenta(venta) {
   let fy = y + 4;
   campo('Fecha:', fecha, fy); fy += 6;
   campo('Cliente:', venta.cliente, fy); fy += 6;
+  if (venta.idCliente) { campo('ID Cliente:', venta.idCliente, fy); fy += 6; }
   if (venta.negocio) { campo('Negocio:', venta.negocio, fy); fy += 6; }
   campo('Teléfono:', venta.telefono, fy); fy += 6;
   campo('Vendedor:', venta.vendedorNombre || venta.vendedor, fy);
