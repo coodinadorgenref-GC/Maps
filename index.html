@@ -3655,7 +3655,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '07-oct · v58 · k23';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '07-oct · v59 · CH21';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -10641,16 +10641,11 @@ if('serviceWorker' in navigator){
 }
 </script>
 <script>
-/* ---------- Cotización del catálogo → pedido en Maps ----------
-   El enlace del catálogo (o del aviso de Telegram) trae ?cotizacion=<id del bloque>.
-   Se guarda en sessionStorage (así sobrevive al login), se quita de la URL y, ya con
-   sesión, se leen los productos del catálogo y se abre un PEDIDO con los precios de
-   Maps. Los productos sin precio quedan editables para capturarlos a mano. Al generar
-   el pedido se marca "Cotización enviada" en el catálogo. Los precios nunca viajan
-   hacia el catálogo ni hacia el cliente. */
+/* ---------- Cotización del catálogo → pedido en Maps (offline-first) ---------- */
 (function(){
   var CLAVE = 'gc_cotizacion_pendiente';
   var CLAVE_MARCAS = 'gc_cotizacion_marcas_pend';
+  var CLAVE_CACHE = 'gc_cotizaciones_cache_v1';
   window.cotizacionCatalogoActiva = null;
 
   try {
@@ -10665,11 +10660,11 @@ if('serviceWorker' in navigator){
   } catch(e){}
 
   function aviso(t){ if (typeof mostrarToast === 'function') mostrarToast(t); }
+  function esc(t){ return (typeof escapeHtmlVenta === 'function') ? escapeHtmlVenta(t) : String(t == null ? '' : t); }
   function llamar(cuerpo){
     return fetch(LOGIN_API_URL, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(Object.assign({ correo: usuarioActual, token: tokenActual }, cuerpo)) }).then(function(r){ return r.json(); });
   }
-  // Mismo criterio de grupos que usa el catálogo (BAJAJ / SUZUKI / VENTO / CARABELA / GENERAL).
   function grupoSucursal(nombre){
     var n = String(nombre || '').toUpperCase().trim();
     if (n.indexOf('BAJAJ') !== -1) return 'BAJAJ';
@@ -10688,8 +10683,6 @@ if('serviceWorker' in navigator){
     });
     return lista;
   }
-
-  // El ID de cliente del catálogo: se busca tolerante a cómo lo nombre el servidor.
   function idClienteDe(u){
     if (!u) return '';
     var fijos = ['idCliente','id_cliente','IDCliente','clienteId','ID Cliente','idDeCliente'];
@@ -10698,12 +10691,42 @@ if('serviceWorker' in navigator){
     for (var j = 0; j < ks.length; j++){ if (/^id.{0,3}cliente$|^cliente.{0,3}id$/i.test(ks[j]) && u[ks[j]]) return String(u[ks[j]]).trim(); }
     return '';
   }
-  // Lista de cotizaciones activas (una por bloque) tal como las ve este usuario.
-  async function cargarCotizaciones(){
-    var rs = await llamar({ action: 'obtenerCarritosActivos' });
-    if (!rs || !rs.success) throw new Error((rs && rs.message) || 'No se pudieron cargar las cotizaciones.');
+
+  /* ----- Copia local de las cotizaciones (por usuario) ----- */
+  function claveCache(){ return CLAVE_CACHE + '_' + String(usuarioActual || '').trim().toLowerCase(); }
+  function leerCache(){
+    try { var c = JSON.parse(localStorage.getItem(claveCache())); return (c && Array.isArray(c.data)) ? c : null; }
+    catch(e){ return null; }
+  }
+  function guardarCache(data){
+    try { localStorage.setItem(claveCache(), JSON.stringify({ t: Date.now(), data: data })); } catch(e){}
+  }
+  // Se llama al cerrar sesión: no deja nombres/teléfonos de clientes en el celular.
+  window.limpiarCacheCotizaciones = function(){
+    try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf(CLAVE_CACHE) === 0) localStorage.removeItem(k); }); } catch(e){}
+  };
+  function haceCuanto(t){
+    var m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    return m < 1 ? 'hace un momento' : (m < 60 ? 'hace ' + m + ' min' : 'hace ' + Math.round(m / 60) + ' h');
+  }
+
+  // Una sola consulta al servidor a la vez; guarda el resultado en la copia local.
+  var refrescando = null;
+  function refrescarDesdeServidor(){
+    if (refrescando) return refrescando;
+    if (!navigator.onLine || !usuarioActual || !tokenActual) return Promise.reject(new Error('Sin conexión.'));
+    refrescando = conTimeout(llamar({ action: 'obtenerCarritosActivos' }), 20000).then(function(rs){
+      if (!rs || !rs.success) throw new Error((rs && rs.message) || 'No se pudieron cargar las cotizaciones.');
+      var data = rs.data || [];
+      guardarCache(data);
+      return data;
+    }).finally(function(){ refrescando = null; });
+    return refrescando;
+  }
+
+  function listaDesdeData(data){
     var lista = [];
-    (rs.data || []).forEach(function(u){
+    (data || []).forEach(function(u){
       var porBloque = {};
       (u.items || []).forEach(function(it){ if (it._bloqueId){ (porBloque[it._bloqueId] = porBloque[it._bloqueId] || []).push(it); } });
       Object.keys(porBloque).forEach(function(b){
@@ -10714,26 +10737,28 @@ if('serviceWorker' in navigator){
     });
     return lista;
   }
+  function buscarEnData(data, id){
+    var cliente = null, items = [];
+    (data || []).forEach(function(u){
+      var mios = (u.items || []).filter(function(it){ return it._bloqueId === id; });
+      if (mios.length){ cliente = u; items = mios; }
+    });
+    return { cliente: cliente, items: items };
+  }
+
   function pintarBadge(n){
     var b = document.getElementById('cotizBadge'); if (!b) return;
     b.textContent = n; b.hidden = !n;
   }
-  window.actualizarBadgeCotizaciones = async function(){
-    if (!usuarioActual || !tokenActual || !navigator.onLine) return;
-    try { pintarBadge((await cargarCotizaciones()).length); } catch(e){}
-  };
-  function esc(t){ return (typeof escapeHtmlVenta === 'function') ? escapeHtmlVenta(t) : String(t == null ? '' : t); }
-  window.abrirListaCotizaciones = async function(){
-    var ov = document.getElementById('cotizacionesOverlay'), box = document.getElementById('cotizLista');
-    ov.hidden = false;
-    if (!navigator.onLine){ box.innerHTML = '<p style="opacity:.8">Sin señal: las cotizaciones se consultan en línea.</p>'; return; }
-    box.innerHTML = '<p style="opacity:.8">Cargando…</p>';
-    var lista;
-    try { lista = await cargarCotizaciones(); }
-    catch(e){ box.innerHTML = '<p style="color:#e08a8a">' + esc(e.message) + '</p>'; return; }
+  function listaAbierta(){ var ov = document.getElementById('cotizacionesOverlay'); return !!ov && !ov.hidden; }
+
+  function pintarLista(data, estadoTxt){
+    var box = document.getElementById('cotizLista'); if (!box) return;
+    var lista = listaDesdeData(data);
     pintarBadge(lista.length);
-    if (!lista.length){ box.innerHTML = '<p style="opacity:.8">No hay cotizaciones pendientes.</p>'; return; }
-    box.innerHTML = lista.map(function(c){
+    var cab = '<div id="cotizEstado" style="font-size:11.5px;opacity:.75;margin-bottom:8px">' + esc(estadoTxt) + '</div>';
+    if (!lista.length){ box.innerHTML = cab + '<p style="opacity:.8">No hay cotizaciones pendientes.</p>'; return; }
+    box.innerHTML = cab + lista.map(function(c){
       return '<div style="border:1px solid #3a4a52;border-radius:10px;padding:10px;margin-bottom:10px">'
         + '<div style="font-weight:700">' + esc(c.nombre || 'Cliente') + '</div>'
         + '<div style="font-size:13px;opacity:.85">' + (c.idCliente ? 'ID: ' + esc(c.idCliente) + ' · ' : 'Sin ID · ')
@@ -10745,6 +10770,34 @@ if('serviceWorker' in navigator){
     box.querySelectorAll('.btn-armar-cotiz').forEach(function(btn){
       btn.addEventListener('click', function(){ window.cerrarListaCotizaciones(); abrirCotizacionPorId(btn.getAttribute('data-bloque')); });
     });
+  }
+
+  window.actualizarBadgeCotizaciones = function(){
+    if (!usuarioActual || !tokenActual) return;
+    var c = leerCache();
+    if (c) pintarBadge(listaDesdeData(c.data).length);
+    if (!navigator.onLine) return;
+    refrescarDesdeServidor().then(function(d){
+      pintarBadge(listaDesdeData(d).length);
+      if (listaAbierta()) pintarLista(d, 'Actualizado ahora');
+    }).catch(function(){});
+  };
+
+  window.abrirListaCotizaciones = function(){
+    var ov = document.getElementById('cotizacionesOverlay'), box = document.getElementById('cotizLista');
+    ov.hidden = false;
+    var c = leerCache(), online = navigator.onLine;
+    if (c) pintarLista(c.data, 'Guardado ' + haceCuanto(c.t) + (online ? ' · actualizando…' : ' · sin conexión'));
+    else box.innerHTML = '<p style="opacity:.8">' + (online ? 'Cargando…'
+      : 'Sin señal y todavía no hay cotizaciones guardadas en este celular. Ábrelas una vez con señal.') + '</p>';
+    if (!online) return;
+    refrescarDesdeServidor().then(function(d){
+      if (listaAbierta()) pintarLista(d, 'Actualizado ahora');
+    }).catch(function(e){
+      if (!listaAbierta()) return;
+      if (c){ var el = document.getElementById('cotizEstado'); if (el) el.textContent = 'Guardado ' + haceCuanto(c.t) + ' · no se pudo actualizar'; }
+      else box.innerHTML = '<p style="color:#e08a8a">' + esc(e.message) + '</p>';
+    });
   };
   window.cerrarListaCotizaciones = function(){ document.getElementById('cotizacionesOverlay').hidden = true; };
   document.getElementById('btnCotizacionesMaps').addEventListener('click', function(){ window.abrirListaCotizaciones(); });
@@ -10753,31 +10806,37 @@ if('serviceWorker' in navigator){
   window.procesarCotizacionPendiente = async function(){
     var id; try { id = sessionStorage.getItem(CLAVE); } catch(e){}
     if (!id || !usuarioActual || !tokenActual) return;
-    if (!navigator.onLine){ aviso('Sin señal: abre otra vez el enlace de la cotización cuando tengas conexión.'); return; }
+    var c = leerCache();
+    var enCopia = !!(c && buscarEnData(c.data, id).cliente);
+    if (!navigator.onLine && !enCopia){ aviso('Sin señal: abre otra vez el enlace de la cotización cuando tengas conexión.'); return; }
     try { sessionStorage.removeItem(CLAVE); } catch(e){}
     return abrirCotizacionPorId(id);
   };
+
   async function abrirCotizacionPorId(id){
     if (!id || !usuarioActual || !tokenActual) return;
-    if (!navigator.onLine){ aviso('Sin señal: la cotización se abre en línea.'); return; }
-    aviso('Cargando cotización del catálogo…');
-    var rs;
-    try { rs = await llamar({ action: 'obtenerCarritosActivos' }); }
-    catch(e){ aviso('No se pudo cargar la cotización. Vuelve a abrir el enlace.'); return; }
-    if (!rs || !rs.success){ aviso((rs && rs.message) || 'No se pudo cargar la cotización.'); return; }
+    var c = leerCache();
+    var hallado = c ? buscarEnData(c.data, id) : { cliente: null, items: [] };
+    var usoCopia = !!hallado.cliente;
 
-    var cliente = null, items = [];
-    (rs.data || []).forEach(function(u){
-      var mios = (u.items || []).filter(function(it){ return it._bloqueId === id; });
-      if (mios.length){ cliente = u; items = mios; }
-    });
+    if (!usoCopia){
+      if (!navigator.onLine){ aviso('Esa cotización no está guardada en el celular. Ábrela una vez con señal.'); return; }
+      aviso('Cargando cotización del catálogo…');
+      try { hallado = buscarEnData(await refrescarDesdeServidor(), id); }
+      catch(e){ aviso('No se pudo cargar la cotización. Vuelve a abrir el enlace.'); return; }
+    }
+    var cliente = hallado.cliente, items = hallado.items;
     if (!cliente){ aviso('Esa cotización ya no está disponible (ya se envió o no corresponde a tu almacén).'); return; }
 
     var otro = items[0] && items[0]._atendidoPor;
     if (otro && otro.correo !== usuarioActual &&
         !confirm(otro.nombre + ' ya está atendiendo esta cotización. ¿Abrirla de todos modos?')) return;
 
-    try { await sincronizarPreciosCalculados(); } catch(e){}
+    // Los precios ya viven en el celular; solo se espera la red si no hay ninguno guardado.
+    if (!Object.keys(preciosCalculados).length && navigator.onLine){
+      try { await conTimeout(sincronizarPreciosCalculados(), 4000); } catch(e){}
+    }
+
     abrirVentaRuta(cliente.nombre || '', cliente.telefono || '');
     if (document.getElementById('ventaOverlay').hidden) return; // sin permiso de vendedor: abrirVentaRuta ya avisó
 
@@ -10801,11 +10860,16 @@ if('serviceWorker' in navigator){
     window.cotizacionCatalogoActiva = { bloqueId: id, correoCliente: cliente.correo, nombre: cliente.nombre || '', idCliente: idClienteDe(cliente), grupos: gruposDeItems(items) };
     aviso('Cotización de ' + (cliente.nombre || 'cliente') + ': ' + items.length + ' producto(s)'
       + (sinPrecio ? ', ' + sinPrecio + ' sin precio (captúralos a mano)' : '') + '.');
+
+    // Se abrió desde la copia local: se verifica en segundo plano que siga vigente.
+    if (usoCopia && navigator.onLine){
+      refrescarDesdeServidor().then(function(d){
+        if (!buscarEnData(d, id).cliente) aviso('Ojo: esa cotización ya no aparece en el catálogo (puede que otro asesor ya la finalizó).');
+      }).catch(function(){});
+    }
   }
   window.abrirCotizacionPorId = abrirCotizacionPorId;
 
-  // Marca "Cotización enviada" en el catálogo, una vez por grupo/almacén. Si tu cuenta no
-  // gestiona algún grupo, el servidor lo rechaza y se ignora; si falla por red, se reintenta.
   function enviarMarca(t){
     return llamar({ action: 'marcarCotizacionEnviada', correoUsuario: t.correoUsuario, estado: 'Cotización enviada', grupo: t.grupo, bloqueId: t.bloqueId })
       .then(function(rs){ return { ok: !!(rs && rs.success) }; })
@@ -10824,6 +10888,7 @@ if('serviceWorker' in navigator){
       aviso('Pedido guardado. Se marcará como enviada en el catálogo cuando haya señal.');
     } else if (alguna){
       aviso('Cotización marcada como enviada en el catálogo.');
+      window.actualizarBadgeCotizaciones();
     }
   };
   window.reintentarMarcadosCotizacion = async function(){
@@ -10834,7 +10899,10 @@ if('serviceWorker' in navigator){
     for (var i = 0; i < lista.length; i++){ var res = await enviarMarca(lista[i]); if (!res.ok && res.red) quedan.push(lista[i]); }
     try { localStorage.setItem(CLAVE_MARCAS, JSON.stringify(quedan)); } catch(e){}
   };
-  window.addEventListener('online', function(){ window.reintentarMarcadosCotizacion(); });
+
+  window.addEventListener('online', function(){ window.reintentarMarcadosCotizacion(); window.actualizarBadgeCotizaciones(); });
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) window.actualizarBadgeCotizaciones(); });
+  setInterval(function(){ if (!document.hidden && usuarioActual) window.actualizarBadgeCotizaciones(); }, 2 * 60 * 1000);
 })();
 </script>
 <script>
