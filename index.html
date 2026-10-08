@@ -3629,7 +3629,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '07-oct · v56 · k21';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '07-oct · v57 · Reff · atrás';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -9174,7 +9174,7 @@ function abrirNotaVentaModal(venta){
     notaVentaUrlActual = url;
     document.getElementById('notaVentaTitulo').textContent = (venta.cancelada ? '❌ CANCELADA — ' : '') + 'Nota de venta — ' + (venta.cliente || 'Sin nombre');
     document.getElementById('notaVentaFolio').textContent = venta.folio + ' · $' + venta.total.toFixed(2);
-    document.getElementById('notaVentaFrame').src = url;
+    try{ document.getElementById('notaVentaFrame').contentWindow.location.replace(url); }catch(e){ document.getElementById('notaVentaFrame').src = url; }
     document.getElementById('notaVentaAbrirAparte').href = url;
     document.getElementById('notaVentaBtnReenviar').onclick = () => reenviarTicketVenta(venta);
     document.getElementById('notaVentaBtnReenviar').style.display = venta.cancelada ? 'none' : '';
@@ -9233,7 +9233,7 @@ function cerrarNotaVentaModal(){
   const overlay = document.getElementById('notaVentaOverlay');
   if(overlay) overlay.hidden = true;
   const frame = document.getElementById('notaVentaFrame');
-  if(frame) frame.src = 'about:blank';
+  if(frame){ try{ frame.contentWindow.location.replace('about:blank'); }catch(e){ frame.src = 'about:blank'; } }
   if(notaVentaUrlActual){ URL.revokeObjectURL(notaVentaUrlActual); notaVentaUrlActual = null; }
 }
 
@@ -10612,6 +10612,57 @@ if('serviceWorker' in navigator){
     }).catch(() => {});
   });
 }
+</script>
+<script>
+/* ---------- Botón "atrás" del celular (Android / gesto de iOS) ----------
+   Antes la app no usaba el historial del navegador, así que "atrás" sacaba
+   de la página aunque hubiera un menú, la hoja o una nota abierta. Ahora
+   "atrás" cierra primero lo que esté encima y solo al final deja salir
+   (con un aviso de "toca otra vez para salir"). */
+(function(){
+  var ventanaSalida = false;   // true = ya avisamos; el siguiente "atrás" sí sale
+  var tSalida = null;
+
+  function visible(id){ var el = document.getElementById(id); return !!el && !el.hidden; }
+
+  // Cierra la capa de más arriba. Devuelve true si había algo que cerrar.
+  function cerrarCapaSuperior(){
+    var drawer = document.getElementById('drawer');
+    if (typeof flyoutAbierto !== 'undefined' && flyoutAbierto){ cerrarFlyout(); return true; }
+    if (drawer && drawer.classList.contains('open')){ cerrarDrawer(); return true; }
+    if (visible('notaVentaOverlay')){ cerrarNotaVentaModal(); return true; }
+    if (visible('ventaOverlay')){
+      if (typeof ventaItemsActuales !== 'undefined' && ventaItemsActuales.length &&
+          !confirm('Tienes una venta en captura. ¿Salir sin guardarla?')) return true; // se queda
+      cerrarVentaRuta(); return true;
+    }
+    if (typeof sheet !== 'undefined' && sheet.classList.contains('open')){
+      var volver = document.getElementById('btnVolverNav');   // el "‹" de la hoja
+      if (volver) volver.click(); else cerrarSheet();
+      return true;
+    }
+    return false;
+  }
+
+  function armarCentinela(){ history.pushState({ app: 'maps', centinela: true }, ''); }
+
+  window.addEventListener('popstate', function(){
+    if (cerrarCapaSuperior()){ armarCentinela(); ventanaSalida = false; return; }
+    if (!ventanaSalida){
+      ventanaSalida = true;
+      armarCentinela();
+      if (typeof mostrarToast === 'function') mostrarToast('Toca "atrás" otra vez para salir');
+      clearTimeout(tSalida);
+      tSalida = setTimeout(function(){ ventanaSalida = false; }, 2500);
+    }
+    // si ya había avisado: no se re-arma el centinela y el navegador sale solo
+  });
+
+  // Entrada inicial: [página] + [centinela]. "Atrás" siempre cae en la página
+  // actual y nosotros decidimos qué cerrar.
+  history.replaceState({ app: 'maps' }, '');
+  armarCentinela();
+})();
 </script>
 </body>
 </html>
