@@ -1611,6 +1611,7 @@ function abrirVentaRuta(nombreCliente, telefonoCliente){
 function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
   visitaActualVendedor = null;
+  window.cotizacionCatalogoActiva = null; // si se cancela, ya no se marca nada en el catálogo
 }
 document.getElementById('btnAlmacenMovil').addEventListener('click', () => {
   abrirSheet();
@@ -2081,6 +2082,8 @@ errEl.style.display = "none";
     creadoServidor: firebase.firestore.FieldValue.serverTimestamp()
   };
  
+  const cotizacionParaMarcar = window.cotizacionCatalogoActiva || null; // viene del catálogo: se marca "Cotización enviada" al terminar
+  if (cotizacionParaMarcar) venta.cotizacionCatalogoId = cotizacionParaMarcar.bloqueId;
   const btn = document.getElementById("ventaBtnGuardar");
   btn.disabled = true; btn.innerText = "Guardando...";
  
@@ -2160,6 +2163,7 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
       + (skusManuales.length ? " Ojo: " + skusManuales.join(", ") + " se capturó sin precio de catálogo." : "")
     );
     mostrarEnvioTicket(venta, pdfBlob);
+    if (cotizacionParaMarcar && typeof marcarCotizacionCatalogoEnviada === "function") marcarCotizacionCatalogoEnviada(cotizacionParaMarcar);
   } catch (err) {
     errEl.innerText = "No se pudo guardar la venta: " + err.message;
     errEl.style.display = "block";
@@ -3629,7 +3633,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '07-oct · v57 · Reff · atrás';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '07-oct · v58 · k23';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -9728,6 +9732,7 @@ function iniciarAppMapasSiHaceFalta(){
   document.addEventListener('visibilitychange', () => { if(!document.hidden) syncSiToca(15 * 1000); });
   window.addEventListener('focus', () => syncSiToca(15 * 1000));
   activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando solo lo cercano (100 km); el mapa sigue mostrando todo
+  setTimeout(function(){ if (typeof procesarCotizacionPendiente === 'function'){ reintentarMarcadosCotizacion(); procesarCotizacionPendiente(); } }, 900);
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -10612,6 +10617,135 @@ if('serviceWorker' in navigator){
     }).catch(() => {});
   });
 }
+</script>
+<script>
+/* ---------- Cotización del catálogo → pedido en Maps ----------
+   El enlace del catálogo (o del aviso de Telegram) trae ?cotizacion=<id del bloque>.
+   Se guarda en sessionStorage (así sobrevive al login), se quita de la URL y, ya con
+   sesión, se leen los productos del catálogo y se abre un PEDIDO con los precios de
+   Maps. Los productos sin precio quedan editables para capturarlos a mano. Al generar
+   el pedido se marca "Cotización enviada" en el catálogo. Los precios nunca viajan
+   hacia el catálogo ni hacia el cliente. */
+(function(){
+  var CLAVE = 'gc_cotizacion_pendiente';
+  var CLAVE_MARCAS = 'gc_cotizacion_marcas_pend';
+  window.cotizacionCatalogoActiva = null;
+
+  try {
+    var p = new URLSearchParams(location.search);
+    var id = p.get('cotizacion');
+    if (id){
+      sessionStorage.setItem(CLAVE, id);
+      p.delete('cotizacion');
+      var q = p.toString();
+      history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+    }
+  } catch(e){}
+
+  function aviso(t){ if (typeof mostrarToast === 'function') mostrarToast(t); }
+  function llamar(cuerpo){
+    return fetch(LOGIN_API_URL, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(Object.assign({ correo: usuarioActual, token: tokenActual }, cuerpo)) }).then(function(r){ return r.json(); });
+  }
+  // Mismo criterio de grupos que usa el catálogo (BAJAJ / SUZUKI / VENTO / CARABELA / GENERAL).
+  function grupoSucursal(nombre){
+    var n = String(nombre || '').toUpperCase().trim();
+    if (n.indexOf('BAJAJ') !== -1) return 'BAJAJ';
+    if (n.indexOf('SUZUKI') !== -1) return 'SUZUKI';
+    if (n.indexOf('VENTO') !== -1) return 'VENTO';
+    if (n.indexOf('CARABELA') !== -1) return 'CARABELA';
+    if (n === 'TICUL') return 'VENTO';
+    return 'GENERAL';
+  }
+  function gruposDeItems(items){
+    var vistos = {}, lista = [];
+    items.forEach(function(it){
+      var ags = it.agenciasDisponibles || [];
+      var gs = ags.length ? ags.map(function(a){ return grupoSucursal(a.sucursal); }) : ['GENERAL'];
+      gs.forEach(function(g){ if (!vistos[g]){ vistos[g] = true; lista.push(g); } });
+    });
+    return lista;
+  }
+
+  window.procesarCotizacionPendiente = async function(){
+    var id; try { id = sessionStorage.getItem(CLAVE); } catch(e){}
+    if (!id || !usuarioActual || !tokenActual) return;
+    if (!navigator.onLine){ aviso('Sin señal: abre otra vez el enlace de la cotización cuando tengas conexión.'); return; }
+    try { sessionStorage.removeItem(CLAVE); } catch(e){}
+    aviso('Cargando cotización del catálogo…');
+    var rs;
+    try { rs = await llamar({ action: 'obtenerCarritosActivos' }); }
+    catch(e){ aviso('No se pudo cargar la cotización. Vuelve a abrir el enlace.'); return; }
+    if (!rs || !rs.success){ aviso((rs && rs.message) || 'No se pudo cargar la cotización.'); return; }
+
+    var cliente = null, items = [];
+    (rs.data || []).forEach(function(u){
+      var mios = (u.items || []).filter(function(it){ return it._bloqueId === id; });
+      if (mios.length){ cliente = u; items = mios; }
+    });
+    if (!cliente){ aviso('Esa cotización ya no está disponible (ya se envió o no corresponde a tu almacén).'); return; }
+
+    var otro = items[0] && items[0]._atendidoPor;
+    if (otro && otro.correo !== usuarioActual &&
+        !confirm(otro.nombre + ' ya está atendiendo esta cotización. ¿Abrirla de todos modos?')) return;
+
+    try { await sincronizarPreciosCalculados(); } catch(e){}
+    abrirVentaRuta(cliente.nombre || '', cliente.telefono || '');
+    if (document.getElementById('ventaOverlay').hidden) return; // sin permiso de vendedor: abrirVentaRuta ya avisó
+
+    document.getElementById('ventaTipoNota').value = 'pedido';
+    actualizarTipoNotaVenta();
+    ventaItemsActuales.length = 0;
+    var sinPrecio = 0;
+    items.forEach(function(it){
+      var sku = String(it.sku || '').trim();
+      var r = resolverProductoPorSku(sku, true);
+      var precio = r ? (Number(r.precio) || 0) : 0;
+      if (!(precio > 0)) sinPrecio++;
+      ventaItemsActuales.push({
+        sku: sku, producto: (r && r.producto) || it.nombre || sku,
+        cantidad: Number(it.cantidad) || 1, precio: precio, precioLista: precio,
+        manual: !(precio > 0), origen: '', liquidacion: !!(r && r.liquidacion)
+      });
+    });
+    renderizarItemsVenta();
+    window.cotizacionCatalogoActiva = { bloqueId: id, correoCliente: cliente.correo, nombre: cliente.nombre || '', grupos: gruposDeItems(items) };
+    aviso('Cotización de ' + (cliente.nombre || 'cliente') + ': ' + items.length + ' producto(s)'
+      + (sinPrecio ? ', ' + sinPrecio + ' sin precio (captúralos a mano)' : '') + '.');
+  };
+
+  // Marca "Cotización enviada" en el catálogo, una vez por grupo/almacén. Si tu cuenta no
+  // gestiona algún grupo, el servidor lo rechaza y se ignora; si falla por red, se reintenta.
+  function enviarMarca(t){
+    return llamar({ action: 'marcarCotizacionEnviada', correoUsuario: t.correoUsuario, estado: 'Cotización enviada', grupo: t.grupo, bloqueId: t.bloqueId })
+      .then(function(rs){ return { ok: !!(rs && rs.success) }; })
+      .catch(function(){ return { ok: false, red: true }; });
+  }
+  window.marcarCotizacionCatalogoEnviada = async function(c){
+    if (!c) return;
+    var pendientes = [], alguna = false;
+    for (var i = 0; i < c.grupos.length; i++){
+      var t = { correoUsuario: c.correoCliente, grupo: c.grupos[i], bloqueId: c.bloqueId };
+      var res = await enviarMarca(t);
+      if (res.ok) alguna = true; else if (res.red) pendientes.push(t);
+    }
+    if (pendientes.length){
+      try { var ya = JSON.parse(localStorage.getItem(CLAVE_MARCAS) || '[]'); localStorage.setItem(CLAVE_MARCAS, JSON.stringify(ya.concat(pendientes))); } catch(e){}
+      aviso('Pedido guardado. Se marcará como enviada en el catálogo cuando haya señal.');
+    } else if (alguna){
+      aviso('Cotización marcada como enviada en el catálogo.');
+    }
+  };
+  window.reintentarMarcadosCotizacion = async function(){
+    if (!navigator.onLine || !usuarioActual || !tokenActual) return;
+    var lista; try { lista = JSON.parse(localStorage.getItem(CLAVE_MARCAS) || '[]'); } catch(e){ lista = []; }
+    if (!lista.length) return;
+    var quedan = [];
+    for (var i = 0; i < lista.length; i++){ var res = await enviarMarca(lista[i]); if (!res.ok && res.red) quedan.push(lista[i]); }
+    try { localStorage.setItem(CLAVE_MARCAS, JSON.stringify(quedan)); } catch(e){}
+  };
+  window.addEventListener('online', function(){ window.reintentarMarcadosCotizacion(); });
+})();
 </script>
 <script>
 /* ---------- Botón "atrás" del celular (Android / gesto de iOS) ----------
