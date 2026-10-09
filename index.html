@@ -996,7 +996,7 @@
 <div class="venta-overlay" id="ventaOverlay" hidden>
   <div class="venta-card">
     <div class="venta-titulo">
-      <span>Nueva venta</span>
+      <span id="ventaTituloForm">Nueva venta</span>
       <button onclick="cerrarVentaRuta()" aria-label="Cerrar">✕</button>
     </div>
     <div class="venta-folio" id="ventaFolioPreview"></div>
@@ -1086,6 +1086,7 @@
     </div>
     <div class="save-row" style="margin-top:10px;">
       <button class="btn teal" id="notaVentaBtnReenviar" style="flex:1;">↻ Reenviar</button>
+      <button class="btn" id="notaVentaBtnEditar" style="flex:1;">✎ Editar nota</button>
     </div>
   </div>
 </div>
@@ -1596,6 +1597,7 @@ let ventaItemsActuales = [];
 let ventaFolioActual = "";
 let ventaIdInternoActual = "";
 let visitaActualVendedor = null; // cliente de la venta abierta; lo lee el seguimiento en vivo
+let ventaEdicion = null; // si no es null, el formulario está editando una nota ya registrada: { original, restit }
  
 function abrirVentaRuta(nombreCliente, telefonoCliente){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
@@ -1633,6 +1635,149 @@ function cerrarVentaRuta(){
   document.getElementById("ventaOverlay").hidden = true;
   visitaActualVendedor = null;
   window.cotizacionCatalogoActiva = null; // si se cancela, ya no se marca nada en el catálogo
+  ventaEdicion = null;
+  const tf = document.getElementById("ventaTituloForm"); if (tf) tf.innerText = "Nueva venta";
+}
+
+/* ---------- Editar una nota ya registrada ----------
+   Abre el mismo formulario de captura, ya lleno con lo guardado: se pueden
+   cambiar cantidades, agregar productos (buscador) o quitar líneas, y al
+   guardar se regenera el PDF. Reglas:
+   - El folio y el id interno NO cambian (es la misma nota).
+   - Lo que esta nota ya descontó del almacén móvil se "regresa" solo en el
+     cálculo (no se toca el inventario hasta guardar): así la validación de
+     existencias parte del stock que había ANTES de la nota, y al guardar solo
+     se mueve la diferencia neta.
+   - Un producto quitado no se borra: queda como línea cancelada (igual que
+     "cancelar producto"), para que el Sheet/reportes no sigan contándolo.
+   - Una nota ya traspasada a bodega o cancelada no se puede editar. */
+function _ventaEsMia(venta){
+  const v = String(venta.vendedor || '').trim().toLowerCase();
+  const u = String(usuarioActual || '').trim().toLowerCase();
+  const n = String(nombreActual || '').trim().toLowerCase();
+  return !!v && (v === u || (!!n && v === n));
+}
+function _skuLinea(it){ return String((it && it.sku) || '').trim(); }
+function _lineaActiva(it){ return it && !it.cancelado && !it.reemplazada; }
+
+async function editarNotaVenta(venta){
+  if (!puedeVenderEnRuta()){ mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
+  if (!puedeCancelarVenta(venta)){ mostrarToast("No tienes permiso para editar esta nota."); return; }
+  if (venta.cancelada){ mostrarToast("Esta nota está cancelada y ya no se puede editar."); return; }
+  if (venta.traspasoId || venta.folioGeneral || (venta.items || []).some(function(it){ return it.traspasoId || it.folioBodega; })){
+    mostrarToast("Esta nota ya se traspasó a bodega; no se puede editar."); return;
+  }
+  const esPedidoOrig = venta.tipoNota === "pedido" || venta.metodoPago === "pedido";
+  if (!esPedidoOrig && !_ventaEsMia(venta)){
+    mostrarToast("Solo quien capturó la venta puede editarla (se mueve su almacén móvil)."); return;
+  }
+  mostrarToast("Abriendo nota para editar…");
+
+  // La copia local (lista de Mis ventas) puede venir del Sheet y traer menos
+  // campos que el documento completo: si hay señal se usa el de Firestore.
+  let base = venta;
+  try {
+    const snap = await conTimeout(dbVentaRuta.collection("ventas_ruta").doc(venta.idInterno || venta.folio).get(), 3500);
+    if (snap && snap.exists) base = Object.assign({}, venta, snap.data());
+  } catch (e) { /* sin señal: se edita con la copia local */ }
+  if (base.cancelada){ mostrarToast("Esta nota ya está cancelada."); return; }
+
+  // Piezas que esta nota ya descontó del almacén móvil (solo ventas, no pedidos).
+  const restit = {};
+  if (!esPedidoOrig) (base.items || []).forEach(function(it){
+    const k = _skuLinea(it);
+    if (!k || !_lineaActiva(it) || it.existencia !== "movil") return;
+    restit[k] = (restit[k] || 0) + (Number(it.cantidad) || 0);
+  });
+  ventaEdicion = { original: base, restit: restit };
+
+  cerrarNotaVentaModal();
+  ventaFolioActual = base.folio;
+  ventaIdInternoActual = base.idInterno || base.folio;
+  sincronizarPreciosCalculados();
+  sincronizarExistenciasCatalogo();
+  sincronizarPreciosRuta();
+  visitaActualVendedor = base.cliente || null;
+  document.getElementById("ventaTituloForm").innerText = "Editar nota";
+  document.getElementById("ventaFolioPreview").innerText = "Editando: " + base.folio;
+  const tipo = base.tipoNota || (esPedidoOrig ? "pedido" : "contado");
+  document.getElementById("ventaTipoNota").value = tipo;
+  document.getElementById("ventaCliente").value = base.cliente || "";
+  document.getElementById("ventaTelefono").value = base.telefono || "";
+  document.getElementById("ventaIdCliente").value = base.idCliente || "";
+  document.getElementById("ventaMetodoPago").value = (base.metodoPago && base.metodoPago !== "pedido") ? base.metodoPago : "efectivo";
+  document.getElementById("ventaReferencia").value = base.referencia || "";
+  document.getElementById("ventaMeses").value = base.mesesMsi || "";
+  document.getElementById("ventaAnticipo").value = String(Number(base.anticipo) || 0);
+  document.getElementById("ventaError").style.display = "none";
+  ventaItemsActuales = [];           // vacío mientras se ajustan los campos: así no se re-calculan precios guardados
+  actualizarCamposPagoVenta();
+  actualizarTipoNotaVenta();
+  ventaItemsActuales = [];
+  (base.items || []).forEach(function(it, i){
+    if (_lineaActiva(it)) ventaItemsActuales.push(Object.assign({}, it, { _orig: i }));
+  });
+  renderizarItemsVenta();
+  const buscador = document.getElementById("ventaBuscador");
+  buscador.value = ""; pintarResultadosVenta();
+  document.getElementById("ventaOverlay").hidden = false;
+}
+
+// Arma la lista final de líneas al guardar una edición. Se conserva el ORDEN
+// original (el Sheet identifica las líneas sin SKU por su posición) y lo
+// quitado queda como línea cancelada en su mismo lugar.
+function _ensamblarItemsEdicion(edicion, nuevos, ahora){
+  const orig = edicion.original.items || [];
+  const porOrig = {};
+  nuevos.forEach(function(it){ if (it._orig != null) porOrig[it._orig] = it; });
+  const usados = new Set();
+  const limpiar = function(it){ const c = Object.assign({}, it); delete c._orig; return c; };
+  const finales = [];
+  orig.forEach(function(old, i){
+    if (!_lineaActiva(old)){ finales.push(old); return; }          // ya cancelada / reemplazada: se queda igual
+    const ed = porOrig[i];
+    if (ed && _skuLinea(ed) === _skuLinea(old)){ finales.push(limpiar(ed)); usados.add(ed); return; }
+    finales.push(Object.assign({}, old, { cancelado: true, canceladoEn: ahora, canceladoPor: usuarioActual, quitadaEnEdicion: true }));
+  });
+  nuevos.forEach(function(it){ if (!usados.has(it)) finales.push(limpiar(it)); });
+  // Una línea cancelada con el mismo SKU que otra activa comparte la fila del
+  // Sheet (idInterno::sku): se marca "reemplazada" para que no se imprima ni se
+  // mande al Sheet y no pise a la activa.
+  const activos = new Set(finales.filter(_lineaActiva).map(_skuLinea).filter(Boolean));
+  finales.forEach(function(it){ if (it.cancelado && !it.reemplazada && _skuLinea(it) && activos.has(_skuLinea(it))) it.reemplazada = true; });
+  return finales;
+}
+
+// Mueve solo la diferencia neta en el almacén móvil. Devuelve las filas a sincronizar.
+function _ajustarAlmacenPorEdicion(edicion, itemsValidos, esPedido, ahora){
+  const filas = [], movs = [];
+  const nuevoPorSku = {};
+  if (!esPedido) itemsValidos.forEach(function(it){
+    const k = _skuLinea(it);
+    if (!k || !inventarioPropio[k]) return;
+    nuevoPorSku[k] = (nuevoPorSku[k] || 0) + (Number(it.cantidad) || 0);
+  });
+  const skus = Object.keys(edicion.restit).concat(Object.keys(nuevoPorSku).filter(function(k){ return !(k in edicion.restit); }));
+  skus.forEach(function(k){
+    const antes = edicion.restit[k] || 0, ahoraQ = nuevoPorSku[k] || 0;
+    if (antes === ahoraQ) return;
+    const act = inventarioPropio[k]; if (!act) return;
+    act.cantidad = (Number(act.cantidad) || 0) + antes - ahoraQ;
+    const vend = edicion.original.vendedor || usuarioActual;
+    filas.push({
+      id: idAlmacenMovil(vend, k), vendedor: vend, sku: k, producto: act.producto || "",
+      cantidadAsignada: act.cantidad, precioUnitario: act.precioUnitario || 0,
+      observaciones: act.observaciones || "", actualizadoEn: ahora
+    });
+    movs.push({
+      id: ventaIdInternoActual + "::" + k + "::" + ahora, fecha: new Date(ahora).toISOString(), vendedor: vend,
+      folio: edicion.original.folio, sku: k, producto: act.producto || "", cantidad: Math.abs(antes - ahoraQ),
+      tipo: ahoraQ < antes ? "edicion_devolucion" : "edicion_salida",
+      motivo: "Ajuste por edición de la nota", canceladoPor: usuarioActual
+    });
+  });
+  if (filas.length){ try{ localStorage.setItem(ALMACEN_PROPIO_CACHE_KEY, JSON.stringify(inventarioPropio)); }catch(e){} }
+  return { filas: filas, movs: movs };
 }
 document.getElementById('btnAlmacenMovil').addEventListener('click', () => {
   abrirSheet();
@@ -1668,7 +1813,7 @@ function actualizarTipoNotaVenta(){
   if (!esPedido) actualizarCamposPagoVenta();
   else { document.getElementById("ventaCampoReferencia").style.display = "none"; document.getElementById("ventaCampoMeses").style.display = "none"; }
   const btn = document.getElementById("ventaBtnGuardar");
-  if (btn) btn.innerText = esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar";
+  if (btn) btn.innerText = ventaEdicion ? "Guardar cambios y reenviar" : (esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar");
 
   refrescarDatalistSkus();
   if (typeof pintarResultadosVenta === "function" && document.getElementById("ventaBuscador")) pintarResultadosVenta();
@@ -1742,7 +1887,7 @@ function filaEditableVenta(it, idx){
 function stockVentaSku(sku, esPedido){
   const k = String(sku || "").trim();
   if (esPedido) return disponibleGC(k);
-  return (inventarioPropio[k] && Number(inventarioPropio[k].cantidad)) || 0;
+  return ((inventarioPropio[k] && Number(inventarioPropio[k].cantidad)) || 0) + ((ventaEdicion && ventaEdicion.restit[k]) || 0);
 }
 function ventaLineaSobreStock(it, esPedido, cant, disp){
   // Solo cuenta contra el almacén móvil si la línea sale de ahí.
@@ -2034,6 +2179,7 @@ function ventaEnterSkuFila(idx, el){
 })();
 
 async function confirmarVentaRuta(){
+  const edicion = ventaEdicion; // null = venta nueva; si no, se está editando una nota ya registrada
   const errEl = document.getElementById("ventaError");
 errEl.style.display = "none";
 
@@ -2056,7 +2202,7 @@ errEl.style.display = "none";
     const clave = (it.sku || "").trim();
     if(!clave) return;
     if(it.origen && it.origen !== ORIGEN_MOVIL) return; // sale de otra unidad: no se valida contra tu almacén móvil
-    const disponible = (inventarioPropio[clave] && inventarioPropio[clave].cantidad) || 0;
+    const disponible = ((inventarioPropio[clave] && inventarioPropio[clave].cantidad) || 0) + ((edicion && edicion.restit[clave]) || 0);
     if (it.cantidad > disponible) faltantes.push({ sku: clave, producto: it.producto, cantidad: it.cantidad, disponible: disponible, faltan: it.cantidad - disponible });
   });
   if (faltantes.length > 0){
@@ -2103,8 +2249,27 @@ errEl.style.display = "none";
     fechaLocal: new Date().toISOString(),
     creadoServidor: firebase.firestore.FieldValue.serverTimestamp()
   };
+  if (edicion) {
+    // Misma nota: se conserva folio, idInterno, vendedor, fecha y todo lo que no se edita aquí.
+    const ahoraEd = Date.now();
+    const itemsFinal = _ensamblarItemsEdicion(edicion, itemsValidos, ahoraEd);
+    const orig = edicion.original;
+    const idCli = (document.getElementById("ventaIdCliente").value || "").trim() || orig.idCliente || "";
+    const totalEd = totalRedondeado(itemsFinal);
+    if (anticipo !== null && anticipo > totalEd){
+      errEl.innerText = "El anticipo no puede ser mayor al total."; errEl.style.display = "block"; return;
+    }
+    Object.assign(venta, orig, {
+      cliente: cliente, telefono: venta.telefono, idCliente: idCli, items: itemsFinal, total: totalEd,
+      tipoNota: tipoNota, anticipo: anticipo,
+      saldoPendiente: tipoNota === "credito" ? Math.max(0, totalEd - anticipo) : null,
+      metodoPago: metodoPago, referencia: venta.referencia, mesesMsi: venta.mesesMsi,
+      editadaEn: ahoraEd, editadaPor: usuarioActual, ediciones: (Number(orig.ediciones) || 0) + 1
+    });
+    delete venta.creadoServidor; // se conserva el original del servidor (set con merge)
+  }
  
-  const cotizacionParaMarcar = window.cotizacionCatalogoActiva || null; // viene del catálogo: se marca "Cotización enviada" al terminar
+  const cotizacionParaMarcar = edicion ? null : (window.cotizacionCatalogoActiva || null); // viene del catálogo: se marca "Cotización enviada" al terminar
   if (cotizacionParaMarcar) venta.cotizacionCatalogoId = cotizacionParaMarcar.bloqueId;
   const btn = document.getElementById("ventaBtnGuardar");
   btn.disabled = true; btn.innerText = "Guardando...";
@@ -2121,7 +2286,7 @@ errEl.style.display = "none";
     // igual (el ticket de aquí en adelante ya no depende de esto) y la
     // venta se deja en una cola local de respaldo que se reintenta sola en
     // cuanto haya señal — igual que ya se hace con el Sheet.
-    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.idInterno).set(venta);
+    const escrituraVenta = dbVentaRuta.collection("ventas_ruta").doc(venta.idInterno).set(venta, edicion ? { merge: true } : undefined);
     const confirmoATiempo = await Promise.race([
       escrituraVenta.then(function(){ return true; }),
       new Promise(function(resolve){ setTimeout(function(){ resolve(false); }, 4000); })
@@ -2145,7 +2310,11 @@ errEl.style.display = "none";
     const actualizacionesInventario = {};
     // AHORA (Sheet):
 const filasADescontar = [];
-if (!esPedido) {
+if (edicion) {
+  const aj = _ajustarAlmacenPorEdicion(edicion, itemsValidos, esPedido, Date.now());
+  aj.filas.forEach(function(f){ filasADescontar.push(f); });
+  if (aj.movs.length) sincronizarMovimientosASheet(aj.movs); // bitácora, con su propia cola offline
+} else if (!esPedido) {
 itemsValidos.forEach(function(it){
   const clave = (it.sku || '').trim();
   if(!clave || !inventarioPropio[clave]) return;
@@ -2181,16 +2350,17 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     cerrarVentaRuta();
     const skusManuales = itemsValidos.filter(function(it){ return it.manual; }).map(function(it){ return it.sku || it.producto; });
     mostrarToast && mostrarToast(
-      (esPedido ? "Pedido " : "Venta ") + venta.folio + " registrado."
+      edicion ? ("Nota " + venta.folio + " actualizada.") : ((esPedido ? "Pedido " : "Venta ") + venta.folio + " registrado.")
       + (skusManuales.length ? " Ojo: " + skusManuales.join(", ") + " se capturó sin precio de catálogo." : "")
     );
-    mostrarEnvioTicket(venta, pdfBlob);
+    mostrarEnvioTicket(venta, pdfBlob, !!edicion);
+    if (edicion && currentTab === 'misventas') renderMisVentas();
     if (cotizacionParaMarcar && typeof marcarCotizacionCatalogoEnviada === "function") marcarCotizacionCatalogoEnviada(cotizacionParaMarcar);
   } catch (err) {
     errEl.innerText = "No se pudo guardar la venta: " + err.message;
     errEl.style.display = "block";
   } finally {
-    btn.disabled = false; btn.innerText = esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar";
+    btn.disabled = false; btn.innerText = edicion ? "Guardar cambios y reenviar" : (esPedido ? "Generar pedido y enviar" : "Generar ticket y enviar");
   }
 }
  
@@ -2242,7 +2412,7 @@ function descargarPdfTicket(venta, pdfBlob){
   a.href = url; a.download = venta.folio + ".pdf"; a.click();
   setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
 }
-function mostrarEnvioTicket(venta, pdfBlob){
+function mostrarEnvioTicket(venta, pdfBlob, esEdicion){
   const previo = document.getElementById("ticketEnvioOverlay");
   if(previo) previo.remove();
   const esPedido = venta.tipoNota === "pedido";
@@ -2251,7 +2421,7 @@ function mostrarEnvioTicket(venta, pdfBlob){
   ov.className = "venta-overlay";
   ov.innerHTML =
     '<div class="venta-card" style="max-width:380px;">'
-    + '<div class="venta-titulo"><span>' + (esPedido ? "Pedido listo" : "Venta registrada") + '</span>'
+    + '<div class="venta-titulo"><span>' + (esEdicion ? "Nota actualizada" : (esPedido ? "Pedido listo" : "Venta registrada")) + '</span>'
     + '<button type="button" data-cerrar aria-label="Cerrar">✕</button></div>'
     + '<div class="venta-folio">' + escapeHtml(venta.folio) + ' · $' + venta.total.toFixed(2) + '</div>'
     + '<div style="font-size:13px; margin:6px 0 14px;">' + escapeHtml(venta.cliente || "")
@@ -3255,8 +3425,10 @@ function encolarVentaFirestorePendiente(venta){
   const lista = cargarVentasFirestorePendientes();
   const clave = venta.idInterno || venta.folio; // respaldo por si es una venta vieja en cola sin idInterno
   const v = Object.assign({}, venta); delete v.creadoServidor;   // y encola/pushea v en vez de venta
-  if(!lista.some(function(v){ return (v.idInterno || v.folio) === clave; })) lista.push(v);
-  guardarVentasFirestorePendientes(lista);
+  // Si ya había una versión pendiente de esta misma nota (p. ej. antes de editarla), la nueva la reemplaza.
+  const resto = lista.filter(function(x){ return (x.idInterno || x.folio) !== clave; });
+  resto.push(v);
+  guardarVentasFirestorePendientes(resto);
 }
 function quitarVentaFirestorePendiente(idInternoOFolio){
   guardarVentasFirestorePendientes(cargarVentasFirestorePendientes().filter(function(v){ return (v.idInterno || v.folio) !== idInternoOFolio; }));
@@ -3288,6 +3460,7 @@ function guardarVentasPendientesSheet(lista){
 function filasVentaParaSheet(venta){
   const claveVenta = venta.idInterno || venta.folio; // respaldo para ventas viejas en cola
   return venta.items.map(function(it, idx){
+    if (it.reemplazada) return null; // resto interno de una edición: comparte fila con otra línea activa
     // Si no se capturó SKU, se usa el índice de la línea como respaldo
     // para que el id nunca se repita dentro de una misma venta (si no,
     // dos líneas sin SKU se pisarían entre sí en el Sheet).
@@ -3321,7 +3494,7 @@ function filasVentaParaSheet(venta){
       requiereTraspaso: it.origen ? (origenRequiereTraspaso(it.origen) ? 'SI' : 'NO') : '',
       folioBodega: it.folioBodega || ''
     };
-  });
+  }).filter(Boolean);
 }
 // Manda la venta al Sheet sin bloquear el ticket: si falla (sin señal, Web
 // App caído, etc.) la deja en cola local y reintentarVentasRutaPendientes()
@@ -3655,7 +3828,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '07-oct · v62 · CH21';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '09-oct · v63 · k21';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -8917,7 +9090,8 @@ function agruparFilasVentaEnVentas(filas){
     porVenta[clave].items.push({
       sku: f.sku, producto: f.producto, cantidad: Number(f.cantidad) || 0, precio: Number(f.precioUnitario) || 0,
       existencia: f.existencia || '', manual: f.precioManual === 'SI',
-      origen: f.origen || '', folioBodega: f.folioBodega || ''
+      origen: f.origen || '', folioBodega: f.folioBodega || '',
+      cancelado: f.cancelada === 'SI' || f.cancelada === true
     });
     porVenta[clave].total += Number(f.total) || 0;
   });
@@ -8938,7 +9112,8 @@ function _guardarMisVentasCache(ventas){
 }
 function agregarVentaACacheMisVentas(venta){
   const v = Object.assign({}, venta); delete v.creadoServidor;
-  const c = _cargarMisVentasCache() || [];
+  const clave = v.idInterno || v.folio;
+  const c = (_cargarMisVentasCache() || []).filter(function(x){ return (x.idInterno || x.folio) !== clave; }); // una edición reemplaza a la anterior
   c.unshift(v); _guardarMisVentasCache(c);
 }
 /* ---------- Panel admin: Vendedores en vivo ----------
@@ -9204,6 +9379,11 @@ function abrirNotaVentaModal(venta){
     document.getElementById('notaVentaAbrirAparte').href = url;
     document.getElementById('notaVentaBtnReenviar').onclick = () => reenviarTicketVenta(venta);
     document.getElementById('notaVentaBtnReenviar').style.display = venta.cancelada ? 'none' : '';
+    const btnEditarNota = document.getElementById('notaVentaBtnEditar');
+    if(btnEditarNota){
+      btnEditarNota.style.display = (!venta.cancelada && puedeCancelarVenta(venta)) ? '' : 'none';
+      btnEditarNota.onclick = () => editarNotaVenta(venta);
+    }
 
     // Botón de cancelar (se crea una sola vez y se reutiliza)
     let btnCancelar = document.getElementById('notaVentaBtnCancelar');
@@ -9273,7 +9453,7 @@ function textoVentaPlano(venta){
   if(venta.telefono) l.push('Teléfono: ' + venta.telefono);
   l.push('Vendedor: ' + (venta.vendedorNombre || venta.vendedor || ''));
   l.push('');
-  (venta.items || []).forEach(it => {
+  (venta.items || []).filter(it => !it.reemplazada).forEach(it => {
     const importe = (Number(it.cantidad) || 0) * (Number(it.precio) || 0);
     l.push(`${it.cantidad} x ${it.producto || ''} (${it.sku || 'sin SKU'}) — $${(Number(it.precio) || 0).toFixed(2)} c/u = $${importe.toFixed(2)}`);
   });
