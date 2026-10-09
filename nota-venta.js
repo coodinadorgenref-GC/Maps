@@ -75,7 +75,8 @@ const EXISTENCIA_NOTA = { movil: 'ALM. MÓVIL', pedido: 'PEDIDO' };
 function generarPdfNotaVenta(venta) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
-  const PW = 215.9, MX = 14, TW = PW - 2 * MX;
+  const PW = 215.9, PH = 279.4, MX = 14, TW = PW - 2 * MX;
+  const LIM = PH - 14; // límite inferior del contenido (deja margen para "Hoja X de N")
   const VERDE = [34, 177, 76]; // #22b14c — mismo verde del catálogo de inventario
   let y = 14;
 
@@ -102,7 +103,8 @@ function generarPdfNotaVenta(venta) {
   doc.setTextColor(255, 255, 255); doc.setFont(undefined, 'bold'); doc.setFontSize(11);
   const esPedidoNota = venta.tipoNota === 'pedido' || venta.metodoPago === 'pedido';
   const esCreditoNota = venta.tipoNota === 'credito';
-  doc.text(esPedidoNota ? 'PEDIDO' : (esCreditoNota ? 'NOTA DE VENTA — CRÉDITO' : 'NOTA DE VENTA'), PW / 2, y + 4.6, { align: 'center' });
+  const tituloNota = esPedidoNota ? 'PEDIDO' : (esCreditoNota ? 'NOTA DE VENTA — CRÉDITO' : 'NOTA DE VENTA');
+  doc.text(tituloNota, PW / 2, y + 4.6, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 11;
 
@@ -147,27 +149,66 @@ function generarPdfNotaVenta(venta) {
   const centro = function (col) { return col.x + col.w / 2; };
   const derecha = function (col) { return col.x + col.w - 2; };
 
-  // ---- Encabezado de tabla ----
+  // ---- Tabla paginada ----
+  // Si hay más productos de los que caben en una hoja, la tabla continúa en
+  // la siguiente (con su encabezado repetido) en vez de salirse de la página
+  // y quedar cortada.
   const filaH = 6.2;
-  const tablaTop = y;
-  doc.setFillColor(20, 20, 20);
-  doc.rect(MX, y, TW, filaH, 'F');
-  doc.setTextColor(255, 255, 255); doc.setFont(undefined, 'bold'); doc.setFontSize(8);
-  doc.text('CANT.', centro(c.cant), y + 4.2, { align: 'center' });
-  doc.text('SKU', centro(c.sku), y + 4.2, { align: 'center' });
-  doc.text('PRODUCTO', c.prod.x + 2, y + 4.2);
-  doc.text('EXISTENCIA', centro(c.exist), y + 4.2, { align: 'center' });
-  doc.text('PRECIO UNI.', derecha(c.precio), y + 4.2, { align: 'right' });
-  doc.text('IMPORTE', derecha(c.importe), y + 4.2, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
-  y += filaH;
-  const cuerpoTop = y;
+  const seps = [c.sku, c.prod, c.exist, c.precio, c.importe];
+  let segTop = y, segCuerpoTop = y; // inicio de la tabla en la hoja actual
+
+  function encabezadoTabla() {
+    segTop = y;
+    doc.setFillColor(20, 20, 20);
+    doc.rect(MX, y, TW, filaH, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont(undefined, 'bold'); doc.setFontSize(8);
+    doc.text('CANT.', centro(c.cant), y + 4.2, { align: 'center' });
+    doc.text('SKU', centro(c.sku), y + 4.2, { align: 'center' });
+    doc.text('PRODUCTO', c.prod.x + 2, y + 4.2);
+    doc.text('EXISTENCIA', centro(c.exist), y + 4.2, { align: 'center' });
+    doc.text('PRECIO UNI.', derecha(c.precio), y + 4.2, { align: 'right' });
+    doc.text('IMPORTE', derecha(c.importe), y + 4.2, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+    y += filaH;
+    segCuerpoTop = y;
+  }
+  // Líneas verticales del tramo de tabla que se dibujó en la hoja actual.
+  function cerrarTramo() {
+    doc.setLineWidth(0.1);
+    doc.setDrawColor(90, 90, 90);
+    seps.forEach(function (col) { doc.line(col.x, segTop, col.x, segCuerpoTop); });
+    doc.setDrawColor(150, 150, 150);
+    seps.forEach(function (col) { doc.line(col.x, segCuerpoTop, col.x, y); });
+    doc.setDrawColor(0, 0, 0);
+  }
+  // Hoja de continuación: mini-encabezado con folio y cliente.
+  function nuevaHoja(conTabla) {
+    doc.addPage();
+    y = 14;
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'bold'); doc.setFontSize(9);
+    doc.text('Carabela Valladolid — ' + tituloNota, MX, y);
+    doc.text('Folio: ' + folioTxt, PW - MX, y, { align: 'right' });
+    doc.setFont(undefined, 'normal'); doc.setFontSize(8);
+    doc.text('Cliente: ' + String(venta.cliente || ''), MX, y + 4.5);
+    doc.setDrawColor(VERDE[0], VERDE[1], VERDE[2]); doc.setLineWidth(0.4);
+    doc.line(MX, y + 7, PW - MX, y + 7);
+    doc.setDrawColor(0, 0, 0);
+    y += 11;
+    if (conTabla) encabezadoTabla();
+    doc.setFont(undefined, 'normal'); doc.setTextColor(0, 0, 0);
+  }
+
+  encabezadoTabla();
 
   // ---- Filas ----
-  const items = venta.items || [];
+  // Las líneas "reemplazada" son restos internos de una edición (para no
+  // duplicar filas en el Sheet): no se imprimen.
+  const items = (venta.items || []).filter(function (it) { return !it.reemplazada; });
   const totalFilas = Math.max(12, items.length);
   doc.setFont(undefined, 'normal');
   for (let i = 0; i < totalFilas; i++) {
+    if (y + filaH > LIM) { cerrarTramo(); nuevaHoja(true); }
     doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.1);
     doc.rect(MX, y, TW, filaH);
     const it = items[i];
@@ -199,16 +240,7 @@ function generarPdfNotaVenta(venta) {
     }
     y += filaH;
   }
-  const tablaBottom = y;
-
-  // ---- Líneas verticales ----
-  const seps = [c.sku, c.prod, c.exist, c.precio, c.importe];
-  doc.setLineWidth(0.1);
-  doc.setDrawColor(90, 90, 90);
-  seps.forEach(function (col) { doc.line(col.x, tablaTop, col.x, cuerpoTop); });
-  doc.setDrawColor(150, 150, 150);
-  seps.forEach(function (col) { doc.line(col.x, cuerpoTop, col.x, tablaBottom); });
-  doc.setDrawColor(0, 0, 0);
+  cerrarTramo();
   y += 2;
 
   // ---- Total en letras + TOTAL ----
@@ -219,6 +251,12 @@ function generarPdfNotaVenta(venta) {
   const letrasLineas = doc.splitTextToSize(window.numeroALetrasMX(total), letrasW - 4);
   const inter = 3.3;
   const cajaH = Math.max(6.5, letrasLineas.length * inter + 3);
+  // Total + notas + forma de pago + pie ocupan ≈ cajaH + 62 mm: si ya no caben
+  // en esta hoja, todo el bloque pasa junto a la siguiente.
+  if (y + cajaH + 62 + (esCreditoNota ? 5 : 0) > LIM) {
+    nuevaHoja(false);
+    doc.setFont(undefined, 'italic'); doc.setFontSize(8);
+  }
   doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.1);
   doc.rect(MX, y, letrasW, cajaH);
   doc.text(letrasLineas, MX + letrasW / 2, y + (cajaH - (letrasLineas.length - 1) * inter) / 2 + 1, { align: 'center' });
@@ -291,10 +329,8 @@ function generarPdfNotaVenta(venta) {
 
 
   // ---- Marcas que manejamos (pie de página) ----
+  // Solo se imprimen si caben en la hoja actual; nunca fuerzan una hoja extra.
   if (window.LOGO_MARCAS && window.LOGO_MARCAS.length) {
-    doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.15);
-    doc.line(MX, y, PW - MX, y);
-    y += 5;
     const SEP = 6;
     const marcas = window.LOGO_MARCAS.filter(function (m) { return m.src; }).map(function (m) {
       const ancho = m.ancho || 30;
@@ -307,16 +343,35 @@ function generarPdfNotaVenta(venta) {
       usado += (fila.length ? SEP : 0) + o.ancho; fila.push(o);
     });
     if (fila.length) filas.push(fila);
-    filas.forEach(function (f) {
-      const anchoFila = f.reduce(function (s, o) { return s + o.ancho; }, 0) + SEP * (f.length - 1);
-      const altoFila = Math.max.apply(null, f.map(function (o) { return o.alto; }));
-      let lx = (PW - anchoFila) / 2;
-      f.forEach(function (o) {
-        try { doc.addImage(o.m.src, 'PNG', lx, y + (altoFila - o.alto) / 2, o.ancho, o.alto); } catch (e) {}
-        lx += o.ancho + SEP;
+    const altoMarcas = 5 + filas.reduce(function (s, f) {
+      return s + Math.max.apply(null, f.map(function (o) { return o.alto; })) + 4;
+    }, 0);
+    if (y + altoMarcas <= LIM + 6) {
+      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.15);
+      doc.line(MX, y, PW - MX, y);
+      y += 5;
+      filas.forEach(function (f) {
+        const anchoFila = f.reduce(function (s, o) { return s + o.ancho; }, 0) + SEP * (f.length - 1);
+        const altoFila = Math.max.apply(null, f.map(function (o) { return o.alto; }));
+        let lx = (PW - anchoFila) / 2;
+        f.forEach(function (o) {
+          try { doc.addImage(o.m.src, 'PNG', lx, y + (altoFila - o.alto) / 2, o.ancho, o.alto); } catch (e) {}
+          lx += o.ancho + SEP;
+        });
+        y += altoFila + 4;
       });
-      y += altoFila + 4;
-    });
+    }
+  }
+
+  // ---- Numeración "Hoja X de N" (solo si la nota ocupa más de una hoja) ----
+  const nHojas = doc.getNumberOfPages();
+  if (nHojas > 1) {
+    for (let p = 1; p <= nHojas; p++) {
+      doc.setPage(p);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+      doc.text('Hoja ' + p + ' de ' + nHojas, PW / 2, PH - 7, { align: 'center' });
+    }
+    doc.setTextColor(0, 0, 0);
   }
 
   return doc;
