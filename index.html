@@ -1198,7 +1198,7 @@ async function manejarInicioDeSesionMaps(){
       await fetch(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
         body: JSON.stringify({ action:"cerrarSesionServidor", correo: rs.correo || identificador, token: rs.token }) });
     } catch(e){}
-    mostrarErrorLoginMaps("Tu cuenta no tiene acceso.");
+    mostrarErrorLoginMaps("No pudimos validar tus datos. Contacta al administrador.");
     btnEl.disabled = false; btnEl.innerText = "Entrar";
     return;
   }
@@ -1316,8 +1316,7 @@ function cerrarSesionPorInactividadMaps(){
   detenerControlDeSesionMaps();
   localStorage.removeItem(SESION_MAPS_KEY);
   const minutos = Math.round(duracionSesionActualMapsMs / 60000);
-  alert("Tu sesión se cerró automáticamente por " + minutos + " minutos de inactividad.");
-  location.reload();
+  mostrarAvisoSesionMaps("Sesión cerrada por inactividad", "Tu sesión se cerró automáticamente por " + minutos + " minutos de inactividad.");
 }
 
 async function heartbeatSesionMaps(){
@@ -1330,11 +1329,33 @@ async function heartbeatSesionMaps(){
   } catch(e){ /* sin conexión: se reintenta en el siguiente ciclo */ }
 }
 
+let _avisoSesionMapsAbierto = false;
+/** Aviso de sesión vencida con el estilo de Maps (antes un alert del navegador). Siempre termina en el login. */
+function mostrarAvisoSesionMaps(titulo, mensaje){
+  if(_avisoSesionMapsAbierto) return;
+  _avisoSesionMapsAbierto = true;
+  const v = document.createElement('div');
+  v.id = 'avisoSesionMaps'; v.setAttribute('role','alertdialog'); v.setAttribute('aria-modal','true');
+  v.setAttribute('aria-labelledby','avisoSesionMapsT'); v.setAttribute('aria-describedby','avisoSesionMapsM');
+  v.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.6)';
+  v.innerHTML = '<div style="background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);width:100%;max-width:340px;padding:22px 20px 20px;text-align:center;box-shadow:0 12px 32px rgba(0,0,0,.45)">'
+    + '<div aria-hidden="true" style="width:46px;height:46px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--ochre)">'
+    + '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>'
+    + '<h2 id="avisoSesionMapsT" style="margin:0 0 6px;font-size:18px;font-weight:800"></h2>'
+    + '<p id="avisoSesionMapsM" style="margin:0 0 18px;font-size:14px;line-height:1.45;color:var(--text-dim)"></p>'
+    + '<button type="button" id="avisoSesionMapsBtn" style="width:100%;min-height:46px;border:0;border-radius:12px;background:var(--accent);color:var(--accent-ink);font-size:15px;font-weight:800;cursor:pointer">Iniciar sesión</button></div>';
+  document.body.appendChild(v);
+  document.getElementById('avisoSesionMapsT').textContent = titulo;
+  document.getElementById('avisoSesionMapsM').textContent = mensaje;
+  const b = document.getElementById('avisoSesionMapsBtn'), ir = () => location.reload();
+  b.onclick = ir; b.focus();
+  document.addEventListener('keydown', e => { if(e.key === 'Tab'){ e.preventDefault(); b.focus(); } else if(e.key === 'Escape'){ e.preventDefault(); ir(); } }, true);
+}
+
 function manejarSesionInvalidaMaps(motivo){
   detenerControlDeSesionMaps();
   localStorage.removeItem(SESION_MAPS_KEY);
-  alert(motivo || "Tu sesión ha sido cerrada. Vuelve a iniciar sesión.");
-  location.reload();
+  mostrarAvisoSesionMaps("Sesión expirada", motivo || "Tu sesión ha sido cerrada. Vuelve a iniciar sesión.");
 }
 
 function iniciarControlDeSesionMaps(){
