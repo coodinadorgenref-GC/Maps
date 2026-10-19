@@ -303,6 +303,23 @@
   .cs-spin{ flex:0 0 auto; width:20px; height:20px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--teal); animation:csGira .8s linear infinite; }
   @keyframes csGira{ to{ transform:rotate(360deg); } }
 
+  /* Avisos, confirmaciones y preguntas con la fachada de Maps (reemplazan alert/confirm/prompt del navegador) */
+  .dlg-overlay{ position:fixed; inset:0; z-index:20000; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.6); }
+  .dlg-card{ width:100%; max-width:340px; max-height:calc(100% - 24px); overflow-y:auto; background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:var(--radius); padding:22px 20px 20px; text-align:center; box-shadow:0 12px 32px rgba(0,0,0,.45); }
+  .dlg-ico{ width:46px; height:46px; margin:0 auto 12px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--surface-2); color:var(--ochre); }
+  .dlg-ico.peligro{ color:var(--danger); }
+  .dlg-ico.info, .dlg-ico.pregunta{ color:var(--teal); }
+  .dlg-titulo{ margin:0 0 6px; font-size:18px; font-weight:800; line-height:1.25; }
+  .dlg-texto{ margin:0 0 18px; font-size:14px; line-height:1.45; color:var(--text-dim); white-space:pre-line; overflow-wrap:anywhere; }
+  .dlg-titulo:last-child{ margin-bottom:18px; }
+  .dlg-input{ width:100%; box-sizing:border-box; height:50px; margin:0 0 18px; padding:12px 16px; background:var(--surface-2); color:var(--text); border:1px solid var(--line); border-radius:12px; font-family:inherit; font-size:16px; line-height:24px; font-weight:500; outline:none; text-align:center; }
+  .dlg-input:focus{ border-color:var(--accent); box-shadow:0 0 0 2px rgba(196,214,0,.55); }
+  .dlg-acciones{ display:flex; gap:10px; }
+  .dlg-acciones button{ flex:1; min-height:46px; padding:11px 12px; border-radius:12px; border:1px solid var(--line); background:var(--surface-2); color:var(--text); font-family:inherit; font-size:15px; font-weight:700; cursor:pointer; }
+  .dlg-acciones button.pri{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:800; }
+  .dlg-acciones button.peligro{ background:var(--danger); border-color:var(--danger); color:#fff; font-weight:800; }
+  .dlg-acciones button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
   #map{ position:absolute; inset:0; }
   .leaflet-control-attribution{ font-size:9px; }
 
@@ -2786,7 +2803,7 @@ function pintarPantallaAlmacenAdmin(){
     btn.addEventListener('click', async function(e){
       e.stopPropagation();
       const correo = btn.dataset.quitar;
-      if(!confirm('¿Quitar a este vendedor de la lista? No se borra su almacén, solo deja de aparecer aquí.')) return;
+      if(!(await confirmarMaps({ titulo:'¿Quitar a este vendedor de la lista?', mensaje:'No se borra su almacén, solo deja de aparecer aquí.', confirmar:'Quitar', tipo:'peligro' }))) return;
       listaVendedores = listaVendedores.filter(function(v){ return v.correo !== correo; });
       await quitarVendedorDelSheet(correo);
       if(almacenEditandoCorreo === correo) almacenEditandoCorreo = null;
@@ -3849,7 +3866,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '09-oct · v63 · k21';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '19-oct · v64 · k21';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -6393,8 +6410,7 @@ async function procesarDescargaDeArea(bounds){
   if(totalEstimado > LIMITE_TILES_RECOMENDADO){
     mensaje += '\n\nEs un área grande: puede tardar varios minutos y ocupar más espacio.';
   }
-  mensaje += '\n\n¿Continuar?';
-  if(!confirm(mensaje)) return;
+  if(!(await confirmarMaps({ titulo:'Descargar mapa para usar sin señal', mensaje:mensaje, confirmar:'Descargar' }))) return;
 
   const resultado = await descargarTilesDeArea(bounds, zooms);
   if(resultado.ok > 0) registrarZonaDescargada(bounds, zooms, resultado.ok);
@@ -6410,7 +6426,7 @@ async function eliminarZonaDescargada(id){
   const zonas = cargarZonasDescargadas();
   const zona = zonas.find(z => z.id === id);
   if(!zona) return;
-  if(!confirm('¿Eliminar este mapa guardado? Dejarás de ver esa zona sin señal (si otra zona guardada se traslapa con esta, esa parte seguirá disponible).')) return;
+  if(!(await confirmarMaps({ titulo:'¿Eliminar este mapa guardado?', mensaje:'Dejarás de ver esa zona sin señal (si otra zona guardada se traslapa con esta, esa parte seguirá disponible).', confirmar:'Eliminar', tipo:'peligro' }))) return;
 
   const cache = await caches.open(TILES_CACHE_NAME);
   const bounds = L.latLngBounds([zona.bounds.s, zona.bounds.o], [zona.bounds.n, zona.bounds.e]);
@@ -7828,9 +7844,9 @@ function renderRuta(){
     });
   });
   sheetBody.querySelectorAll('.borrar-def').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if(eliminarProspectoPorId(btn.dataset.id)) quitarParadaDeRuta(btn.dataset.id);
+      if(await eliminarProspectoPorId(btn.dataset.id)) quitarParadaDeRuta(btn.dataset.id);
     });
   });
   sheetBody.querySelectorAll('.item').forEach(it => {
@@ -8629,10 +8645,10 @@ function guardarDesdeForm(){
 
 // Reutilizada por el formulario de edición y por "eliminar definitivamente"
 // desde la vista de Ruta, para no repetir la misma lógica dos veces.
-function eliminarProspectoPorId(id){
+async function eliminarProspectoPorId(id){
   const p = prospectos.find(x => x.id === id);
   const nombre = p ? p.nombre : 'esta ubicación';
-  if(!confirm(`¿Eliminar definitivamente "${nombre}"? Ya no aparecerá en el mapa ni en la lista.`)) return false;
+  if(!(await confirmarMaps({ titulo:'¿Eliminar definitivamente?', mensaje:`"${nombre}" ya no aparecerá en el mapa ni en la lista.`, confirmar:'Eliminar', tipo:'peligro' }))) return false;
   if(p && p.origen === 'DENUE') agregarDenueExcluido(id);
   marcarEliminado(id);
   prospectos = prospectos.filter(x => x.id !== id);
@@ -8648,8 +8664,8 @@ function eliminarProspectoPorId(id){
   return true;
 }
 
-function eliminarActual(){
-  if(eliminarProspectoPorId(editandoId)){
+async function eliminarActual(){
+  if(await eliminarProspectoPorId(editandoId)){
     editandoId = null;
     volverTrasEditar();
   }
@@ -8704,6 +8720,99 @@ function mostrarToast(msg){
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ---------- Avisos, confirmaciones y preguntas con la fachada de Maps ----------
+   Sustituyen a alert()/confirm()/prompt() del navegador (que se ven distintos a la app y en la
+   app instalada a veces ni aparecen). Todas devuelven una Promesa:
+     avisoMaps(titulo, mensaje, tipo)  -> true al cerrar
+     confirmarMaps({titulo, mensaje, confirmar, cancelar, tipo}) -> true / false
+     preguntarMaps({titulo, mensaje, valor, placeholder, tipo, min, max, confirmar}) -> texto o null */
+const _DLG_ICONOS = {
+  aviso:    '<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/>',
+  peligro:  '<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/>',
+  info:     '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5v.01"/>',
+  pregunta: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><path d="M12 17v.01"/>'
+};
+function dialogoMaps(op){
+  return new Promise(function(resolve){
+    const previo = document.activeElement;
+    const ov = document.createElement('div');
+    ov.className = 'dlg-overlay';
+    ov.setAttribute('role', 'alertdialog'); ov.setAttribute('aria-modal', 'true');
+    const tipo = op.tipo || 'aviso';
+    const card = document.createElement('div'); card.className = 'dlg-card';
+    const ico = document.createElement('div'); ico.className = 'dlg-ico ' + tipo; ico.setAttribute('aria-hidden', 'true');
+    ico.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (_DLG_ICONOS[tipo] || _DLG_ICONOS.aviso) + '</svg>';
+    const h = document.createElement('h2'); h.className = 'dlg-titulo'; h.textContent = op.titulo || '';
+    card.appendChild(ico); card.appendChild(h);
+    if(op.mensaje){ const m = document.createElement('p'); m.className = 'dlg-texto'; m.textContent = op.mensaje; card.appendChild(m); }
+    let campo = null;
+    if(op.campo){
+      campo = document.createElement('input'); campo.className = 'dlg-input';
+      campo.type = op.campo.tipo || 'text'; campo.value = op.campo.valor || '';
+      if(op.campo.placeholder) campo.placeholder = op.campo.placeholder;
+      if(op.campo.min != null) campo.min = op.campo.min;
+      if(op.campo.max != null) campo.max = op.campo.max;
+      if(campo.type === 'number') campo.inputMode = 'numeric';
+      campo.autocomplete = 'off'; campo.setAttribute('autocapitalize', 'words'); campo.spellcheck = false;
+      card.appendChild(campo);
+    }
+    const acc = document.createElement('div'); acc.className = 'dlg-acciones';
+    const botones = op.botones || [];
+    botones.forEach(function(b){
+      const bt = document.createElement('button'); bt.type = 'button'; bt.textContent = b.texto;
+      if(b.estilo) bt.className = b.estilo;
+      bt.addEventListener('click', function(){ cerrar(b.conCampo ? (campo ? campo.value : '') : b.valor); });
+      acc.appendChild(bt);
+    });
+    card.appendChild(acc); ov.appendChild(card);
+    const cancelValor = ('cancelValor' in op) ? op.cancelValor : (botones[0] ? botones[0].valor : true);
+    function cerrar(v){
+      document.removeEventListener('keydown', teclas, true);
+      ov.remove();
+      try{ if(previo && previo.focus) previo.focus(); }catch(e){}
+      resolve(v);
+    }
+    function teclas(e){
+      if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); cerrar(cancelValor); }
+      else if(e.key === 'Enter' && campo && e.target === campo){
+        e.preventDefault(); e.stopPropagation();
+        const ok = botones.find(function(b){ return b.conCampo; }); if(ok) cerrar(campo.value);
+      }
+      else if(e.key === 'Tab'){
+        const f = Array.from(card.querySelectorAll('input,button')); if(!f.length) return;
+        const i = f.indexOf(document.activeElement);
+        e.preventDefault();
+        f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+      }
+    }
+    document.addEventListener('keydown', teclas, true);
+    ov.addEventListener('click', function(e){ if(e.target === ov) cerrar(cancelValor); });
+    document.body.appendChild(ov);
+    // En acciones que borran o reemplazan, el foco empieza en "Cancelar" para no confirmar sin querer.
+    const foco = campo || (tipo === 'peligro' && botones.length > 1 ? acc.firstChild : acc.lastChild);
+    if(foco){ foco.focus(); if(campo && campo.select) campo.select(); }
+  });
+}
+function avisoMaps(titulo, mensaje, tipo){
+  return dialogoMaps({ titulo: titulo, mensaje: mensaje, tipo: tipo || 'aviso', cancelValor: true,
+    botones: [{ valor: true, texto: 'Entendido', estilo: 'pri' }] });
+}
+function confirmarMaps(op){
+  return dialogoMaps({ titulo: op.titulo, mensaje: op.mensaje, tipo: op.tipo || 'pregunta', cancelValor: false,
+    botones: [
+      { valor: false, texto: op.cancelar || 'Cancelar' },
+      { valor: true,  texto: op.confirmar || 'Aceptar', estilo: op.tipo === 'peligro' ? 'peligro' : 'pri' }
+    ] });
+}
+function preguntarMaps(op){
+  return dialogoMaps({ titulo: op.titulo, mensaje: op.mensaje, tipo: op.tipo || 'pregunta', cancelValor: null,
+    campo: { valor: op.valor, placeholder: op.placeholder, tipo: op.tipoCampo, min: op.min, max: op.max },
+    botones: [
+      { valor: null, texto: 'Cancelar' },
+      { conCampo: true, texto: op.confirmar || 'Aceptar', estilo: 'pri' }
+    ] });
 }
 
 /* ---------- Buscador superior + menú lateral ----------
@@ -9532,7 +9641,10 @@ async function _ejecutarCancelacionVenta(venta, indices){
     : (esPedido
         ? '¿Cancelar ' + aCancelar.length + ' producto(s) de este pedido?'
         : '¿Cancelar ' + aCancelar.length + ' producto(s) de esta venta? Esas piezas se regresarán a tu almacén móvil.');
-  if(!confirm(aviso)) return;
+  const _corte = aviso.indexOf('? ');
+  const _titulo = _corte > -1 ? aviso.slice(0, _corte + 1) : aviso;
+  const _texto = _corte > -1 ? aviso.slice(_corte + 2) : '';
+  if(!(await confirmarMaps({ titulo:_titulo, mensaje:_texto, confirmar:'Sí, cancelar', cancelar:'No', tipo:'peligro' }))) return;
   mostrarToast('Cancelando…');
 
   const ahora = Date.now();
@@ -9824,19 +9936,21 @@ function pintarInventarioGC(){
   }).join('') || '<div class="empty">No hay apartados pendientes.</div>';
 
   contAp.querySelectorAll('[data-entregar]').forEach(b => b.addEventListener('click', () => cambiarEstatusApartadoGC(b.dataset.entregar, 'entregado')));
-  contAp.querySelectorAll('[data-cancelar]').forEach(b => b.addEventListener('click', () => {
-    if(confirm('¿Cancelar este apartado? Las piezas quedan disponibles de nuevo.')) cambiarEstatusApartadoGC(b.dataset.cancelar, 'cancelado');
+  contAp.querySelectorAll('[data-cancelar]').forEach(b => b.addEventListener('click', async () => {
+    if(await confirmarMaps({ titulo:'¿Cancelar este apartado?', mensaje:'Las piezas quedan disponibles de nuevo.', confirmar:'Sí, cancelar', cancelar:'No', tipo:'peligro' })) cambiarEstatusApartadoGC(b.dataset.cancelar, 'cancelado');
   }));
 }
 
-function apartarGC(sku){
+async function apartarGC(sku){
   const it = inventarioGC.find(x => x.sku === sku);
   if(!it) return;
   const disp = disponibleGC(sku);
-  const cant = Math.floor(Number(prompt('¿Cuántas piezas apartar de "' + (it.producto || sku) + '"? (disponibles: ' + disp + ')', '1')));
+  const rCant = await preguntarMaps({ titulo:'¿Cuántas piezas apartar?', mensaje:(it.producto || sku) + '\nDisponibles: ' + disp, valor:'1', tipoCampo:'number', min:1, max:disp, confirmar:'Continuar' });
+  if(rCant === null) return;
+  const cant = Math.floor(Number(rCant));
   if(!cant || cant < 1) return;
   if(cant > disp){ mostrarToast('Solo hay ' + disp + ' disponibles'); return; }
-  const cliente = (prompt('¿Para qué cliente se aparta?', '') || '').trim();
+  const cliente = String(await preguntarMaps({ titulo:'¿Para qué cliente se aparta?', placeholder:'Nombre del cliente', confirmar:'Apartar' }) || '').trim();
   if(!cliente){ mostrarToast('Falta el nombre del cliente'); return; }
 
   const ref = dbVentaRuta.collection('apartados_gc').doc();
@@ -9910,7 +10024,7 @@ async function invGCImportarExcel(ev){
       });
     });
     if(porSku.size === 0){ mostrarToast('No se encontraron filas válidas'); return; }
-    if(!confirm('Se cargarán ' + porSku.size + ' productos y se REEMPLAZARÁ el inventario Grupo Camejo actual. ¿Continuar?')) return;
+    if(!(await confirmarMaps({ titulo:'¿Reemplazar el inventario Grupo Camejo?', mensaje:'Se cargarán ' + porSku.size + ' productos y se REEMPLAZARÁ el inventario actual.', confirmar:'Reemplazar', tipo:'peligro' }))) return;
 
     mostrarToast('Subiendo inventario…');
     const operaciones = [];
@@ -10166,10 +10280,10 @@ function renderPreciosEsp(){
   document.getElementById('btnPeExcel').addEventListener('click', function(){ document.getElementById('peExcelInput').click(); });
   document.getElementById('peExcelInput').addEventListener('change', peImportarExcel);
   document.getElementById('btnPeGuardar').addEventListener('click', guardarPreciosEsp);
-  document.getElementById('btnPeDescartar').addEventListener('click', function(){
+  document.getElementById('btnPeDescartar').addEventListener('click', async function(){
     const n = preciosEspLista.filter(function(r){ return r._dirty; }).length + preciosEspBorrar.size;
     if (!n){ mostrarToast('No hay cambios sin guardar'); return; }
-    if (!confirm('¿Descartar los ' + n + ' cambio(s) sin guardar y volver a cargar lo guardado?')) return;
+    if (!(await confirmarMaps({ titulo:'¿Descartar los cambios?', mensaje:n + ' cambio(s) sin guardar se perderán y se volverá a cargar lo guardado.', confirmar:'Descartar', cancelar:'Seguir editando', tipo:'peligro' }))) return;
     peLimpiarFiltro();
     cargarPreciosEsp();
   });
@@ -10443,7 +10557,7 @@ async function guardarPreciosEsp(){
   preciosEspLista.forEach(function(r){ if (r._origSku && r._origSku !== r.sku) dels.add(r._origSku); });
   upserts.forEach(function(u){ dels.delete(u.sku); }); // no borrar lo que se acaba de escribir
   if (!upserts.length && !dels.size){ mostrarToast('No hay cambios que guardar'); return; }
-  if (mayorNoDescuento.length && !confirm('En estos SKU el mayoreo es igual o mayor al precio normal (no sería descuento): ' + mayorNoDescuento.slice(0, 8).join(', ') + '. ¿Guardar así?')) return;
+  if (mayorNoDescuento.length && !(await confirmarMaps({ titulo:'Mayoreo sin descuento', mensaje:'En estos SKU el mayoreo es igual o mayor al precio normal (no sería descuento): ' + mayorNoDescuento.slice(0, 8).join(', ') + '.\n¿Guardar así?', confirmar:'Guardar así', cancelar:'Revisar', tipo:'aviso' }))) return;
   const btn = document.getElementById('btnPeGuardar'); if (btn) btn.disabled = true;
   mostrarToast('Guardando…');
   try {
@@ -11031,7 +11145,7 @@ if('serviceWorker' in navigator){
 
     var otro = items[0] && items[0]._atendidoPor;
     if (otro && otro.correo !== usuarioActual &&
-        !confirm(otro.nombre + ' ya está atendiendo esta cotización. ¿Abrirla de todos modos?')) return;
+        !(await confirmarMaps({ titulo:'Cotización en atención', mensaje:otro.nombre + ' ya está atendiendo esta cotización. ¿Abrirla de todos modos?', confirmar:'Abrir', cancelar:'No' }))) return;
 
     // Los precios ya viven en el celular; solo se espera la red si no hay ninguno guardado.
     if (!Object.keys(preciosCalculados).length && navigator.onLine){
@@ -11120,14 +11234,18 @@ if('serviceWorker' in navigator){
 
   // Cierra la capa de más arriba. Devuelve true si había algo que cerrar.
   function cerrarCapaSuperior(){
+    if (document.querySelector('.dlg-overlay')) return true;   // hay un aviso abierto: el "atrás" no hace nada
     var drawer = document.getElementById('drawer');
     if (typeof flyoutAbierto !== 'undefined' && flyoutAbierto){ cerrarFlyout(); return true; }
     if (drawer && drawer.classList.contains('open')){ cerrarDrawer(); return true; }
     if (visible('cotizacionesOverlay')){ cerrarListaCotizaciones(); return true; }
     if (visible('notaVentaOverlay')){ cerrarNotaVentaModal(); return true; }
     if (visible('ventaOverlay')){
-      if (typeof ventaItemsActuales !== 'undefined' && ventaItemsActuales.length &&
-          !confirm('Tienes una venta en captura. ¿Salir sin guardarla?')) return true; // se queda
+      if (typeof ventaItemsActuales !== 'undefined' && ventaItemsActuales.length){
+        confirmarMaps({ titulo:'Tienes una venta en captura', mensaje:'¿Salir sin guardarla?', confirmar:'Salir sin guardar', cancelar:'Seguir aquí', tipo:'peligro' })
+          .then(function(ok){ if(ok) cerrarVentaRuta(); });
+        return true;   // se queda hasta que se decida
+      }
       cerrarVentaRuta(); return true;
     }
     if (typeof sheet !== 'undefined' && sheet.classList.contains('open')){
