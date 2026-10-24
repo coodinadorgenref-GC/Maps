@@ -1185,6 +1185,74 @@ function pintarBadgeSesionMaps(){
   el.innerHTML = "<b>" + nombreActual + "</b>" + (rolActual ? " · " + rolActual : "") + chip;
 }
 
+/* ── Entrar sin señal ──
+   · Con «Recuérdame en este dispositivo», al entrar con señal se guarda en el teléfono una huella del código (PBKDF2 con sal; nunca el código)
+     junto con los datos de la cuenta. Sin señal, el mismo correo/teléfono y código dejan entrar con esa huella.
+   · «Sin señal» incluye el caso de barras de cobertura pero sin datos: el navegador dice que hay red aunque nada responde, por eso
+     el login tiene un tope de espera y, si el servidor no contesta, prueba la entrada local. */
+const CRED_OFFLINE_MAPS_KEY = 'cred_offline_maps_gc';
+const CRED_OFFLINE_INTENTOS_KEY = 'cred_offline_maps_gc_intentos';
+const CRED_OFFLINE_MAX_CUENTAS = 3;
+const CRED_OFFLINE_ITERACIONES = 150000;
+const TIMEOUT_LOGIN_MAPS_MS = 12000;
+function fetchConTimeoutMaps(url, opts, ms){
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  return fetch(url, Object.assign({}, opts, { signal: c.signal })).finally(() => clearTimeout(t));
+}
+const idNormMaps = t => { const x = String(t || '').trim().toLowerCase(); return x.includes('@') ? x : x.replace(/\D/g, ''); };
+const aB64Maps = u8 => btoa(String.fromCharCode.apply(null, Array.from(u8)));
+const deB64Maps = b => Uint8Array.from(atob(b), ch => ch.charCodeAt(0));
+async function huellaCodigoMaps(codigo, saltB64, iter){
+  const llave = await crypto.subtle.importKey('raw', new TextEncoder().encode(codigo), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt: deB64Maps(saltB64), iterations: iter }, llave, 256);
+  return aB64Maps(new Uint8Array(bits));
+}
+function leerCredencialesOfflineMaps(){
+  try{ const a = JSON.parse(localStorage.getItem(CRED_OFFLINE_MAPS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; }
+}
+function quitarCredencialOfflineMaps(id){
+  try{ localStorage.setItem(CRED_OFFLINE_MAPS_KEY, JSON.stringify(leerCredencialesOfflineMaps().filter(c => c.id !== idNormMaps(id)))); } catch(e){}
+}
+function olvidarCredencialesOfflineMaps(){ try{ localStorage.removeItem(CRED_OFFLINE_MAPS_KEY); localStorage.removeItem(CRED_OFFLINE_INTENTOS_KEY); } catch(e){} }
+async function guardarCredencialOfflineMaps(identificador, codigo, perfil){
+  if(!(window.crypto && crypto.subtle)) return;   // sin Web Crypto (contexto no seguro) no se guarda nada
+  const salt = aB64Maps(crypto.getRandomValues(new Uint8Array(16)));
+  const huella = await huellaCodigoMaps(codigo, salt, CRED_OFFLINE_ITERACIONES);
+  const id = idNormMaps(identificador);
+  const otras = leerCredencialesOfflineMaps().filter(c => c.id !== id).slice(-(CRED_OFFLINE_MAX_CUENTAS - 1));
+  otras.push({ v:1, id, salt, huella, iter: CRED_OFFLINE_ITERACIONES, perfil, ts: Date.now() });
+  localStorage.setItem(CRED_OFFLINE_MAPS_KEY, JSON.stringify(otras));
+}
+/** Entrada local con la huella guardada. Devuelve { ok, mensaje }. */
+async function entrarSinSenalMaps(identificador, codigo){
+  const sinRed = !navigator.onLine;
+  const motivo = sinRed ? 'Sin señal.' : 'El servidor no responde (revisa tu señal o tus datos).';
+  if(!(window.crypto && crypto.subtle)) return { ok:false, mensaje: motivo + ' Este navegador no permite guardar el acceso sin señal.' };
+  const cred = leerCredencialesOfflineMaps().find(c => c.id === idNormMaps(identificador));
+  if(!cred) return { ok:false, mensaje: motivo + ' Este dispositivo todavía no tiene tu acceso guardado: entra una vez con señal y deja marcado «Recuérdame en este dispositivo».' };
+  let intentos = {}; try{ intentos = JSON.parse(localStorage.getItem(CRED_OFFLINE_INTENTOS_KEY) || '{}'); } catch(e){}
+  if(intentos.hasta && Date.now() < intentos.hasta) return { ok:false, mensaje:'Demasiados intentos. Espera ' + Math.ceil((intentos.hasta - Date.now()) / 60000) + ' min o entra con señal.' };
+  const huella = await huellaCodigoMaps(String(codigo), cred.salt, cred.iter || CRED_OFFLINE_ITERACIONES);
+  if(huella !== cred.huella){
+    const n = (intentos.n || 0) + 1;
+    try{ localStorage.setItem(CRED_OFFLINE_INTENTOS_KEY, JSON.stringify(n >= 5 ? { n:0, hasta: Date.now() + 5 * 60000 } : { n })); } catch(e){}
+    return { ok:false, mensaje: motivo + ' El código no coincide con el guardado en este dispositivo (si te lo cambiaron, valídalo con señal).' };
+  }
+  try{ localStorage.removeItem(CRED_OFFLINE_INTENTOS_KEY); } catch(e){}
+  const p = cred.perfil || {};
+  usuarioActual = p.correo; tokenActual = p.token; nombreActual = p.nombre || ''; rolActual = p.rol || '';
+  esAdmin = !!p.esAdmin && !p.esVendedor; window.esVendedorSesion = !!p.esVendedor;
+  accesoOfflinePermitidoMaps = true;
+  duracionSesionActualMapsMs = DURACION_RECORDARME_MAPS_MS;
+  guardarSesionMaps();
+  pintarBadgeSesionMaps();
+  document.getElementById('vistaLogin').hidden = true;
+  iniciarControlDeSesionMaps();
+  iniciarAppMapasSiHaceFalta();
+  try{ mostrarToast('Entraste sin conexión. Se sincroniza cuando vuelva la señal.'); } catch(e){}
+  return { ok:true, mensaje:'' };
+}
+
 async function manejarInicioDeSesionMaps(){
   const correoEl = document.getElementById("loginCorreo");
   const pinEl = document.getElementById("loginPin");
@@ -1197,14 +1265,19 @@ async function manejarInicioDeSesionMaps(){
   if(!pin){ mostrarErrorLoginMaps("Ingresa el código de acceso."); return; }
 
   btnEl.disabled = true; btnEl.innerText = "Verificando...";
+  if(!navigator.onLine){   // sin señal no se espera al servidor: se entra con el acceso guardado en este dispositivo
+    const o = await entrarSinSenalMaps(identificador, pin);
+    if(!o.ok){ mostrarErrorLoginMaps(o.mensaje); btnEl.disabled = false; btnEl.innerText = "Entrar"; }
+    return;
+  }
   try{
-    const r = await fetch(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
+    const r = await fetchConTimeoutMaps(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
       body: JSON.stringify({
         action:"login", correo: identificador, codigoAcceso: pin,
         dispositivo: (navigator.userAgent||"").slice(0,180),
         recordarme: document.getElementById("loginRecordarme")?.checked || false
       })
-    });
+    }, TIMEOUT_LOGIN_MAPS_MS);
     const rs = await r.json();
   if(rs.success){
   // Solo entran admin y vendedores. Como el backend marca esAdmin=true
@@ -1238,6 +1311,9 @@ async function manejarInicioDeSesionMaps(){
       const recordarme = document.getElementById("loginRecordarme")?.checked || false;
       duracionSesionActualMapsMs = recordarme ? DURACION_RECORDARME_MAPS_MS : TIEMPO_EXPIRACION_SESION_MAPS_MS;
       guardarSesionMaps();
+      // «Recuérdame»: queda guardado el acceso para poder entrar la próxima vez sin señal; sin la marca, se borra el de esta cuenta.
+      if(recordarme) guardarCredencialOfflineMaps(identificador, pin, { correo: usuarioActual, token: tokenActual, nombre: nombreActual, rol: rolActual, esAdmin: !!rs.esAdmin, esVendedor: !!rs.esVendedor }).catch(() => {});
+      else quitarCredencialOfflineMaps(identificador);
       pintarBadgeSesionMaps();
       document.getElementById("vistaLogin").hidden = true;
       iniciarControlDeSesionMaps();
@@ -1247,8 +1323,10 @@ async function manejarInicioDeSesionMaps(){
       btnEl.disabled = false; btnEl.innerText = "Entrar";
     }
   } catch(e){
-    mostrarErrorLoginMaps("Error de conexión con el servidor.");
-    btnEl.disabled = false; btnEl.innerText = "Entrar";
+    // Sin respuesta (sin datos, señal débil o tiempo agotado): se prueba con el acceso guardado en este dispositivo.
+    btnEl.innerText = "Sin respuesta: entrando sin conexión…";
+    const o = await entrarSinSenalMaps(identificador, pin);
+    if(!o.ok){ mostrarErrorLoginMaps(o.mensaje); btnEl.disabled = false; btnEl.innerText = "Entrar"; }
   }
 }
 
@@ -1266,7 +1344,7 @@ function actualizarTimestampSesionMaps(){
   if(s){ const o = JSON.parse(s); o.timestamp = new Date().getTime(); localStorage.setItem(SESION_MAPS_KEY, JSON.stringify(o)); }
 }
 
-function verificarSesionGuardadaMaps(){
+async function verificarSesionGuardadaMaps(){
   const str = localStorage.getItem(SESION_MAPS_KEY);
   if(!str) return; // se queda en la pantalla de login
 
@@ -1283,13 +1361,26 @@ function verificarSesionGuardadaMaps(){
   duracionSesionActualMapsMs = s.duracionMs || TIEMPO_EXPIRACION_SESION_MAPS_MS;
 
   if(new Date().getTime() - s.timestamp > duracionSesionActualMapsMs){
-    if(!navigator.onLine && s.accesoOffline){
-      // Cuenta autorizada para trabajar offline: entra con lo que ya
-      // tenía guardado; el heartbeat normal confirma en cuanto haya señal.
+    // Vencida en el teléfono. Antes se descartaba si el navegador decía «en línea», pero con barras de cobertura y sin datos eso
+    // sacaba a la persona del trabajo sin señal: ahora se comprueba si el servidor realmente contesta.
+    const btn = document.getElementById("loginBtn"), txt = btn ? btn.innerText : "Entrar";
+    if(btn){ btn.disabled = true; btn.innerText = "Comprobando conexión..."; }
+    let estado = "sin-red";
+    if(navigator.onLine){
+      try{
+        const r = await fetchConTimeoutMaps(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
+          body: JSON.stringify({ action:"validarSesion", correo:s.correo, token:s.token }) }, 6000);
+        const rs = await r.json();
+        estado = rs.success ? "valida" : "invalida";
+      } catch(e){ estado = "sin-red"; }
+    }
+    if(btn){ btn.disabled = false; btn.innerText = txt; }
+    if(estado === "sin-red" && s.accesoOffline){
+      // Sin conexión real y cuenta autorizada: entra con lo que ya tenía guardado; el heartbeat confirma en cuanto haya señal.
       usuarioActual = s.correo; tokenActual = s.token; esAdmin = !!s.esAdmin && !s.esVendedor;
       window.esVendedorSesion = s.esVendedor || false;
       rolActual = s.rol || ""; nombreActual = s.nombre || ""; accesoOfflinePermitidoMaps = true;
-    } else {
+    } else if(estado !== "valida"){
       try{
         const payload = JSON.stringify({ action:"cerrarSesionServidor", correo:s.correo, token:s.token });
         navigator.sendBeacon(LOGIN_API_URL, new Blob([payload], { type:"text/plain" }));
@@ -1450,6 +1541,7 @@ async function _ejecutarCierreSesionMaps(){
   _liberarSesionMapsEnServidor();            // sendBeacon: no bloquea
   detenerControlDeSesionMaps();
   try{ localStorage.removeItem(SESION_MAPS_KEY); } catch(e){}
+  olvidarCredencialesOfflineMaps();           // cerrar sesión a propósito borra también el acceso guardado para entrar sin señal
   try{
     await Promise.race([
       appVentaRuta.auth().signOut(),
@@ -10929,7 +11021,7 @@ function guardarFolioBodega(tid, folio){
 }
   
 /* ---------- Arranque de sesión ---------- */
-verificarSesionGuardadaMaps(); // si hay sesión guardada y vigente, entra directo; si no, se queda en el login
+verificarSesionGuardadaMaps().catch(() => {}); // si hay sesión guardada y vigente (o sin conexión real), entra directo; si no, se queda en el login
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
