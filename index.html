@@ -1273,7 +1273,7 @@ async function manejarInicioDeSesionMaps(){
   try{
     const r = await fetchConTimeoutMaps(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
       body: JSON.stringify({
-        action:"login", correo: identificador, codigoAcceso: pin,
+        action:"login", app:"maps", correo: identificador, codigoAcceso: pin,
         dispositivo: (navigator.userAgent||"").slice(0,180),
         recordarme: document.getElementById("loginRecordarme")?.checked || false
       })
