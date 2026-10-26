@@ -6062,6 +6062,13 @@ let pickingLocation = false;
 let tempCoord = null;
 let tempLugar = null; // { municipio, localidad } detectado solo automáticamente
 let tempMarker = null;
+let tempCoordId = null; // id del prospecto al que pertenece tempCoord (evita pisar la ubicación elegida al volver a pintar el formulario)
+function limpiarUbicacionTemporal(){
+  if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
+  tempCoord = null;
+  tempLugar = null;
+  tempCoordId = null;
+}
 let tempFotoFachada = null; // data URL (JPEG comprimido) de la foto de fachada en edición
 
 /* ---------- Ubicación compartida (evita pedir el GPS una y otra vez) ----------
@@ -6640,13 +6647,14 @@ function cancelarSeleccionEnMapa(){
   pickingLocation = false;
   document.getElementById('pickBanner').style.display = 'none';
   document.getElementById('pickCrosshair').classList.remove('visible');
+  abrirSheet();
 }
 function confirmarSeleccionEnMapa(lat, lng){
   pickingLocation = false;
   document.getElementById('pickBanner').style.display = 'none';
   fijarCoordTemporal(lat, lng);
   abrirSheet();
-  cambiarTab('alta');
+  if(currentTab !== 'alta') cambiarTab('alta');
 }
 function confirmarSeleccionEnMapaCentro(){
   const c = map.getCenter();
@@ -6657,7 +6665,11 @@ document.getElementById('btnPickCancelar')?.addEventListener('click', cancelarSe
 
 function fijarCoordTemporal(lat, lng){
   tempCoord = { lat, lng };
+  tempCoordId = editandoId || null;
   tempLugar = null;
+  // Al corregir una ficha, el pin resaltado queda en la posición vieja: se oculta
+  // para que solo se vea el nuevo punto elegido.
+  if(editandoId && resaltadoModo === 'edicion') capaResaltado.clearLayers();
   if(tempMarker) map.removeLayer(tempMarker);
   tempMarker = L.marker([lat, lng], { icon: crearIconoPinTemp() }).addTo(map);
   const pill = document.getElementById('coordPill');
@@ -6837,8 +6849,7 @@ document.getElementById('btnLista').addEventListener('click', () => {
 
 document.getElementById('btnAdd').addEventListener('click', () => {
   editandoId = null;
-  tempCoord = null;
-  if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
+  limpiarUbicacionTemporal();
   abrirSheet();
   cambiarTab('alta', 'mapa');
 });
@@ -6916,6 +6927,7 @@ function habilitarArrastreSheet(){
 // vez de que se abra la hoja de Lista encima — así se ve de una vez el
 // resultado del cambio sobre el mapa, sin un paso extra para cerrarla.
 function volverAlMapa(){
+  if(tempMarker || tempCoord) limpiarUbicacionTemporal();
   currentTab = 'lista';
   renderSheetTabs();
   renderLista();
@@ -6938,6 +6950,7 @@ function cambiarTab(tab, origen){
     unsubscribeVendedoresVivo = null;
   }
   if(tab !== 'misventas'){ modoTraspaso = false; seleccionTraspaso = new Set(); }
+  if(tab !== 'alta' && (tempMarker || tempCoord)) limpiarUbicacionTemporal();
   currentTab = tab;
   renderSheetTabs();
   abrirSheet();
@@ -8273,7 +8286,7 @@ function abrirDetalle(id, origen){
 /* ---------- Vista: Alta / edición ---------- */
 function renderFormAlta(){
   const p = editandoId ? prospectos.find(x => x.id === editandoId) : null;
-  if(p){ tempCoord = { lat: p.lat, lng: p.lng }; }
+  if(p && tempCoordId !== p.id){ tempCoord = { lat: p.lat, lng: p.lng }; tempCoordId = p.id; }
   tempFotoFachada = p ? (p.foto || null) : null;
 
   sheetBody.innerHTML = `
@@ -8725,9 +8738,7 @@ function guardarDesdeForm(){
   guardarProspectos(prospectos);
   renderMarcadores();
   actualizarHeader();
-  if(tempMarker){ map.removeLayer(tempMarker); tempMarker = null; }
-  tempCoord = null;
-  tempLugar = null;
+  limpiarUbicacionTemporal();
   tempFotoFachada = null;
   editandoId = null;
   mostrarToast('Guardado localmente');
