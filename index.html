@@ -1147,7 +1147,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <!-- jsPDF, para generar el ticket en PDF sin backend -->
 <script src="nota-venta.js"></script>
-<script src="logos-marcas.js"></script>  
+<script src="logos-marcas.js"></script>
+<script src="cotizador.js"></script>  
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>  
 <script defer src="https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js"></script>
 
@@ -1262,7 +1263,7 @@ async function entrarSinSenalMaps(identificador, codigo){
   try{ localStorage.removeItem(CRED_OFFLINE_INTENTOS_KEY); } catch(e){}
   const p = cred.perfil || {};
   usuarioActual = p.correo; tokenActual = p.token; nombreActual = p.nombre || ''; rolActual = p.rol || '';
-  esAdmin = !!p.esAdmin && !p.esVendedor; window.esVendedorSesion = !!p.esVendedor;
+  esAdmin = !!p.esAdmin && !p.esVendedor; window.esVendedorSesion = !!p.esVendedor; window.almacenCuentaMaps = p.almacen || "";
   accesoOfflinePermitidoMaps = true;
   duracionSesionActualMapsMs = DURACION_RECORDARME_MAPS_MS;
   guardarSesionMaps();
@@ -1320,6 +1321,7 @@ async function manejarInicioDeSesionMaps(){
       // si viene esVendedor, es vendedor y no admin.
       esAdmin = !!rs.esAdmin && !rs.esVendedor;
       window.esVendedorSesion = rs.esVendedor || false; // NUEVO — columna F = "vendedor"
+      window.almacenCuentaMaps = rs.almacenAdmin || ""; // almacén (col. H): define en qué sección cotiza el vendedor
       rolActual = rs.rol || "";
       nombreActual = rs.nombre || "";
       // Antes dependía de una bandera por cuenta (rs.accesoOffline) en
@@ -1333,7 +1335,7 @@ async function manejarInicioDeSesionMaps(){
       duracionSesionActualMapsMs = recordarme ? DURACION_RECORDARME_MAPS_MS : TIEMPO_EXPIRACION_SESION_MAPS_MS;
       guardarSesionMaps();
       // «Recuérdame»: queda guardado el acceso para poder entrar la próxima vez sin señal; sin la marca, se borra el de esta cuenta.
-      if(recordarme) guardarCredencialOfflineMaps(identificador, pin, { correo: usuarioActual, token: tokenActual, nombre: nombreActual, rol: rolActual, esAdmin: !!rs.esAdmin, esVendedor: !!rs.esVendedor }).catch(() => {});
+      if(recordarme) guardarCredencialOfflineMaps(identificador, pin, { correo: usuarioActual, token: tokenActual, nombre: nombreActual, rol: rolActual, esAdmin: !!rs.esAdmin, esVendedor: !!rs.esVendedor, almacen: window.almacenCuentaMaps || "" }).catch(() => {});
       else quitarCredencialOfflineMaps(identificador);
       pintarBadgeSesionMaps();
       document.getElementById("vistaLogin").hidden = true;
@@ -1354,7 +1356,7 @@ async function manejarInicioDeSesionMaps(){
 function guardarSesionMaps(){
   localStorage.setItem(SESION_MAPS_KEY, JSON.stringify({
     correo: usuarioActual, token: tokenActual, nombre: nombreActual, esAdmin,
-    esVendedor: !!window.esVendedorSesion, rol: rolActual || "",
+    esVendedor: !!window.esVendedorSesion, rol: rolActual || "", almacen: window.almacenCuentaMaps || "",
     accesoOffline: !!accesoOfflinePermitidoMaps,
     duracionMs: duracionSesionActualMapsMs,
     timestamp: new Date().getTime()
@@ -1399,7 +1401,7 @@ async function verificarSesionGuardadaMaps(){
     if(estado === "sin-red" && s.accesoOffline){
       // Sin conexión real y cuenta autorizada: entra con lo que ya tenía guardado; el heartbeat confirma en cuanto haya señal.
       usuarioActual = s.correo; tokenActual = s.token; esAdmin = !!s.esAdmin && !s.esVendedor;
-      window.esVendedorSesion = s.esVendedor || false;
+      window.esVendedorSesion = s.esVendedor || false; window.almacenCuentaMaps = s.almacen || "";
       rolActual = s.rol || ""; nombreActual = s.nombre || ""; accesoOfflinePermitidoMaps = true;
     } else if(estado !== "valida"){
       try{
@@ -1413,7 +1415,7 @@ async function verificarSesionGuardadaMaps(){
 
   accesoOfflinePermitidoMaps = s.accesoOffline || false;
   usuarioActual = s.correo; tokenActual = s.token; esAdmin = !!s.esAdmin && !s.esVendedor;
-  window.esVendedorSesion = s.esVendedor || false;
+  window.esVendedorSesion = s.esVendedor || false; window.almacenCuentaMaps = s.almacen || "";
   rolActual = s.rol || ""; nombreActual = s.nombre || "";
   pintarBadgeSesionMaps();
   document.getElementById("vistaLogin").hidden = true;
@@ -3995,7 +3997,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '26-oct · v69 · lista';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '26-oct · v70 · cotizador';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
