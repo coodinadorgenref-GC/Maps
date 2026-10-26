@@ -220,15 +220,22 @@
   }
   .login-overlay[hidden]{ display:none; }
   .login-card{
-    width:100%; max-width:448px;
-    background:var(--surface); border:1px solid var(--line); border-radius:16px;
-    padding:32px; margin:auto;
-    box-shadow:0 25px 50px -12px rgba(0,0,0,.55);
+    /* Mismas medidas que el cuadro de login de REPORTEADOR y CATALOGO: 448 px de ancho y 512 px de alto
+       (32 de relleno + logo 40+12 + título 32 + marca 16+24 + texto 40+24 + 2 campos de 90 + recuérdame 16+16 + botón 48).
+       Sin borde real (ocuparía 2 px más): el contorno es una sombra. */
+    width:100%; max-width:448px; box-sizing:border-box;
+    background:var(--surface); border:0; border-radius:16px;
+    padding:32px; margin:auto; text-align:center;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.55), 0 0 0 1px var(--line);
   }
-  .login-titulo{ font-size:24px; font-weight:700; letter-spacing:-0.2px; text-align:center; }
-  .login-sub{ font-size:14px; color:var(--text-dim); text-align:center; margin-top:6px; margin-bottom:24px; }
+  .login-logo{ height:40px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; color:var(--accent-ink); }
+  .login-logo svg{ height:40px; width:auto; display:block; }
+  .login-titulo{ font-size:24px; line-height:32px; font-weight:700; letter-spacing:-0.2px; text-align:center; }
+  .login-marca{ font-size:12px; line-height:16px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); text-align:center; margin-bottom:24px; }
+  .login-sub{ font-size:14px; line-height:20px; min-height:40px; color:var(--text-dim); text-align:center; margin-bottom:24px; }
   .login-campo{ margin-bottom:16px; }
-  .login-campo label{ font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); display:block; margin-bottom:8px; }
+  .login-campo{ text-align:left; }
+  .login-campo label{ font-size:12px; line-height:16px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); display:block; margin-bottom:8px; }
   .login-campo input{
     width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
     color:var(--text); border-radius:12px; padding:12px 16px; font-family:inherit; font-size:16px; line-height:24px; font-weight:500; outline:none;
@@ -242,7 +249,7 @@
     position:absolute; right:10px; top:50%; transform:translateY(-50%);
     background:none; border:none; color:var(--text-dim); cursor:pointer; padding:4px;
   }
-  .login-recordarme{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-dim); margin-bottom:16px; }
+  .login-recordarme{ display:flex; align-items:center; gap:8px; height:16px; font-size:12px; line-height:16px; text-align:left; color:var(--text-dim); margin-bottom:16px; }
   .login-recordarme input{ width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
   .login-btn{
     width:100%; background:var(--accent); color:var(--accent-ink); border:none; border-radius:12px;
@@ -807,7 +814,9 @@
 
 <div class="login-overlay" id="vistaLogin">
   <div class="login-card">
+    <div class="login-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></div>
     <div class="login-titulo">Prospectos &amp; Rutas GC</div>
+    <div class="login-marca">Maps GC</div>
     <div class="login-sub">Inicia sesión con tu cuenta del catálogo</div>
     <div class="login-error" id="loginError"></div>
     <div class="login-campo">
@@ -1512,9 +1521,13 @@ function _overlayCierreSesionMaps(html){
   ov.innerHTML = '<div class="cs-card" role="dialog" aria-modal="true">' + html + '</div>';
   return ov;
 }
+let _csTeclasMaps = null, _csPrevioMaps = null;
 function _quitarOverlayCierreSesionMaps(){
+  if(_csTeclasMaps){ document.removeEventListener('keydown', _csTeclasMaps, true); _csTeclasMaps = null; }
   const ov = document.getElementById('csOverlay');
   if(ov) ov.remove();
+  try{ if(_csPrevioMaps && _csPrevioMaps.focus) _csPrevioMaps.focus(); }catch(e){}
+  _csPrevioMaps = null;
 }
 
 // Paso 1: aviso propio (el confirm() nativo se bloquea o ni aparece en la app instalada).
@@ -1527,9 +1540,20 @@ function cerrarSesionMaps(){
       '<button type="button" id="csCancelar">Cancelar</button>' +
       '<button type="button" class="peligro" id="csConfirmar">Cerrar sesión</button>' +
     '</div>');
-  document.getElementById('csCancelar').addEventListener('click', _quitarOverlayCierreSesionMaps);
-  document.getElementById('csConfirmar').addEventListener('click', _ejecutarCierreSesionMaps);
+  const bNo = document.getElementById('csCancelar'), bSi = document.getElementById('csConfirmar');
+  bNo.addEventListener('click', _quitarOverlayCierreSesionMaps);
+  bSi.addEventListener('click', _ejecutarCierreSesionMaps);
   ov.addEventListener('click', e => { if(e.target === ov) _quitarOverlayCierreSesionMaps(); });
+  // Teclado (igual que REPORTEADOR): el foco arranca en "Cancelar" (la opción segura); Tab / Shift+Tab
+  // alternan entre "Cancelar" y "Cerrar sesión" sin salirse del cuadro; Enter activa el botón enfocado; Esc cancela.
+  _csPrevioMaps = document.activeElement;
+  _csTeclasMaps = function(e){
+    if(cerrandoSesionMaps){ e.preventDefault(); return; }
+    if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); _quitarOverlayCierreSesionMaps(); return; }
+    if(e.key === 'Tab'){ e.preventDefault(); e.stopPropagation(); (document.activeElement === bSi ? bNo : bSi).focus(); }
+  };
+  document.addEventListener('keydown', _csTeclasMaps, true);
+  bNo.focus();
 }
 
 // Paso 2: feedback inmediato y cierre sin esperas largas. Lo local va primero;
