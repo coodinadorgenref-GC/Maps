@@ -475,6 +475,17 @@
     width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--line);
     color:var(--text); border-radius:8px; padding:6px 8px; font-size:12px; font-style:italic;
   }
+  #btnKitsVenta{ display:none; border-style:solid; border-color:var(--teal); color:var(--teal); font-weight:700; }
+  body.hay-kits #btnKitsVenta{ display:block; }
+  .kit-item{ border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; }
+  .kit-item:active{ background:var(--surface-2); }
+  .kit-linea{ display:flex; gap:8px; justify-content:space-between; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .kit-linea small{ color:var(--text-dim); display:block; font-size:11.5px; }
+  .kit-linea select{ background:var(--surface-2); color:inherit; border:1px solid var(--line); border-radius:8px; padding:3px 6px; }
+  .kit-resumen{ margin:12px 0; font-size:14px; }
+  .kit-resumen div{ display:flex; justify-content:space-between; padding:2px 0; }
+  .kit-resumen .kit-total{ font-weight:700; font-size:16px; color:var(--teal); }
+  .kit-aviso{ font-size:12px; color:var(--danger); margin:6px 0; }
   .venta-agregar-item{
     width:100%; background:var(--surface-2); border:1px dashed var(--line); color:var(--text-dim);
     border-radius:10px; padding:9px; font-size:13.5px; cursor:pointer; margin-bottom:14px;
@@ -1054,6 +1065,7 @@
       <div class="vr-lista" id="ventaResultados"></div>
     </div>
     <div id="ventaItemsLista"></div>
+    <button class="venta-agregar-item" id="btnKitsVenta" type="button" onclick="abrirKitsVenta()">🧰 Agregar kit de servicio (con descuento)</button>
     <button class="venta-agregar-item" onclick="agregarFilaItemVenta()">+ Captura manual (producto fuera de catálogo)</button>
  
     <div class="venta-campo">
@@ -3982,7 +3994,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '19-oct · v64 · k21';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '26-oct · v68 · kits';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -10308,6 +10320,7 @@ async function sincronizarPromociones(){
 }
 async function sincronizarPreciosRuta(){
   sincronizarPromociones();
+  sincronizarKits();
   if(!SHEET_ENDPOINT || !navigator.onLine) return;
   try{
     const resp = await fetch(`${SHEET_ENDPOINT}?recurso=precios`);
@@ -10758,7 +10771,7 @@ function actualizarImportesVenta(){
       const pu = fila.querySelector('[data-pu]');
       if (pu) pu.textContent = '$' + (Number(it.precio) || 0).toFixed(2);
       const esc = (it.manual || it.liquidacion || it.precioEditado) ? null : escalonVigente(it.sku);
-      const txt = it.mayoreo ? '✓ Precio de mayoreo' : (esc ? ('Desde ' + esc.min + ' pzs: $' + esc.precio.toFixed(2) + ' c/u') : '');
+      const txt = it.kit ? ('🧰 Kit ' + it.kit + (it.kitPct ? ' · −' + it.kitPct + '%' : '')) : it.mayoreo ? '✓ Precio de mayoreo' : (esc ? ('Desde ' + esc.min + ' pzs: $' + esc.precio.toFixed(2) + ' c/u') : '');
       let tag = fila.querySelector('.vv-mayo');
       if (txt){
         if (!tag){
@@ -10781,6 +10794,155 @@ function actualizarImportesVenta(){
       if (it && inp && document.activeElement !== inp) inp.value = it.precio;
     });
   }
+}
+
+
+/* ---------- Kits de servicio (hojas "Kits" y "KitItems" del mismo Sheet de promociones) ----------
+   El kit solo guarda QUÉ piezas lleva y cuántas. El precio sale siempre de la misma lista que usa
+   la venta (resolverProductoPorSku) y el descuento del kit se aplica encima. No se combina con mayoreo. */
+const KITS_KEY = 'gc_kits_v1';
+let kitsCache = { kits: [], items: [] };
+let kitModal = { kitId: null, cants: {} };
+try { const c = JSON.parse(localStorage.getItem(KITS_KEY) || 'null'); if (c && c.datos) kitsCache = c.datos; } catch(e){}
+
+function _kitPct(k){
+  let n = Number(String(k && k.descuentoPct != null ? k.descuentoPct : '').replace(/[%\s]/g, ''));
+  if (n > 0 && n < 1) n = n * 100; // la hoja puede devolver 0.15 si la celda tiene formato de porcentaje
+  return n > 0 ? n : 0;
+}
+function _kitActivo(k){
+  const t = String(k && k.activo != null ? k.activo : '').trim().toUpperCase();
+  return t !== 'NO' && t !== '0' && t !== 'FALSE';
+}
+function kitsDisponibles(){
+  return (kitsCache.kits || []).filter(function(k){ return _kitPct(k) > 0 && _kitActivo(k) && promoVigente(k); })
+    .sort(function(a, b){ return String(a.moto || '').localeCompare(String(b.moto || '')) || String(a.nombre || '').localeCompare(String(b.nombre || '')); });
+}
+function _kitItemsDe(kit){
+  return (kitsCache.items || []).filter(function(i){ return String(i.kitId || '').trim() === String(kit.id).trim(); })
+    .sort(function(a, b){ return (Number(a.orden) || 0) - (Number(b.orden) || 0); });
+}
+function _actualizarClaseKits(){
+  try { document.body.classList.toggle('hay-kits', kitsDisponibles().length > 0); } catch(e){}
+}
+async function sincronizarKits(){
+  if (!SHEET_ENDPOINT || !navigator.onLine) return;
+  try {
+    const rs = await Promise.all([ fetch(SHEET_ENDPOINT + '?recurso=kits'), fetch(SHEET_ENDPOINT + '?recurso=kitItems') ]);
+    const kits = await rs[0].json(), items = await rs[1].json();
+    if (!Array.isArray(kits) || !Array.isArray(items)) return;
+    const kitsOk = kits.filter(function(k){ return k && k.id && k.nombre && 'descuentoPct' in k; });
+    // Si el servidor aún no conoce este recurso devuelve otra hoja: se ignora y se conserva la copia local.
+    if (kits.length && !kitsOk.length) return;
+    kitsCache = { kits: kitsOk, items: items.filter(function(i){ return i && i.kitId && i.sku; }) };
+    try { localStorage.setItem(KITS_KEY, JSON.stringify({ t: Date.now(), datos: kitsCache })); } catch(e){}
+    _actualizarClaseKits();
+  } catch(e){ /* sin señal: se queda con la copia local */ }
+}
+_actualizarClaseKits();
+document.addEventListener('DOMContentLoaded', _actualizarClaseKits);
+
+function _kitCalcular(kit, esPedido, cants){
+  const pct = _kitPct(kit); cants = cants || {};
+  const lineas = _kitItemsDe(kit).map(function(i){
+    const sku = String(i.sku || '').trim();
+    const min = Math.max(1, Number(i.cantidad) || 1);
+    const max = Math.max(min, Number(i.cantidadMax) || min);
+    let cant = Number(cants[sku]); if (!(cant >= min && cant <= max)) cant = min;
+    const r = resolverProductoPorSku(sku, esPedido);
+    const base = r ? (Number(r.precio) || 0) : 0;
+    const liq = !!(r && r.liquidacion);               // liquidación: conserva su precio, sin descuento extra
+    const precio = Math.round(base * (100 - (liq ? 0 : pct))) / 100;
+    return { sku: sku, descripcion: (r && r.producto) || i.descripcion || sku, cant: cant, min: min, max: max,
+             base: base, liq: liq, precio: precio, importe: Math.round(precio * cant * 100) / 100,
+             sinPrecio: !(base > 0), disp: stockVentaSku(sku, esPedido) };
+  });
+  const subtotal = Math.round(lineas.reduce(function(t, l){ return t + l.base * l.cant; }, 0) * 100) / 100;
+  const total = Math.round(lineas.reduce(function(t, l){ return t + l.importe; }, 0) * 100) / 100;
+  return { pct: pct, lineas: lineas, subtotal: subtotal, total: total, descuento: Math.round((subtotal - total) * 100) / 100,
+           sinPrecio: lineas.filter(function(l){ return l.sinPrecio; }).length };
+}
+function _m(n){ return '$' + (Number(n) || 0).toFixed(2); }
+
+function abrirKitsVenta(){
+  if (document.getElementById('ventaOverlay').hidden) return;
+  if (!kitsDisponibles().length){ mostrarToast('Aún no hay kits vigentes. Sincroniza con señal.'); return; }
+  kitModal = { kitId: null, cants: {} };
+  let ov = document.getElementById('kitsOverlay');
+  if (!ov){
+    ov = document.createElement('div'); ov.id = 'kitsOverlay'; ov.className = 'venta-overlay'; ov.style.zIndex = '5200';
+    ov.addEventListener('click', function(e){ if (e.target === ov) cerrarKitsVenta(); });
+    document.body.appendChild(ov);
+  }
+  ov.hidden = false; pintarKitsVenta();
+}
+function cerrarKitsVenta(){ const ov = document.getElementById('kitsOverlay'); if (ov) ov.hidden = true; }
+function elegirKitVenta(id){ kitModal = { kitId: id, cants: {} }; pintarKitsVenta(); }
+function volverListaKits(){ kitModal = { kitId: null, cants: {} }; pintarKitsVenta(); }
+function cambiarCantKit(sku, v){ kitModal.cants[sku] = Number(v) || 1; pintarKitsVenta(); }
+
+function pintarKitsVenta(){
+  const ov = document.getElementById('kitsOverlay'); if (!ov) return;
+  const esPedido = esVentaPedido();
+  const esc = escapeHtmlVenta;
+  let h = '<div class="venta-card">';
+  const kit = kitModal.kitId ? kitsDisponibles().find(function(k){ return String(k.id) === String(kitModal.kitId); }) : null;
+  if (!kit){
+    h += '<div class="venta-titulo"><span>🧰 Kits de servicio</span><button onclick="cerrarKitsVenta()" aria-label="Cerrar">✕</button></div>'
+      + '<div class="venta-folio">Elige la moto: se agregan todas las piezas con el descuento del kit.</div>';
+    kitsDisponibles().forEach(function(k){
+      const c = _kitCalcular(k, esPedido);
+      h += '<div class="kit-item" data-kit="' + esc(k.id) + '" onclick="elegirKitVenta(this.getAttribute(\'data-kit\'))">'
+        + '<div style="font-weight:700">' + esc(k.nombre) + '</div>'
+        + '<div style="font-size:12px;color:var(--text-dim)">' + esc(k.moto || '') + ' · ' + c.lineas.length + ' piezas · −' + c.pct + '%</div>'
+        + '<div style="font-size:13px;margin-top:3px">' + (c.sinPrecio ? '<span style="color:var(--danger)">Faltan precios en la lista</span>' : '<b>' + _m(c.total) + '</b> <span style="color:var(--text-dim)">(ahorras ' + _m(c.descuento) + ')</span>') + '</div>'
+        + '</div>';
+    });
+  } else {
+    const c = _kitCalcular(kit, esPedido, kitModal.cants);
+    h += '<div class="venta-titulo"><span>' + esc(kit.nombre) + '</span><button onclick="cerrarKitsVenta()" aria-label="Cerrar">✕</button></div>'
+      + '<div class="venta-folio"><a href="#" onclick="volverListaKits();return false;" style="color:var(--teal)">← Otros kits</a> · ' + esc(kit.moto || '') + '</div>';
+    c.lineas.forEach(function(l){
+      const cantHtml = l.max > l.min
+        ? '<select data-sku="' + esc(l.sku) + '" onchange="cambiarCantKit(this.getAttribute(\'data-sku\'), this.value)">'
+          + Array.from({ length: l.max - l.min + 1 }, function(_, n){ const v = l.min + n; return '<option value="' + v + '"' + (v === l.cant ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select>'
+        : String(l.cant);
+      const sobre = !esPedido && l.cant > l.disp;
+      h += '<div class="kit-linea"><div>' + esc(l.descripcion) + '<small>' + esc(l.sku) + (l.liq ? ' · liquidación (sin descuento extra)' : '')
+        + ' · ' + (esPedido ? 'GC: ' : 'Tienes ') + l.disp + (sobre ? ' ⚠️' : '') + '</small></div>'
+        + '<div style="text-align:right;white-space:nowrap">' + cantHtml + ' × ' + (l.sinPrecio ? '<span style="color:var(--danger)">sin precio</span>' : _m(l.precio))
+        + (!l.sinPrecio && l.precio !== l.base ? '<small style="text-decoration:line-through">' + _m(l.base) + '</small>' : '') + '</div></div>';
+    });
+    h += '<div class="kit-resumen"><div><span>Subtotal a precio de lista</span><span>' + _m(c.subtotal) + '</span></div>'
+      + '<div><span>Descuento del kit (' + c.pct + '%)</span><span>−' + _m(c.descuento) + '</span></div>'
+      + '<div class="kit-total"><span>Total del kit</span><span>' + _m(c.total) + '</span></div></div>';
+    if (c.sinPrecio) h += '<div class="kit-aviso">Hay piezas sin precio en la lista. Corrígelas antes de vender este kit.</div>';
+    h += '<button class="venta-btn" onclick="agregarKitVenta()"' + (c.sinPrecio ? ' disabled style="opacity:.5"' : '') + '>Agregar kit a la venta</button>';
+  }
+  ov.innerHTML = h + '</div>';
+}
+
+function agregarKitVenta(){
+  const kit = kitsDisponibles().find(function(k){ return String(k.id) === String(kitModal.kitId); }); if (!kit) return;
+  const c = _kitCalcular(kit, esVentaPedido(), kitModal.cants);
+  if (c.sinPrecio){ mostrarToast('Hay piezas sin precio en la lista.'); return; }
+  const choques = c.lineas.filter(function(l){
+    return ventaItemsActuales.some(function(it){ return String(it.sku || '').trim() === l.sku && !it.kit; });
+  });
+  if (choques.length){ mostrarToast('Quita de la venta estas piezas sueltas y vuelve a agregar el kit: ' + choques.map(function(l){ return l.sku; }).join(', ')); return; }
+  c.lineas.forEach(function(l){
+    const ex = ventaItemsActuales.find(function(it){ return String(it.sku || '').trim() === l.sku && it.kit; });
+    if (ex){
+      ex.cantidad = (Number(ex.cantidad) || 0) + l.cant;
+      if (String(ex.kit).indexOf(kit.nombre) === -1) ex.kit += ' + ' + kit.nombre;
+      return;
+    }
+    ventaItemsActuales.push({ sku: l.sku, producto: l.descripcion, cantidad: l.cant, precio: l.precio, precioLista: l.base,
+      manual: false, liquidacion: l.liq, precioEditado: true, kit: kit.nombre, kitPct: l.liq ? 0 : c.pct });
+  });
+  cerrarKitsVenta();
+  renderizarItemsVenta();
+  mostrarToast('Kit agregado: ' + kit.nombre + ' (' + _m(c.total) + ')');
 }
 
 /* ---------- Filas que se mandan al Sheet (ahora con mayoreo y traspaso por línea) ---------- */
@@ -10816,7 +10978,8 @@ function filasVentaParaSheet(venta){
       origen: it.origen || '',
       requiereTraspaso: it.origen ? (origenRequiereTraspaso(it.origen) ? 'SI' : 'NO') : '',
       folioBodega: it.folioBodega || '',
-      mayoreo: it.mayoreo ? 'SI' : ''
+      mayoreo: it.mayoreo ? 'SI' : '',
+      kit: it.kit || ''
     };
   });
 }
@@ -10848,7 +11011,7 @@ function agruparFilasVentaEnVentas(filas){
     const cancelado = f.cancelada === 'SI' || f.cancelada === true;
     v.items.push({
       sku: f.sku, producto: f.producto, cantidad: Number(f.cantidad) || 0, precio: Number(f.precioUnitario) || 0,
-      existencia: f.existencia || '', manual: f.precioManual === 'SI', mayoreo: f.mayoreo === 'SI',
+      existencia: f.existencia || '', manual: f.precioManual === 'SI', mayoreo: f.mayoreo === 'SI', kit: f.kit || '',
       origen: f.origen || '', requiereTraspaso: f.requiereTraspaso || '',
       traspasoId: f.traspasoId || '', folioBodega: f.folioBodega || '',
       cancelado: cancelado, rowId: f.id
