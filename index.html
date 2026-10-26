@@ -2225,6 +2225,7 @@ function buscarProductosVenta(q){
   Object.keys(preciosCache).forEach(function(k){ poner(k, preciosCache[k] && preciosCache[k].producto); });
   Object.keys(preciosCalculados).forEach(function(k){ poner(k, preciosCalculados[k].producto); });
   Object.keys(inventarioPropio).forEach(function(k){ poner(k, inventarioPropio[k] && inventarioPropio[k].producto); });
+  Object.keys(listaGC).forEach(function(k){ const x = listaGC[k]; if (x.producto || mapa[x.sku]) poner(x.sku, x.producto); });
   if (esPedido) inventarioGC.forEach(function(x){ poner(x.sku, x.producto); });
   const encontrados = [];
   Object.keys(mapa).forEach(function(k){
@@ -3994,7 +3995,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '26-oct · v68 · kits';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '26-oct · v69 · lista';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -9954,6 +9955,11 @@ function resolverProductoPorSku(sku, esPedido){
   if(pc && !esPedido && !pc.liquidacion && prop && Number(prop.precioUnitario) > 0){
     return { producto: pc.producto || (pr && pr.producto) || prop.producto || '', precio: Number(prop.precioUnitario), liquidacion: false };
   }
+  // Lista de precios del REPORTEADOR (misma del catálogo): manda sobre la fórmula por costo y sobre el precio de GC.
+  const lg = listaGC[normSkuMaps(k)];
+  if(lg && lg.precio > 0 && !(pc && pc.liquidacion)){
+    return { producto: lg.producto || (pc && pc.producto) || (pr && pr.producto) || (prop && prop.producto) || '', precio: lg.precio, liquidacion: false };
+  }
   if(pc) return { producto: pc.producto || (pr && pr.producto) || (prop && prop.producto) || '', precio: pc.precio, liquidacion: pc.liquidacion };
   if(esPedido){
     const gc = inventarioGC.find(function(x){ return String(x.sku).trim() === k; });
@@ -10280,6 +10286,7 @@ const PRECIOS_VENTA_KEY2 = 'gc_precios_venta_v3';
 try { const c = JSON.parse(localStorage.getItem(PRECIOS_VENTA_KEY2) || 'null'); if (c && c.datos) preciosCalculados = c.datos; } catch(e){}
 
 async function sincronizarPreciosCalculados(){
+  sincronizarListaPreciosGC();
   if (!navigator.onLine || !usuarioActual || !tokenActual) return;
   try { const c = JSON.parse(localStorage.getItem(PRECIOS_VENTA_KEY2) || 'null'); if (c && Date.now() - c.t < PRECIOS_VENTA_TTL_MS) return; } catch(e){}
   try {
@@ -10294,6 +10301,32 @@ async function sincronizarPreciosCalculados(){
     preciosCalculados = mapa;
     if (!document.getElementById('ventaOverlay').hidden){ renderizarItemsVenta(); pintarResultadosVenta(); }
     try { localStorage.setItem(PRECIOS_VENTA_KEY2, JSON.stringify({ t: Date.now(), datos: mapa })); } catch(e){}
+  } catch(e){ /* sin señal: se queda con la copia local */ }
+}
+
+/* ---------- Lista de precios del REPORTEADOR (hoja LISTA_PRECIOS, ya con IVA): la misma que usa el catálogo ----------
+   Cuando se sube o cambia la lista en el REPORTEADOR, Maps la toma en la siguiente sincronización (máx. 3 min con señal). */
+const LISTA_GC_KEY = 'gc_lista_precios_v1';
+const LISTA_GC_TTL_MS = 3 * 60 * 1000;
+let listaGC = {};
+try { const c = JSON.parse(localStorage.getItem(LISTA_GC_KEY) || 'null'); if (c && c.datos) listaGC = c.datos; } catch(e){}
+
+async function sincronizarListaPreciosGC(){
+  if (!navigator.onLine || !usuarioActual || !tokenActual) return;
+  try { const c = JSON.parse(localStorage.getItem(LISTA_GC_KEY) || 'null'); if (c && Date.now() - c.t < LISTA_GC_TTL_MS) return; } catch(e){}
+  try {
+    const r = await fetch(LOGIN_API_URL, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'obtenerPreciosCatalogo', correo: usuarioActual, token: tokenActual }) });
+    const rs = await r.json();
+    if (!rs.success || !Array.isArray(rs.data)) return;
+    const mapa = {};
+    rs.data.forEach(function(x){
+      const k = normSkuMaps(x.sku), p = Number(x.precio) || 0;
+      if (k && p > 0) mapa[k] = { sku: String(x.sku).trim(), precio: p, producto: x.producto || '' };
+    });
+    listaGC = mapa;
+    try { localStorage.setItem(LISTA_GC_KEY, JSON.stringify({ t: Date.now(), datos: mapa })); } catch(e){}
+    if (!document.getElementById('ventaOverlay').hidden){ renderizarItemsVenta(); pintarResultadosVenta(); }
   } catch(e){ /* sin señal: se queda con la copia local */ }
 }
 
