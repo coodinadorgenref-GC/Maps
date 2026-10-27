@@ -931,15 +931,15 @@
   <div class="drawer-flyout-header">Ventas en ruta</div>
   <button class="drawer-item" id="btnRegistrarVentaMenu">
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 6h-2.18c.11-.31.18-.65.18-1a2 2 0 0 0-2-2c-1.11 0-2 .9-2 2 0-1.1-.89-2-2-2s-2 .9-2 2c0 .35.07.69.18 1H8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg>
-    <span class="txt">Registrar venta</span>
+    <span class="txt">Nueva venta o cotización</span>
   </button>
   <button class="drawer-item" id="btnCotizacionesMaps">
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-    <span class="txt">Cotizaciones</span><span id="cotizBadge" class="badge" hidden style="margin-left:auto;background:var(--ochre);color:#0E1518;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700"></span>
+    <span class="txt">Cotizaciones del catálogo</span><span id="cotizBadge" class="badge" hidden style="margin-left:auto;background:var(--ochre);color:#0E1518;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700"></span>
   </button>
   <button class="drawer-item" id="btnMisVentas">
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM7 13h5v2H7v-2zm0 4h10v2H7v-2zm7-8V3.5L18.5 8H14z"/></svg>
-    <span class="txt">Mis ventas</span>
+    <span class="txt">Historial</span>
   </button>
   <button class="drawer-item" id="btnNotasVendedor" hidden>
   <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
@@ -953,9 +953,9 @@
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
     <span class="txt">Vendedores en vivo</span>
   </button>
-  <button class="drawer-item" id="btnInventarioGC">
+  <button class="drawer-item" id="btnCatalogoRefacciones">
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z"/></svg>
-    <span class="txt">Inventario Grupo Camejo</span>
+    <span class="txt">Catálogo de refacciones</span>
   </button>
   <button class="drawer-item" id="btnPreciosEsp" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M21.41 11.58l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg>
@@ -1637,11 +1637,30 @@ function iniciarFirebaseVentaRuta(){
  *  Usa esVendedor si tu Código.gs ya lo regresa en el login (columna
  *  F = "vendedor"); si no, cae a esAdmin o al texto de rol como
  *  respaldo, para que puedas probar antes de agregar ese flag. */
+/* Notas de venta y cotizaciones: las puede hacer cualquier cuenta de Maps. El admin las hace de todas las
+   secciones; el vendedor solo de la agencia a la que está vinculado (ver seccionesDeVentaMaps). */
 function puedeVenderEnRuta(){
-  if (typeof window.esVendedorSesion === "boolean") return window.esVendedorSesion;
   if (esAdmin) return true;
+  if (window.esVendedorSesion === true) return true;
   return (rolActual || "").toLowerCase().indexOf("vendedor") !== -1;
 }
+/* Secciones (VENTO · SUZUKI · BAJAJ) de las que esta cuenta puede VENDER. Misma regla que el cotizador:
+   admin → todas; zona Valladolid, TODAS o sin agencia → todas; zona Mérida → Vento; si no, la de su agencia. */
+function _sinAcentoMaps(t){ return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+function seccionDeTextoMaps(t){
+  const n = String(t == null ? '' : t).toUpperCase();
+  if (n.indexOf('PISTE MUEBLES') !== -1) return 'BAJAJ';
+  return n.indexOf('SUZUKI') !== -1 ? 'SUZUKI' : (n.indexOf('BAJAJ') !== -1 ? 'BAJAJ' : 'VENTO');
+}
+function seccionesDeVentaMaps(){
+  const TODAS = ['VENTO', 'SUZUKI', 'BAJAJ'];
+  if (esAdmin) return TODAS;
+  const a = _sinAcentoMaps(window.almacenCuentaMaps || '').toUpperCase().trim();
+  if (!a || a.indexOf('TODAS') !== -1 || a.indexOf('ZONA VALLADOLID') !== -1) return TODAS;
+  if (a.indexOf('ZONA MERIDA') !== -1) return ['VENTO'];
+  return [seccionDeTextoMaps(a)];
+}
+function puedeVenderDeSucursal(sucursal){ return seccionesDeVentaMaps().indexOf(seccionDeTextoMaps(sucursal)) !== -1; }
 function actualizarVisibilidadBotonVenta(){
   const puede = usuarioActual && (puedeVenderEnRuta() || esAdmin);
   const btnFly = document.getElementById('btnVentasFlyout');
@@ -2672,7 +2691,7 @@ let almacenItemsEdicion = [];     // [{sku, producto, precioUnitario, cantidad}]
 let modoDescargaAlmacen = false; // true mientras el vendedor hace su "descarga" de fin de ruta
 let modoTraspaso = false;        // true mientras se seleccionan ventas para traspasar a bodega
 let seleccionTraspaso = new Set(); // idInterno (o folio) de las ventas marcadas en modoTraspaso
-let subTabMisVentas = 'ventas';  // 'ventas' | 'traspasos' — sub-pestaña dentro de "Mis ventas"
+let subTabMisVentas = 'todo';  // 'todo' | 'ventas' | 'cotizaciones' | 'traspasos' — sub-pestaña dentro de "Historial"
 
 async function renderAlmacen(){
   if(!SHEET_ENDPOINT){
@@ -2817,53 +2836,26 @@ async function cargarPedidosPropiosPendientes(){
 }
 
 /* ---------- Lista de vendedores (para el desplegable del almacén) ----------
-   Vive en Firestore: config/vendedores = { lista: [{correo, nombre}] }.
-   El admin la va llenando desde la propia pantalla de almacén — no hace
-   falta tocar el Código.gs ni el login para esto. */
-let listaVendedores = []; // [{correo, nombre}]
-
-function docConfigVendedores(){
-  return dbVentaRuta.collection('config').doc('vendedores');
-}
+   Sale de Usuarios_Autorizados vía la API (acción listarVendedoresMaps): ya no existe una lista aparte que
+   capturar o mantener. Quien tenga una cuenta activa de vendedor, gerente o admin aparece solo. Si un admin hace
+   una nota de venta, firma con su propio nombre (nombreActual, de su cuenta). */
+let listaVendedores = []; // [{correo, nombre, agencia, permiso}]
+const VENDEDORES_API_CACHE_KEY = 'gc_vendedores_api_v1';
 
 async function cargarListaVendedores(){
-  if(!SHEET_ENDPOINT){ listaVendedores = []; return; }
+  try{ const c = JSON.parse(localStorage.getItem(VENDEDORES_API_CACHE_KEY) || 'null'); if(c && Array.isArray(c.lista)) listaVendedores = c.lista; }catch(e){}
+  if(!navigator.onLine || !usuarioActual || !tokenActual) return;
   try{
-    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=vendedores`);
-    listaVendedores = (await resp.json()).map(v => ({ correo: v.correo, nombre: v.nombre }));
+    const r = await fetchConTimeout(LOGIN_API_URL, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'listarVendedoresMaps', correo: usuarioActual, token: tokenActual }) }, 20000);
+    const rs = await r.json();
+    if(rs.sesionInvalida){ manejarSesionInvalidaMaps(rs.message); return; }
+    if(!rs.success || !Array.isArray(rs.vendedores)) throw new Error(rs.message || 'Sin datos');
+    listaVendedores = rs.vendedores.map(v => ({ correo: v.correo, nombre: v.nombre, agencia: v.agencia || '', permiso: v.permiso || '' }));
+    try{ localStorage.setItem(VENDEDORES_API_CACHE_KEY, JSON.stringify({ t: Date.now(), lista: listaVendedores })); }catch(e){}
   } catch(err){
-    listaVendedores = [];
-    mostrarToast('No se pudo cargar la lista de vendedores (revisa tu señal)');
+    mostrarToast(listaVendedores.length ? 'No se pudo actualizar la lista de vendedores; se muestra la última guardada' : 'No se pudo cargar la lista de vendedores (revisa tu señal)');
     console.error('cargarListaVendedores', err);
-  }
-}
-
-// Ahora recibe el vendedor nuevo directamente (upsert), en vez de mandar
-// toda la lista completa cada vez.
-async function guardarVendedorEnSheet(vendedor){
-  try{
-    await fetchConTimeout(SHEET_ENDPOINT, {
-      method: 'POST',
-      body: JSON.stringify({ recurso: 'vendedores', upserts: [vendedor] })
-    });
-    mostrarToast('Vendedor guardado y sincronizado');
-  } catch(err){
-    mostrarToast('⚠️ No se guardó en el servidor. Revisa tu conexión.');
-    console.error('guardarVendedorEnSheet', err);
-    throw err;
-  }
-}
-
-async function quitarVendedorDelSheet(correo){
-  try{
-    await fetchConTimeout(SHEET_ENDPOINT, {
-      method: 'POST',
-      body: JSON.stringify({ recurso: 'vendedores', deletes: [correo] })
-    });
-  } catch(err){
-    mostrarToast('No se pudo quitar el vendedor (revisa tu señal)');
-    console.error('quitarVendedorDelSheet', err);
-    throw err;
   }
 }
 
@@ -2876,70 +2868,28 @@ async function renderAlmacenAdmin(){
   cargarPedidosPendientesAdmin();
 }
 
-// Reemplaza toda la función pintarPantallaAlmacenAdmin por esta:
 function pintarPantallaAlmacenAdmin(){
-  const filasVendedores = listaVendedores.map(function(v){
-    const activo = v.correo === almacenEditandoCorreo;
-    return '<div class="item" data-correo="' + escapeHtml(v.correo) + '" style="cursor:pointer;' + (activo ? 'background:var(--surface-2);' : '') + '">'
-      + '<div class="info"><div class="name">' + escapeHtml(v.nombre || v.correo) + '</div><div class="meta">' + escapeHtml(v.correo) + '</div></div>'
-      + '<button type="button" class="quitar-parada" data-quitar="' + escapeHtml(v.correo) + '" title="Quitar de la lista">🗑</button>'
-      + '</div>';
+  const opciones = listaVendedores.map(function(v){
+    const texto = (v.nombre || v.correo) + (v.agencia ? ' · ' + v.agencia : '');
+    return '<option value="' + escapeHtml(v.correo) + '"' + (v.correo === almacenEditandoCorreo ? ' selected' : '') + '>' + escapeHtml(texto) + '</option>';
   }).join('');
 
   sheetBody.innerHTML =
-    '<div style="font-weight:700; font-size:14px; margin-bottom:8px;">Vendedores</div>'
-    + '<div id="almVendedoresLista">' + (filasVendedores || '<div class="empty">Sin vendedores registrados.</div>') + '</div>'
-    + '<button class="btn" id="btnAlmMostrarNuevo" style="width:100%; margin:10px 0 14px;">➕ Agregar vendedor nuevo…</button>'
-    + '<div id="almNuevoVendedorWrap" hidden style="margin-bottom:14px;">'
-    + '<input type="text" id="almNuevoNombre" placeholder="Nombre del vendedor" style="margin-bottom:6px;">'
-    + '<input type="text" id="almNuevoCorreo" placeholder="correo@vendedor.com">'
-    + '<div class="save-row" style="margin-top:8px;"><button class="btn primary" id="btnAlmNuevoGuardar" style="flex:1;">Guardar vendedor</button></div>'
+    '<div class="field"><label for="almVendedorSel" style="font-weight:700; font-size:14px;">Vendedor</label>'
+    + (listaVendedores.length
+        ? '<select id="almVendedorSel" style="width:100%;"><option value="">Elige un vendedor…</option>' + opciones + '</select>'
+        : '<div class="empty">No hay cuentas de vendedor activas (o no se pudo cargar la lista).</div>')
     + '</div>'
     + '<div id="almListaWrap"></div>'
     + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">Pedidos pendientes (todos los vendedores)</div>'
     + '<div id="almPedidosWrap"><div class="empty">Cargando…</div></div>';
 
-  document.getElementById('btnAlmMostrarNuevo').addEventListener('click', function(){
-    document.getElementById('almNuevoVendedorWrap').hidden = false;
-  });
-
-  document.getElementById('btnAlmNuevoGuardar').addEventListener('click', async function(){
-    const nombre = document.getElementById('almNuevoNombre').value.trim();
-    const correo = document.getElementById('almNuevoCorreo').value.trim().toLowerCase();
-    if(!nombre || !correo){ mostrarToast('Escribe nombre y correo del vendedor'); return; }
-    await cargarListaVendedores();
-    if(listaVendedores.some(function(v){ return (v.correo || '').trim().toLowerCase() === correo; })){
-      mostrarToast('Ese correo ya está en la lista');
-      pintarPantallaAlmacenAdmin();
-      return;
-    }
-    listaVendedores.push({ nombre: nombre, correo: correo });
-    await guardarVendedorEnSheet({ correo, nombre });
-    almacenEditandoCorreo = correo;
-    pintarPantallaAlmacenAdmin();
-    await cargarAlmacenParaEdicion(correo);
-  });
-
-  sheetBody.querySelectorAll('#almVendedoresLista .item').forEach(function(fila){
-    fila.addEventListener('click', async function(e){
-      if(e.target.closest('[data-quitar]')) return;
-      const correo = fila.dataset.correo;
-      almacenEditandoCorreo = correo;
-      pintarPantallaAlmacenAdmin();
-      await cargarAlmacenParaEdicion(correo);
-    });
-  });
-
-  sheetBody.querySelectorAll('[data-quitar]').forEach(function(btn){
-    btn.addEventListener('click', async function(e){
-      e.stopPropagation();
-      const correo = btn.dataset.quitar;
-      if(!(await confirmarMaps({ titulo:'¿Quitar a este vendedor de la lista?', mensaje:'No se borra su almacén, solo deja de aparecer aquí.', confirmar:'Quitar', tipo:'peligro' }))) return;
-      listaVendedores = listaVendedores.filter(function(v){ return v.correo !== correo; });
-      await quitarVendedorDelSheet(correo);
-      if(almacenEditandoCorreo === correo) almacenEditandoCorreo = null;
-      pintarPantallaAlmacenAdmin();
-    });
+  const sel = document.getElementById('almVendedorSel');
+  if(sel) sel.addEventListener('change', async function(){
+    almacenEditandoCorreo = sel.value || null;
+    const wrap = document.getElementById('almListaWrap');
+    if(!almacenEditandoCorreo){ if(wrap) wrap.innerHTML = ''; return; }
+    await cargarAlmacenParaEdicion(almacenEditandoCorreo);
   });
 }
 
@@ -3036,7 +2986,7 @@ async function almImportarExcel(ev){
   const file = ev.target.files[0];
   ev.target.value = '';
   if(!file) return;
-  if(!almacenEditandoCorreo){ mostrarToast('Primero escribe el correo y da clic en "Cargar almacén"'); return; }
+  if(!almacenEditandoCorreo){ mostrarToast('Primero elige un vendedor'); return; }
   try{
     let filas;
     if(/\.csv$/i.test(file.name)){
@@ -7003,7 +6953,6 @@ function cambiarTab(tab, origen){
     if(tab === 'agenda') renderAgenda();
     if(tab === 'almacen') renderAlmacen();
     if(tab === 'misventas') renderMisVentas();
-    if(tab === 'inventariogc') renderInventarioGC();
     if(tab === 'preciosesp') renderPreciosEsp();
     if(tab === 'vendedoresvivo') renderVendedoresVivo();
     if(tab === 'notas') renderNotasVendedor();
@@ -7066,8 +7015,7 @@ function renderSheetTabs(){
     clima: 'Clima',
     agenda: 'Próximas rutas',
     almacen: 'Almacén móvil',
-    misventas: 'Mis ventas',
-    inventariogc: 'Inventario Grupo Camejo',
+    misventas: 'Historial',
     preciosesp: 'Precios especiales',
     vendedoresvivo: 'Vendedores en vivo',
     notas: 'Mis notas'
@@ -9322,9 +9270,10 @@ document.getElementById('btnPreciosEsp').addEventListener('click', () => {
   abrirSheet();
   cambiarTab('preciosesp', 'mapa');
 });
-document.getElementById('btnInventarioGC').addEventListener('click', () => {
-  abrirSheet();
-  cambiarTab('inventariogc', 'mapa');
+// Va directo al catálogo de refacciones (antes abría la pantalla «Inventario Grupo Camejo»).
+document.getElementById('btnCatalogoRefacciones').addEventListener('click', () => {
+  window.open('https://coodinadorgenref-gc.github.io/CATALOGO-DE-INVENTARIO/', '_blank', 'noopener');
+  try{ cerrarDrawer(); }catch(e){}
 });
 document.getElementById('btnMisVentas').addEventListener('click', () => {
   abrirSheet();
@@ -9471,167 +9420,175 @@ async function cargarNotasVendedorDeFirestore(){
     }
   } catch(e){ /* sin señal: se queda con lo local */ }
 }
+/* Historial: notas de venta y cotizaciones en la MISMA pestaña. Cada renglón lleva su etiqueta (NOTA / COTIZACIÓN) y se
+   puede ver todo junto, solo notas, solo cotizaciones o los traspasos a bodega. */
+let histVentasMaps = [];   // notas de venta ya cargadas
+let histCotMaps = { lista: [], pagina: 0, total: 0, porPagina: 30, mensaje: '' };   // cotizaciones del servidor (se pide por páginas)
+let histTextoMaps = '';
+
+function _puedeVerCotizacionesMaps(){ return !!(window.Cotizador && window.Cotizador.puede && window.Cotizador.puede()); }
+window.abrirHistorialMaps = function(sub){
+  subTabMisVentas = sub || 'todo';
+  try{ cerrarDrawer(); }catch(e){}
+  abrirSheet();
+  cambiarTab('misventas', 'mapa');
+};
+
+async function _traerNotasHistorialMaps(){
+  const resp = await fetch(`${SHEET_ENDPOINT}?recurso=ventasRuta`);
+  const filas = await resp.json();
+  const clave = String(usuarioActual || '').trim().toLowerCase();
+  const claveNombre = String(nombreActual || '').trim().toLowerCase();
+  const propias = filas.filter(f => {
+    const v = String(f.vendedor || '').trim().toLowerCase();
+    return esAdmin ? true : (v === clave || (claveNombre && v === claveNombre));
+  });
+  histVentasMaps = agruparFilasVentaEnVentas(propias);
+  _guardarMisVentasCache(histVentasMaps);
+}
+async function _traerCotizacionesHistorialMaps(pagina){
+  const rs = await window.Cotizador.listarParaHistorial(pagina, '', '');
+  if(!rs.ok){ histCotMaps.mensaje = rs.mensaje || ''; return; }
+  histCotMaps.mensaje = '';
+  histCotMaps.lista = pagina > 1 ? histCotMaps.lista.concat(rs.cotizaciones) : rs.cotizaciones;
+  histCotMaps.pagina = rs.pagina; histCotMaps.total = rs.total; histCotMaps.porPagina = rs.porPagina;
+}
+
 async function renderMisVentas(){
   if(!SHEET_ENDPOINT){
     sheetBody.innerHTML = '<div class="empty">Falta configurar el Sheet compartido.</div>';
     return;
   }
-  // Sub-pestañas dentro de la misma pantalla: "Ventas" (lo de siempre) y
-  // "Traspasos a bodega" (antes vivía como entrada aparte del menú).
+  const verCot = _puedeVerCotizacionesMaps();
+  if(!verCot && subTabMisVentas === 'cotizaciones') subTabMisVentas = 'ventas';
+  if(!verCot && subTabMisVentas === 'todo') subTabMisVentas = 'ventas';
+  const sub = subTabMisVentas;
+  const boton = (clave, texto) => `<button class="btn ${sub === clave ? 'primary' : ''}" data-subtab="${clave}" style="flex:1 1 auto; white-space:nowrap;">${texto}</button>`;
   sheetBody.innerHTML = `
-    <div style="display:flex; gap:8px; margin-bottom:12px;">
-      <button class="btn ${subTabMisVentas === 'ventas' ? 'primary' : ''}" id="subTabVentas" style="flex:1;">Ventas</button>
-      <button class="btn ${subTabMisVentas === 'traspasos' ? 'primary' : ''}" id="subTabTraspasos" style="flex:1;">Traspasos a bodega</button>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+      ${verCot ? boton('todo', 'Todo') : ''}
+      ${boton('ventas', 'Notas de venta')}
+      ${verCot ? boton('cotizaciones', 'Cotizaciones') : ''}
+      ${boton('traspasos', 'Traspasos')}
     </div>
+    ${sub === 'traspasos' ? '' : `<div class="field"><input type="search" id="histBuscarMaps" placeholder="Buscar por cliente o folio…" autocomplete="off" value="${escapeHtml(histTextoMaps)}"></div>`}
     <div id="misVentasCuerpo"><div class="empty">Cargando…</div></div>
   `;
-  document.getElementById('subTabVentas').addEventListener('click', () => {
-    if(subTabMisVentas === 'ventas') return;
-    subTabMisVentas = 'ventas'; modoTraspaso = false; seleccionTraspaso = new Set();
+  sheetBody.querySelectorAll('[data-subtab]').forEach(b => b.addEventListener('click', () => {
+    if(subTabMisVentas === b.dataset.subtab) return;
+    subTabMisVentas = b.dataset.subtab; modoTraspaso = false; seleccionTraspaso = new Set();
     renderMisVentas();
-  });
-  document.getElementById('subTabTraspasos').addEventListener('click', () => {
-    if(subTabMisVentas === 'traspasos') return;
-    subTabMisVentas = 'traspasos';
-    renderMisVentas();
-  });
+  }));
 
-  if(subTabMisVentas === 'traspasos'){ await renderTraspasos(); return; }
+  if(sub === 'traspasos'){ await renderTraspasos(); return; }
 
   const cuerpo = document.getElementById('misVentasCuerpo');
-  // Se pinta de inmediato con lo último que ya se tenía guardado (si hay),
-  // en vez de quedarse en "Cargando…" hasta que responda el Sheet — igual
-  // que el almacén móvil. Así "Mis ventas" se ve al instante sin señal,
-  // aunque sea con el historial de la última vez que sí hubo conexión.
+  const buscar = document.getElementById('histBuscarMaps');
+  let tBuscar = null;
+  if(buscar) buscar.addEventListener('input', () => {
+    clearTimeout(tBuscar);
+    tBuscar = setTimeout(() => { histTextoMaps = buscar.value; pintarHistorialMaps(false); }, 200);
+  });
+  cuerpo.addEventListener('click', manejarClicHistorialMaps);
+
+  const quiereNotas = sub === 'todo' || sub === 'ventas';
+  const quiereCot = verCot && (sub === 'todo' || sub === 'cotizaciones');
+
+  // Se pinta de inmediato con lo último guardado (si hay) y luego se actualiza — así el historial se ve al instante sin señal.
   const cache = _cargarMisVentasCache();
   const huboCache = Array.isArray(cache) && cache.length > 0;
-  if (huboCache) pintarMisVentas(cache, true);
-  else cuerpo.innerHTML = '<div class="empty">Cargando tus ventas…</div>';
+  if(quiereNotas && huboCache){ histVentasMaps = cache; }
+  if(quiereNotas && huboCache) pintarHistorialMaps(true);
 
-  let ventas = [];
-  try{
-    const resp = await fetch(`${SHEET_ENDPOINT}?recurso=ventasRuta`);
-    const filas = await resp.json();
-    const clave = String(usuarioActual || '').trim().toLowerCase();
-    const claveNombre = String(nombreActual || '').trim().toLowerCase();
-    const propias = filas.filter(f => {
-      const v = String(f.vendedor || '').trim().toLowerCase();
-      return esAdmin ? true : (v === clave || (claveNombre && v === claveNombre));
-    });
-    ventas = agruparFilasVentaEnVentas(propias);
-    _guardarMisVentasCache(ventas);
-  } catch(err){
-    // Sin señal (o el Web App no respondió): si ya se pintó la caché arriba
-    // la dejamos como está; si no había nada guardado, recién aquí se avisa.
-    if (!huboCache && currentTab === 'misventas' && subTabMisVentas === 'ventas'){
-      cuerpo.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
-    }
+  const tareas = [];
+  let falloNotas = false;
+  if(quiereNotas) tareas.push(_traerNotasHistorialMaps().catch(() => { falloNotas = true; }));
+  if(quiereCot) tareas.push(_traerCotizacionesHistorialMaps(1).catch(() => { histCotMaps.mensaje = 'No se pudieron cargar las cotizaciones (revisa tu señal).'; }));
+  await Promise.all(tareas);
+  if(currentTab !== 'misventas' || subTabMisVentas !== sub) return;
+  if(falloNotas && !huboCache && !quiereCot){
+    cuerpo.innerHTML = '<div class="empty">No se pudieron cargar tus ventas (revisa tu señal).</div>';
     return;
   }
-  if(currentTab !== 'misventas' || subTabMisVentas !== 'ventas') return;
-  pintarMisVentas(ventas, false);
-}function pintarMisVentas(ventas, esCache){
-  const sheetBody = document.getElementById('misVentasCuerpo'); // scope local: no pisa la barra de sub-pestañas
-  if(!sheetBody) return;
-  if(ventas.length === 0){
-    sheetBody.innerHTML = '<div class="empty">Aún no tienes ventas registradas.</div>';
-    return;
-  }
+  pintarHistorialMaps(false);
+}
+
+function pintarHistorialMaps(esCache){
+  const cuerpo = document.getElementById('misVentasCuerpo');
+  if(!cuerpo) return;
+  const sub = subTabMisVentas;
+  const verCot = _puedeVerCotizacionesMaps();
+  const quiereNotas = sub === 'todo' || sub === 'ventas';
+  const quiereCot = verCot && (sub === 'todo' || sub === 'cotizaciones');
+  const q = normalizarBusqueda(histTextoMaps).trim();
+  const coincide = (...campos) => !q || normalizarBusqueda(campos.join(' ')).includes(q);
+
+  const items = [];
+  if(quiereNotas) histVentasMaps.forEach((v, i) => {
+    if(coincide(v.cliente, v.folio, v.metodoPago)) items.push({ tipo: 'nota', t: new Date(v.fechaLocal).getTime() || 0, v: v, i: i });
+  });
+  if(quiereCot) histCotMaps.lista.forEach(c => {
+    if(coincide(c.cliente, c.folio, c.moto, c.vendedorNombre)) items.push({ tipo: 'cot', t: Date.parse(String(c.fecha || '').replace(' ', 'T')) || 0, c: c });
+  });
+  items.sort((a, b) => b.t - a.t);
+
   const avisoCache = esCache ? '<div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">Mostrando lo último guardado — actualizando…</div>' : '';
+  const avisoCot = (quiereCot && histCotMaps.mensaje) ? `<div style="font-size:12px; color:var(--ochre); margin:0 0 10px;">${escapeHtml(histCotMaps.mensaje)}</div>` : '';
+  const hayMasCot = quiereCot && histCotMaps.pagina * histCotMaps.porPagina < histCotMaps.total;
 
-  // Solo se pueden traspasar ventas activas (no canceladas) que todavía no
-  // se hayan entregado a bodega en un traspaso previo.
-  const elegibles = []; // el traspaso ahora es por línea (pestaña "Traspasos a bodega")
-
-  const botonTraspaso = (!modoTraspaso && elegibles.length > 0)
-    ? `<button class="btn" id="btnIniciarTraspaso" style="width:100%; margin-bottom:10px;">📤 Traspasar ventas a bodega</button>`
-    : '';
-
-  sheetBody.innerHTML = avisoCache + botonTraspaso + ventas.map((v, i) => {
-    const clave = v.idInterno || v.folio;
-    const puedeElegir = modoTraspaso && elegibles.includes(v);
-    const checkbox = modoTraspaso
-      ? (puedeElegir
-          ? `<input type="checkbox" data-check-traspaso="${escapeHtml(clave)}" ${seleccionTraspaso.has(clave) ? 'checked' : ''} style="width:20px; height:20px; flex-shrink:0;">`
-          : `<span style="width:20px; flex-shrink:0;"></span>`)
-      : '';
-    const etiquetas = [
-      v.traspasoId ? '🔁 Ya traspasada a bodega' : '',
-      v.folioGeneral ? ('· Folio bodega: ' + escapeHtml(v.folioGeneral)) : ''
-    ].filter(Boolean).join(' ');
-    return `
-    <div class="item" ${modoTraspaso ? '' : `data-ver="${i}"`} style="${modoTraspaso ? '' : 'cursor:pointer;'}${(v.cancelada || (modoTraspaso && !puedeElegir)) ? ' opacity:.55;' : ''}">
-      ${checkbox}
+  let html = avisoCache + avisoCot;
+  if(!items.length){
+    html += '<div class="empty">' + (q ? 'Sin resultados para esa búsqueda.'
+      : (sub === 'cotizaciones' ? 'Aún no hay cotizaciones.' : (sub === 'ventas' ? 'Aún no tienes ventas registradas.' : 'Aún no hay notas de venta ni cotizaciones.'))) + '</div>';
+  } else {
+    html += items.map(it => {
+      if(it.tipo === 'cot') return window.Cotizador.tarjetaCot(it.c, true);
+      const v = it.v;
+      const etiquetas = [
+        v.traspasoId ? '🔁 Ya traspasada a bodega' : '',
+        v.folioGeneral ? ('· Folio bodega: ' + escapeHtml(v.folioGeneral)) : ''
+      ].filter(Boolean).join(' ');
+      return `
+    <div class="item" data-ver="${it.i}" style="cursor:pointer;${v.cancelada ? ' opacity:.55;' : ''}">
       <div class="info">
-        <div class="name">${v.cancelada ? '❌ CANCELADA — ' : ''}${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
+        <div class="name"><span class="cz-tipo cz-tipo-nota">NOTA</span> ${v.cancelada ? '❌ CANCELADA — ' : ''}${escapeHtml(v.cliente || 'Sin nombre')} · $${v.total.toFixed(2)}</div>
         <div class="meta">${escapeHtml(v.folio)} · ${new Date(v.fechaLocal).toLocaleString('es-MX')} · ${escapeHtml(v.metodoPago || '')}</div>
         ${etiquetas ? `<div class="meta">${etiquetas}</div>` : ''}
       </div>
-      ${(!modoTraspaso && !v.cancelada) ? `<button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>` : ''}
-      ${(!modoTraspaso && !v.cancelada && puedeCancelarVenta(v)) ? `<button class="btn danger" style="flex:0 0 auto; padding:8px 12px;" data-cancelar="${escapeHtml(v.idInterno)}">✕ Cancelar</button>` : ''}
-    </div>
-  `;
-  }).join('') + (modoTraspaso ? `
-    <div class="save-row" style="position:sticky; bottom:0; background:var(--bg); padding-top:10px;">
-      <button class="btn" id="btnCancelarTraspaso" style="flex:1;">Cancelar</button>
-      <button class="btn primary" id="btnConfirmarTraspaso" style="flex:1;">Traspasar (${seleccionTraspaso.size}) · $${ventas.filter(v => seleccionTraspaso.has(v.idInterno || v.folio)).reduce((s,v)=>s+v.total,0).toFixed(2)}</button>
-    </div>
-  ` : '');
-
-  const btnIniciar = document.getElementById('btnIniciarTraspaso');
-  if(btnIniciar) btnIniciar.addEventListener('click', () => {
-    modoTraspaso = true; seleccionTraspaso = new Set();
-    pintarMisVentas(ventas, false);
-  });
-
-  if(modoTraspaso){
-    sheetBody.querySelectorAll('[data-check-traspaso]').forEach(chk => {
-      chk.addEventListener('change', () => {
-        const clave = chk.dataset.checkTraspaso;
-        if(chk.checked) seleccionTraspaso.add(clave); else seleccionTraspaso.delete(clave);
-        pintarMisVentas(ventas, false);
-      });
-    });
-    const btnCancelar = document.getElementById('btnCancelarTraspaso');
-    if(btnCancelar) btnCancelar.addEventListener('click', () => {
-      modoTraspaso = false; seleccionTraspaso = new Set();
-      pintarMisVentas(ventas, false);
-    });
-    const btnConfirmar = document.getElementById('btnConfirmarTraspaso');
-    if(btnConfirmar) btnConfirmar.addEventListener('click', async () => {
-      const elegidas = ventas.filter(v => seleccionTraspaso.has(v.idInterno || v.folio));
-      if(!elegidas.length){ mostrarToast('Selecciona al menos una venta.'); return; }
-      btnConfirmar.disabled = true; btnConfirmar.textContent = 'Traspasando…';
-      await crearTraspaso(elegidas);
-      modoTraspaso = false; seleccionTraspaso = new Set();
-    });
-    return; // en modo selección no hace falta cablear clic-para-abrir/reenviar/cancelar
+      ${!v.cancelada ? `<button class="btn teal" style="flex:0 0 auto; padding:8px 12px;" data-reenviar="${escapeHtml(v.idInterno)}">↻ Reenviar</button>` : ''}
+      ${(!v.cancelada && puedeCancelarVenta(v)) ? `<button class="btn danger" style="flex:0 0 auto; padding:8px 12px;" data-cancelar="${escapeHtml(v.idInterno)}">✕ Cancelar</button>` : ''}
+    </div>`;
+    }).join('');
   }
+  if(hayMasCot) html += '<button class="btn" id="histMasCot" style="width:100%; margin-top:6px;">Ver más cotizaciones</button>';
+  cuerpo.innerHTML = html;
+}
 
-  sheetBody.querySelectorAll('[data-ver]').forEach(fila => {
-    fila.addEventListener('click', (e) => {
-      if(e.target.closest('button')) return;
-      const idx = fila.dataset.ver;
-      const v = ventas[idx];
-      if(v) abrirNotaVentaModal(v);
-    });
-  });
-
-  sheetBody.querySelectorAll('[data-reenviar]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const venta = ventas.find(v => v.idInterno === btn.dataset.reenviar);
-      if(venta) reenviarTicketVenta(venta);
-    });
-  });
-
+async function manejarClicHistorialMaps(e){
+  const t = e.target;
+  // Cotizaciones: PDF, WhatsApp, editar, cambiar estado, convertir en nota
+  const bh = t.closest('[data-h]');
+  if(bh){
+    const card = bh.closest('[data-folio]');
+    const c = card && histCotMaps.lista.find(x => x.folio === card.dataset.folio);
+    if(c) window.Cotizador.accionHistorial(c, bh.dataset.h, bh, () => pintarHistorialMaps(false));
+    return;
+  }
+  const mas = t.closest('#histMasCot');
+  if(mas){
+    mas.disabled = true; mas.textContent = 'Cargando…';
+    try{ await _traerCotizacionesHistorialMaps(histCotMaps.pagina + 1); }catch(err){ histCotMaps.mensaje = 'No se pudieron cargar más cotizaciones (revisa tu señal).'; }
+    pintarHistorialMaps(false);
+    return;
+  }
+  // Notas de venta
+  const br = t.closest('[data-reenviar]');
+  if(br){ const venta = histVentasMaps.find(v => v.idInterno === br.dataset.reenviar); if(venta) reenviarTicketVenta(venta); return; }
   // Cancelar directo desde la lista, sin tener que abrir la nota primero
-  // (antes solo se podía cancelar desde dentro del modal — poco visible).
-  sheetBody.querySelectorAll('[data-cancelar]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const venta = ventas.find(v => v.idInterno === btn.dataset.cancelar);
-      if(venta) cancelarNotaVenta(venta);
-    });
-  });
+  const bc = t.closest('[data-cancelar]');
+  if(bc){ const venta = histVentasMaps.find(v => v.idInterno === bc.dataset.cancelar); if(venta) cancelarNotaVenta(venta); return; }
+  const fila = t.closest('[data-ver]');
+  if(fila && !t.closest('button')){ const v = histVentasMaps[fila.dataset.ver]; if(v) abrirNotaVentaModal(v); }
 }
 
 /* ---------- Modal "Nota de venta": vista previa (el mismo PDF que se
@@ -9919,7 +9876,6 @@ async function cancelarLineaVenta(venta, indice){
 const INV_GC_CACHE_KEY = 'gc_inventario_gc_cache_v1';
 let inventarioGC = [];      // [{sku, producto, cantidad, ubicacion, precioUnitario}]
 let apartadosGCPend = [];   // apartados pendientes (de todos, para calcular disponible)
-let invGCFiltro = '';
 
 try{ const c = JSON.parse(localStorage.getItem(INV_GC_CACHE_KEY)); if(c){ inventarioGC = c.inv || []; apartadosGCPend = c.ap || []; } }catch(e){}
 
@@ -9983,37 +9939,6 @@ function disponibleGC(sku){
   return Math.max(0, (Number(it.cantidad) || 0) - apartado);
 }
 
-function renderInventarioGC(){
-  const esAd = !!esAdmin;
-  sheetBody.innerHTML =
-    '<div class="field"><div class="search-wrap"><input type="text" id="invGCBuscar" placeholder="Buscar SKU o producto…" value="' + escapeHtml(invGCFiltro) + '"></div></div>'
-    + (esAd
-      ? '<div class="save-row" style="margin-bottom:6px;">'
-        + '<button class="btn" id="btnInvGCPlantilla" style="flex:1;">⬇️ Descargar Plantilla</button>'
-        + '<button class="btn" id="btnInvGCExcel" style="flex:1;">⬆️ Subir plantilla</button></div>'
-        + '<input type="file" id="invGCExcelInput" accept=".xlsx,.xls,.csv" style="display:none">'
-        + '<div style="font-size:11.5px; color:var(--text-dim); margin-bottom:12px;">Reemplaza TODO el inventario Grupo Camejo con lo que traiga el archivo (sku y cantidad obligatorias; ubicacion = unidad de negocio).</div>'
-      : '')
-    + '<div id="invGCAviso" style="font-size:11px; color:var(--text-dim); margin-bottom:8px;"></div>'
-    + '<div id="invGCLista"></div>'
-    + '<div style="font-weight:700; font-size:14px; margin:18px 0 10px;">' + (esAd ? 'Apartados pendientes (todos)' : 'Mis apartados pendientes') + '</div>'
-    + '<div id="invGCApartados"></div>';
-
-  document.getElementById('invGCBuscar').addEventListener('input', (e) => {
-    invGCFiltro = e.target.value;
-    pintarInventarioGC();
-  });
-  if(esAd){
-    document.getElementById('btnInvGCPlantilla').addEventListener('click', invGCDescargarPlantilla);
-    document.getElementById('btnInvGCExcel').addEventListener('click', () => document.getElementById('invGCExcelInput').click());
-    document.getElementById('invGCExcelInput').addEventListener('change', invGCImportarExcel);
-  }
-
-  document.getElementById('invGCAviso').textContent = inventarioGC.length ? 'Mostrando lo último guardado — actualizando…' : 'Cargando…';
-  pintarInventarioGC();
-  refrescarInventarioGC();
-}
-  
 function aplicarPrecioPorSku(idx, sku){
   const k = String(sku || '').trim();
   const r = resolverProductoPorSku(k, esVentaPedido());
@@ -10022,178 +9947,6 @@ function aplicarPrecioPorSku(idx, sku){
   else it.manual = !!k;
   renderizarItemsVenta();
 }
-async function refrescarInventarioGC(){
-  let aviso = '';
-  try{
-    const res = await Promise.all([
-      dbVentaRuta.collection('inventario_gc').get(),
-      dbVentaRuta.collection('apartados_gc').where('estatus', '==', 'pendiente').get()
-    ]);
-    inventarioGC = res[0].docs.map(d => d.data());
-    apartadosGCPend = res[1].docs.map(d => d.data());
-    try{ localStorage.setItem(INV_GC_CACHE_KEY, JSON.stringify({ inv: inventarioGC, ap: apartadosGCPend })); } catch(e){}
-  } catch(err){
-    aviso = 'No se pudo actualizar (' + (err && (err.code || err.message) || 'sin señal') + '). Se muestra lo último guardado.';
-  }
-  if(currentTab !== 'inventariogc') return;
-  const av = document.getElementById('invGCAviso');
-  if(av) av.textContent = aviso;
-  pintarInventarioGC();
-}
-
-function pintarInventarioGC(){
-  const cont = document.getElementById('invGCLista');
-  const contAp = document.getElementById('invGCApartados');
-  if(!cont || !contAp) return;
-
-  const q = normalizarBusqueda(invGCFiltro).trim();
-  let lista = inventarioGC.filter(it => !q || normalizarBusqueda(it.sku + ' ' + it.producto + ' ' + (it.ubicacion || '')).includes(q));
-  const total = lista.length;
-  lista = lista.slice(0, 60);
-
-  cont.innerHTML = lista.map(it => {
-    const disp = disponibleGC(it.sku);
-    const meta = ['SKU ' + escapeHtml(it.sku), it.ubicacion ? escapeHtml(it.ubicacion) : '', it.precioUnitario ? '$' + Number(it.precioUnitario).toFixed(2) : '']
-      .filter(Boolean).join(' · ');
-    return '<div class="item"><div class="info"><div class="name">' + escapeHtml(it.producto || it.sku) + '</div>'
-      + '<div class="meta">' + meta + '</div></div>'
-      + '<div style="text-align:right; flex-shrink:0;"><div style="font-weight:700;">' + disp + '</div>'
-      + (disp > 0 ? '<button class="btn teal" style="padding:4px 10px; font-size:12px; margin-top:4px;" data-apartar="' + escapeHtml(it.sku) + '">Apartar</button>'
-                  : '<div style="font-size:11px; color:var(--danger);">Sin existencia</div>')
-      + '</div></div>';
-  }).join('') + (total > lista.length ? '<div class="empty">Mostrando ' + lista.length + ' de ' + total + '. Escribe más para afinar.</div>' : '')
-    || '<div class="empty">' + (inventarioGC.length ? 'Sin resultados.' : 'Aún no hay inventario Grupo Camejo cargado.') + '</div>';
-
-  cont.querySelectorAll('[data-apartar]').forEach(b => {
-    b.addEventListener('click', () => apartarGC(b.dataset.apartar));
-  });
-
-  const visibles = apartadosGCPend
-    .filter(a => esAdmin || a.vendedor === usuarioActual)
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-  contAp.innerHTML = visibles.map(a => {
-    const puedeCancelar = esAdmin || a.vendedor === usuarioActual;
-    return '<div class="item"><div class="info"><div class="name">' + escapeHtml(a.producto || a.sku) + ' × ' + a.cantidad + '</div>'
-      + '<div class="meta">Cliente: ' + escapeHtml(a.cliente) + (esAdmin ? ' · ' + escapeHtml(a.vendedorNombre || a.vendedor) : '')
-      + (a.ubicacion ? ' · ' + escapeHtml(a.ubicacion) : '') + '</div></div>'
-      + '<div class="fila-acciones">'
-      + (esAdmin ? '<button class="quitar-parada" style="color:var(--teal);" data-entregar="' + a.id + '" title="Marcar como entregado/cobrado">✓</button>' : '')
-      + (puedeCancelar ? '<button class="quitar-parada" data-cancelar="' + a.id + '" title="Cancelar apartado">✕</button>' : '')
-      + '</div></div>';
-  }).join('') || '<div class="empty">No hay apartados pendientes.</div>';
-
-  contAp.querySelectorAll('[data-entregar]').forEach(b => b.addEventListener('click', () => cambiarEstatusApartadoGC(b.dataset.entregar, 'entregado')));
-  contAp.querySelectorAll('[data-cancelar]').forEach(b => b.addEventListener('click', async () => {
-    if(await confirmarMaps({ titulo:'¿Cancelar este apartado?', mensaje:'Las piezas quedan disponibles de nuevo.', confirmar:'Sí, cancelar', cancelar:'No', tipo:'peligro' })) cambiarEstatusApartadoGC(b.dataset.cancelar, 'cancelado');
-  }));
-}
-
-async function apartarGC(sku){
-  const it = inventarioGC.find(x => x.sku === sku);
-  if(!it) return;
-  const disp = disponibleGC(sku);
-  const rCant = await preguntarMaps({ titulo:'¿Cuántas piezas apartar?', mensaje:(it.producto || sku) + '\nDisponibles: ' + disp, valor:'1', tipoCampo:'number', min:1, max:disp, confirmar:'Continuar' });
-  if(rCant === null) return;
-  const cant = Math.floor(Number(rCant));
-  if(!cant || cant < 1) return;
-  if(cant > disp){ mostrarToast('Solo hay ' + disp + ' disponibles'); return; }
-  const cliente = String(await preguntarMaps({ titulo:'¿Para qué cliente se aparta?', placeholder:'Nombre del cliente', confirmar:'Apartar' }) || '').trim();
-  if(!cliente){ mostrarToast('Falta el nombre del cliente'); return; }
-
-  const ref = dbVentaRuta.collection('apartados_gc').doc();
-  const ap = {
-    id: ref.id, vendedor: usuarioActual, vendedorNombre: nombreActual,
-    sku: sku, producto: it.producto || '', ubicacion: it.ubicacion || '',
-    cantidad: cant, cliente: cliente, fecha: new Date().toISOString(), estatus: 'pendiente'
-  };
-  // Se refleja al instante y se guarda sin bloquear (Firestore lo reintenta solo sin señal).
-  apartadosGCPend.push(ap);
-  try{ localStorage.setItem(INV_GC_CACHE_KEY, JSON.stringify({ inv: inventarioGC, ap: apartadosGCPend })); } catch(e){}
-  pintarInventarioGC();
-  mostrarToast('Apartado: ' + cant + ' × ' + (it.producto || sku));
-  ref.set(ap).catch(err => mostrarToast('No se pudo guardar el apartado: ' + (err.code || err.message)));
-}
-
-function cambiarEstatusApartadoGC(id, estatus){
-  apartadosGCPend = apartadosGCPend.filter(a => a.id !== id);
-  try{ localStorage.setItem(INV_GC_CACHE_KEY, JSON.stringify({ inv: inventarioGC, ap: apartadosGCPend })); } catch(e){}
-  pintarInventarioGC();
-  dbVentaRuta.collection('apartados_gc').doc(id).update({ estatus: estatus, actualizadoEn: Date.now() })
-    .then(() => mostrarToast(estatus === 'entregado' ? 'Marcado como entregado' : 'Apartado cancelado'))
-    .catch(err => mostrarToast('No se pudo actualizar: ' + (err.code || err.message)));
-}
-
-function invGCDescargarPlantilla(){
-  const datos = [
-    ['sku', 'producto', 'cantidad', 'ubicacion', 'precioUnitario'],
-    ['VM10010035', 'Ejemplo de refacción', 5, 'Unidad de negocio / sucursal', 150]
-  ];
-  const hoja = XLSX.utils.aoa_to_sheet(datos);
-  const libro = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(libro, hoja, 'InventarioGC');
-  XLSX.writeFile(libro, 'plantilla_inventario_grupo_camejo.xlsx');
-}
-
-async function invGCImportarExcel(ev){
-  const file = ev.target.files[0];
-  ev.target.value = '';
-  if(!file) return;
-  try{
-    let filas;
-    if(/\.csv$/i.test(file.name)){
-      filas = parseCSV(await file.text());
-    } else {
-      const libro = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      filas = XLSX.utils.sheet_to_json(libro.Sheets[libro.SheetNames[0]], { header: 1, raw: true, defval: '' });
-    }
-    if(!filas || filas.length < 2){ mostrarToast('El archivo no tiene datos'); return; }
-
-    const enc = filas[0].map(h => String(h || '').trim().toLowerCase());
-    const iSku = enc.findIndex(h => h.indexOf('sku') !== -1);
-    const iCant = enc.findIndex(h => h.indexOf('cant') !== -1);
-    const iProd = enc.findIndex(h => h.indexOf('producto') !== -1 || h.indexOf('descripcion') !== -1);
-    const iUbi = enc.findIndex(h => h.indexOf('ubic') !== -1 || h.indexOf('unidad') !== -1 || h.indexOf('sucursal') !== -1);
-    const iPre = enc.findIndex(h => h.indexOf('precio') !== -1);
-    if(iSku === -1 || iCant === -1){ mostrarToast('El archivo necesita al menos columnas "sku" y "cantidad"'); return; }
-
-    const porSku = new Map();
-    filas.slice(1).forEach(f => {
-      const sku = String(f[iSku] || '').trim();
-      if(!sku) return;
-      const cache = preciosCache[sku];
-      porSku.set(sku, {
-        sku: sku,
-        producto: (iProd > -1 && String(f[iProd] || '').trim()) ? String(f[iProd]).trim() : (cache ? (cache.producto || '') : ''),
-        cantidad: Number(f[iCant]) || 0,
-        ubicacion: iUbi > -1 ? String(f[iUbi] || '').trim() : '',
-        precioUnitario: (iPre > -1 && f[iPre] !== '') ? (Number(f[iPre]) || 0) : (cache ? (Number(cache.precioUnitario) || 0) : 0),
-        actualizadoEn: Date.now()
-      });
-    });
-    if(porSku.size === 0){ mostrarToast('No se encontraron filas válidas'); return; }
-    if(!(await confirmarMaps({ titulo:'¿Reemplazar el inventario Grupo Camejo?', mensaje:'Se cargarán ' + porSku.size + ' productos y se REEMPLAZARÁ el inventario actual.', confirmar:'Reemplazar', tipo:'peligro' }))) return;
-
-    mostrarToast('Subiendo inventario…');
-    const operaciones = [];
-    porSku.forEach(it => operaciones.push({ tipo: 'set', id: idDocGC(it.sku), data: it }));
-    inventarioGC.forEach(old => { if(!porSku.has(old.sku)) operaciones.push({ tipo: 'del', id: idDocGC(old.sku) }); });
-
-    const col = dbVentaRuta.collection('inventario_gc');
-    for(let i = 0; i < operaciones.length; i += 400){
-      const batch = dbVentaRuta.batch();
-      operaciones.slice(i, i + 400).forEach(op => {
-        if(op.tipo === 'set') batch.set(col.doc(op.id), op.data);
-        else batch.delete(col.doc(op.id));
-      });
-      await batch.commit();
-    }
-    mostrarToast('Inventario Grupo Camejo actualizado: ' + porSku.size + ' productos');
-    refrescarInventarioGC();
-  } catch(err){
-    mostrarToast('No se pudo cargar: ' + (err.code || err.message));
-  }
-}
-
 /* ---------- Arranque de datos (solo tras iniciar sesión) ----------
    Antes corría de inmediato al cargar el script; ahora se retrasa
    hasta que haya una sesión válida (nueva o restaurada), para que un
@@ -10271,6 +10024,7 @@ function opcionesOrigenVenta(sku){
   const mov = inventarioPropio[k];
   if (mov && Number(mov.cantidad) > 0) ops.push({ valor: ORIGEN_MOVIL, etiqueta: 'Mi almacén móvil (' + mov.cantidad + ')', cantidad: Number(mov.cantidad), sin: true });
   (existenciasCatalogo[normSkuMaps(k)] || []).forEach(function(e){
+    if (!puedeVenderDeSucursal(e.sucursal)) return;   // el vendedor solo vende de la agencia a la que está vinculado; el admin, de todas
     const valor = etiquetaOrigen(e);
     ops.push({ valor: valor, etiqueta: valor + ' (' + e.cantidad + ')', cantidad: e.cantidad, sin: !origenRequiereTraspaso(valor) });
   });

@@ -155,10 +155,17 @@ function avisosHtml(sku, conBoton) {
 
 /* ───────────── Estilos (paleta y variables de Maps) ───────────── */
 const CSS = `
-.cz-overlay{position:fixed;inset:0;z-index:2600;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:env(safe-area-inset-top,0) 0 0}
+.cz-overlay{position:fixed;inset:0;z-index:2600;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;padding:0}
+@media(min-width:768px){.cz-overlay{align-items:center}}
 .cz-overlay[hidden]{display:none}
-.cz-card{background:var(--surface);color:var(--text);width:100%;max-width:640px;min-height:100%;padding:14px 14px calc(24px + env(safe-area-inset-bottom,0));box-sizing:border-box}
-@media(min-width:700px){.cz-card{margin:24px 0;min-height:0;border-radius:var(--radius);border:1px solid var(--line)}}
+/* Mismo tamaño que «Nueva venta» y que el modal de cotización del catálogo de refacciones (cp-card): 720 px de ancho, alto fijo para que no cambie al alternar entre pestañas. */
+.cz-card,#ventaOverlay .venta-card{background:var(--surface);color:var(--text);width:100%;max-width:720px;height:92dvh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-sizing:border-box;border:1px solid var(--line);border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0));box-shadow:0 10px 24px rgba(0,0,0,.45)}
+@media(min-width:768px){.cz-card,#ventaOverlay .venta-card{border-radius:16px;height:min(780px,88dvh);max-height:88dvh}}
+#ventaOverlay{background:rgba(0,0,0,.6)}
+@media(min-width:768px){#ventaOverlay{align-items:center}}
+#ventaOverlay .venta-titulo{font-size:18px;margin:4px 0 12px}
+#ventaOverlay .venta-titulo button{display:none}
+#ventaOverlay .venta-folio{margin-top:-8px}
 .cz-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .cz-modos{display:flex;flex:1;background:var(--surface-2);border-radius:12px;padding:3px;gap:3px}
 .cz-modos button{flex:1;min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--text-dim);font:600 14px/1 inherit;cursor:pointer;transition:background .15s,color .15s}
@@ -239,7 +246,10 @@ html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-acciones button.cz-prim{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .cz-giro{animation:czgiro 1s linear infinite}@keyframes czgiro{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.cz-giro{animation:none}.cz-modos button{transition:none}}
-.cz-modos-venta{margin:0 0 10px}
+.cz-modos-venta{margin:0}
+.cz-tipo{display:inline-block;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.05em;vertical-align:1px}
+.cz-tipo-cot{background:rgba(255,138,30,.2);color:var(--ochre)}
+.cz-tipo-nota{background:rgba(79,168,160,.2);color:var(--teal)}
 `;
 
 /* ───────────── Estado ───────────── */
@@ -911,13 +921,12 @@ async function cargarHistorial(pag) {
     pintarHistorial();
   } catch (e) { if (!/sesi/i.test(e.message || '')) info.textContent = 'No se pudo cargar. Revisa tu conexión.'; }
 }
-function pintarHistorial() {
-  const lista = $('cz-hist-lista');
-  lista.innerHTML = hist.map(c => {
+/** Tarjeta de una cotización (la usan el historial en modal y la pestaña «Historial» de Maps). Con `insignia` lleva la etiqueta COTIZACIÓN para distinguirla de las notas de venta. */
+function tarjetaCot(c, insignia) {
     const venc = vencida(c), editable = !motivoNoEditable(c) && puedeCotizarEn(seccionDeAgencia(c.agencia));
     const tot = (c.total === '' || c.total == null) ? 'por confirmar' : moneda(c.total);
     return '<div class="cz-hcard" data-folio="' + esc(c.folio) + '">'
-      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b>' + esc(c.folio) + ' · ' + esc(c.cliente) + '</b><span class="cz-estado cz-e-' + esc(c.estado) + '">' + esc(c.estado) + '</span></div>'
+      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b>' + (insignia ? '<span class="cz-tipo cz-tipo-cot">COTIZACIÓN</span> ' : '') + esc(c.folio) + ' · ' + esc(c.cliente) + '</b><span class="cz-estado cz-e-' + esc(c.estado) + '">' + esc(c.estado) + '</span></div>'
       + '<div class="cz-sub"><span>' + esc(String(c.fecha || '').slice(0, 10)) + '</span><span>' + esc(c.moto || '') + (c.anio ? ' ' + esc(c.anio) : '') + '</span><span class="cz-precio">' + esc(tot) + '</span>'
       + (venc ? '<span class="cz-badge cz-aten">' + IC.aviso + ' Vencida</span>' : (vigIso(c.vigencia) ? '<span>Vigente hasta ' + esc(fechaCorta(c.vigencia)) + '</span>' : '')) + '</div>'
       + '<div class="cz-sub">' + esc(c.vendedorNombre || '') + ' · ' + esc(c.agencia || '') + '</div>'
@@ -926,11 +935,14 @@ function pintarHistorial() {
       + (editable ? '<button type="button" data-h="editar">Editar</button>' : '')
       + '<button type="button" data-h="estado">Cambiar estado</button>'
       + (c.estado === 'Vendido' ? '<button type="button" class="cz-prim" data-h="nota">Convertir en nota de venta</button>' : '') + '</div></div>';
-  }).join('');
+}
+function pintarHistorial() {
+  const lista = $('cz-hist-lista');
+  lista.innerHTML = hist.map(c => tarjetaCot(c, false)).join('');
   const hayMas = histPag * histPorPag < histTotal; $('cz-hist-pag').hidden = !(histPag > 1 || hayMas);
   $('cz-hist-ant').disabled = histPag <= 1; $('cz-hist-sig').disabled = !hayMas;
 }
-function cambiarEstadoPanel(c) {
+function cambiarEstadoPanel(c, alCambiar) {
   $('cz-panel-cont').innerHTML = '<h2 id="cz-panel-titulo">Estado de ' + esc(c.folio) + '</h2><p class="cz-ayuda">Ahora: ' + esc(c.estado) + '</p>'
     + '<div class="cz-campo"><label for="cz-est-sel">Nuevo estado</label><select id="cz-est-sel">' + ESTADOS.map(e => '<option' + (e === c.estado ? ' selected' : '') + '>' + e + '</option>').join('') + '</select></div>'
     + '<div class="cz-campo" id="cz-motivo-caja" hidden><label for="cz-motivo">Motivo del rechazo</label><input id="cz-motivo" type="text" maxlength="200" autocomplete="off"><p class="cz-err" id="cz-motivo-err" hidden></p></div>'
@@ -946,10 +958,28 @@ function cambiarEstadoPanel(c) {
     try {
       const rs = await api('cambiarEstadoCotizacion', { folio: c.folio, estado: est, datos: { motivo: motivo } });
       if (!rs.success) { toast(rs.message || 'No se pudo cambiar el estado.'); b.disabled = false; b.textContent = 'Guardar estado'; return; }
-      c.estado = rs.estado || est; cerrarPanel(); toast('Estado: ' + c.estado); pintarHistorial();
+      c.estado = rs.estado || est; cerrarPanel(); toast('Estado: ' + c.estado); (alCambiar || pintarHistorial)();
     } catch (e) { b.disabled = false; b.textContent = 'Guardar estado'; }
   };
   setTimeout(() => sel.focus(), 30);
+}
+
+/* ───────────── Historial unificado (pestaña «Historial» de Maps): notas de venta + cotizaciones ───────────── */
+/** Una página de cotizaciones del servidor (mismas reglas que el catálogo: el servidor decide qué ve cada cuenta). */
+async function listarParaHistorial(pagina, texto, estado) {
+  if (!puedeUsarCotizador()) return { ok: false, mensaje: 'Tu cuenta no tiene permiso para cotizar.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 };
+  if (!navigator.onLine) return { ok: false, mensaje: 'Sin señal: las cotizaciones se consultan con conexión.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 };
+  try {
+    const rs = await api('consultarCotizaciones', { filtros: { pagina: pagina || 1, estado: estado || '', texto: texto || '' } });
+    if (!rs.success) return { ok: false, mensaje: rs.message || 'No se pudieron cargar las cotizaciones.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 };
+    sincronizarDatos();
+    return { ok: true, cotizaciones: rs.cotizaciones || [], total: rs.total || 0, pagina: rs.pagina || pagina || 1, porPagina: rs.porPagina || 30 };
+  } catch (e) { return { ok: false, mensaje: /sesi/i.test(e.message || '') ? '' : 'No se pudieron cargar las cotizaciones. Revisa tu conexión.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 }; }
+}
+/** Acción de un botón de tarjeta (data-h). `repintar` se llama cuando cambia algo de la cotización. */
+function accionHistorial(c, a, b, repintar) {
+  if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(repintar || (() => {}));
+  else if (a === 'editar') editar(c); else if (a === 'estado') cambiarEstadoPanel(c, repintar); else if (a === 'nota') convertirEnNota(c);
 }
 
 /* ───────────── Cotización vendida → Nota de venta (Maps) ───────────── */
@@ -976,9 +1006,13 @@ function convertirEnNota(c) {
 /* ───────────── Pestañas Nota de venta | Cotización (en los dos modales) ───────────── */
 function pestañasVenta() {
   const tit = document.querySelector('#ventaOverlay .venta-titulo'); if (!tit || document.getElementById('cz-modos-venta')) return;
+  const fila = document.createElement('div'); fila.className = 'cz-top';
   const d = document.createElement('div'); d.className = 'cz-modos cz-modos-venta'; d.id = 'cz-modos-venta'; d.setAttribute('role', 'tablist'); d.setAttribute('aria-label', 'Tipo de documento');
   d.innerHTML = '<button type="button" role="tab" aria-selected="true" id="cz-vtab-nota">Nota de venta</button><button type="button" role="tab" aria-selected="false" id="cz-vtab-cot">Cotización</button>';
-  tit.parentNode.insertBefore(d, tit.nextSibling);
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'cz-x'; x.id = 'cz-vtab-x'; x.setAttribute('aria-label', 'Cerrar'); x.innerHTML = IC.cerrar;
+  x.addEventListener('click', () => cerrarVentaRuta());
+  fila.appendChild(d); fila.appendChild(x);
+  tit.parentNode.insertBefore(fila, tit);
   $('cz-vtab-cot').addEventListener('click', async () => {
     if (!puedeUsarCotizador()) { toast('Tu cuenta no tiene permiso para cotizar.'); return; }
     const datos = { nombre: $('ventaCliente').value, telefono: $('ventaTelefono').value, idCliente: $('ventaIdCliente').value };
@@ -1004,7 +1038,7 @@ function enlazar() {
   $('cz-whats').addEventListener('click', e => enviarWhats(ultima, e.currentTarget));
   $('cz-pdf').addEventListener('click', e => hojaCotizacionPdf(ultima, e.currentTarget));
   $('cz-a-nota').addEventListener('click', () => convertirEnNota(ultima));
-  $('cz-historial').addEventListener('click', () => { cerrar(true); abrirHistorial(); });
+  $('cz-historial').addEventListener('click', () => { cerrar(true); if (typeof window.abrirHistorialMaps === 'function') window.abrirHistorialMaps('cotizaciones'); else abrirHistorial(); });
   $('cz-secciones').addEventListener('click', e => { const b = e.target.closest('[data-sec]'); if (b) cambiarSeccion(b.dataset.sec); });
   // cliente
   const idc = $('cz-idcliente'); idc.addEventListener('input', () => { const v = soloDigitos(idc.value); if (v !== idc.value) idc.value = v; idResuelto = ''; clearTimeout(idc._t); idc._t = setTimeout(buscarCliente, 600); });
@@ -1073,18 +1107,9 @@ function enlazar() {
   });
 }
 
-/* ───────────── Botones del menú (solo cuentas que pueden cotizar) ───────────── */
-function botonesMenu() {
-  const ref = document.getElementById('btnCotizacionesMaps'); if (!ref || document.getElementById('btnNuevaCotizacionMaps')) return;
-  const mk = (id, texto, path, fn) => { const b = document.createElement('button'); b.className = 'drawer-item'; b.id = id; b.hidden = true;
-    b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="' + path + '"/></svg><span class="txt">' + texto + '</span>'; b.addEventListener('click', () => { fn(); try { if (typeof cerrarDrawer === 'function') cerrarDrawer(); } catch (e) {} }); return b; };
-  const nueva = mk('btnNuevaCotizacionMaps', 'Nueva cotización', 'M19 3h-4.2A3 3 0 009.2 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm5 14H7v-2h10v2zm0-4H7v-2h10v2zm0-4H7V7h10v2z', () => abrir());
-  const histo = mk('btnHistCotizacionesMaps', 'Historial de cotizaciones', 'M13 3a9 9 0 00-9 9H1l3.9 3.9L9 12H6a7 7 0 117 7 7 7 0 01-4.9-2l-1.4 1.4A9 9 0 1013 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2V8H12z', abrirHistorial);
-  ref.parentNode.insertBefore(nueva, ref); ref.parentNode.insertBefore(histo, ref);
-}
+/* ───────────── Visibilidad (la entrada del menú es una sola: «Nueva venta o cotización», y el historial de cotizaciones vive en «Historial») ───────────── */
 function visibilidadBotones() {
   const ver = puedeUsarCotizador();
-  ['btnNuevaCotizacionMaps', 'btnHistCotizacionesMaps'].forEach(id => { const b = document.getElementById(id); if (b) b.hidden = !ver; });
   const t = document.getElementById('cz-vtab-cot'); if (t) t.hidden = !ver;
 }
 
@@ -1093,10 +1118,10 @@ function iniciar() {
   if (document.getElementById('cz-overlay')) return;
   const st = document.createElement('style'); st.id = 'cz-estilos'; st.textContent = CSS; document.head.appendChild(st);
   const cont = document.createElement('div'); cont.id = 'cz-raiz'; cont.innerHTML = HTML + HIST_HTML; document.body.appendChild(cont);
-  enlazar(); botonesMenu(); pestañasVenta(); visibilidadBotones();
+  enlazar(); pestañasVenta(); visibilidadBotones();
   const orig = window.actualizarVisibilidadBotonVenta;   // Maps la llama al iniciar sesión: ahí se muestran u ocultan los botones
   if (typeof orig === 'function') window.actualizarVisibilidadBotonVenta = function () { const r = orig.apply(this, arguments); try { visibilidadBotones(); } catch (e) {} return r; };
 }
-window.Cotizador = { abrir: abrir, abrirHistorial: abrirHistorial, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
+window.Cotizador = { abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();
