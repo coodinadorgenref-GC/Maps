@@ -819,6 +819,64 @@
   z-index:1200; pointer-events:none; display:none;
 }
 .pick-crosshair.visible{ display:block; }
+
+/* ═══════════════ v73 · Interfaz y accesibilidad (guía ui-ux-pro-max) ═══════════════ */
+:root{ --ring:#C4D600; }
+html[data-theme="claro"]{ --ring:#0B6B63; }
+
+/* 1) Foco visible con teclado: antes varios controles tenían outline:none sin reemplazo */
+button:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visible,
+[role="button"]:focus-visible, [tabindex]:focus-visible{ outline:2px solid var(--ring); outline-offset:2px; }
+input:focus-visible, textarea:focus-visible{ outline:2px solid var(--ring); outline-offset:1px; }
+.tb-input:focus-visible{ outline:none; }              /* el buscador resalta toda la barra, no el campo */
+.topbar:focus-within{ box-shadow:0 0 0 2px var(--ring), 0 2px 10px rgba(0,0,0,.35); }
+
+/* 2) Zonas táctiles de al menos 44 px (chips: 36 px visibles + área extendida) */
+.tb-btn{ width:44px; height:44px; }
+.btn{ min-height:44px; }
+.drawer-item{ min-height:48px; }
+.tab{ min-height:44px; display:flex; align-items:center; justify-content:center; padding-top:0; padding-bottom:0; }
+.tab-back{ min-height:44px; display:inline-flex; align-items:center; }
+.tab-title{ min-height:44px; display:flex; align-items:center; justify-content:center; padding:0; }
+.chip{ position:relative; min-height:36px; display:inline-flex; align-items:center; }
+.chip::after{ content:''; position:absolute; inset:-4px -2px; }
+
+/* 3) Respuesta al toque / puntero */
+.tb-btn, .drawer-item, .chip, .btn, .tab, .locate-fab, .fab{
+  transition:background-color .15s ease, color .15s ease, border-color .15s ease, transform .15s ease, filter .15s ease;
+}
+@media (hover:hover){
+  .tb-btn:hover{ background:var(--surface-2); color:var(--text); }
+  .drawer-item:hover{ background:var(--surface-2); }
+  .chip:hover:not(.active){ border-color:var(--text-dim); color:var(--text); }
+  .btn:hover{ filter:brightness(1.08); }
+  .tab:hover:not(.active){ background:var(--surface-2); }
+  .locate-fab:hover{ filter:brightness(1.1); }
+}
+
+/* 4) Aviso sobre el mapa: pines ocultos / filtros activos (explica por qué el mapa puede verse vacío) */
+.estado-vista{
+  position:fixed; z-index:1190; top:calc(66px + env(safe-area-inset-top)); left:10px; right:10px; max-width:420px;
+  display:flex; flex-wrap:wrap; gap:8px; pointer-events:none;
+}
+.estado-vista[hidden]{ display:none; }
+.vista-pill{
+  pointer-events:auto; display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:0 14px;
+  border-radius:22px; border:1px solid var(--line); background:var(--surface); color:var(--text);
+  font:inherit; font-size:13px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.35);
+}
+.vista-pill svg{ color:var(--ochre); flex-shrink:0; }
+.vista-pill b{ font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+.vista-pill:active{ background:var(--surface-2); }
+
+.ajuste-hint{ font-size:12px; line-height:1.45; color:var(--text-dim); }
+/* Los avisos (toast) se ajustaban a la mitad de la pantalla y se partían en 3 líneas */
+.toast{ width:max-content; max-width:min(360px, calc(100vw - 32px)); text-align:center; line-height:1.4; }
+
+/* 5) Movimiento reducido: quien lo pide en su sistema no ve animaciones largas */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
+}
 </style>
 </head>
 <body>
@@ -829,7 +887,7 @@
     <div class="login-titulo">Prospectos &amp; Rutas GC</div>
     <div class="login-marca">Maps GC</div>
     <div class="login-sub">Inicia sesión con tu cuenta del catálogo</div>
-    <div class="login-error" id="loginError"></div>
+    <div class="login-error" id="loginError" role="alert"></div>
     <div class="login-campo">
       <label for="loginCorreo">Correo o teléfono</label>
       <input type="text" id="loginCorreo" placeholder="ejemplo@gmail.com o 5512345678" autocomplete="username" autocapitalize="off" spellcheck="false" inputmode="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPin').focus();">
@@ -884,9 +942,10 @@
   <button class="tb-btn tb-dir" id="btnComoLlegar" title="Planear ruta: elige prospectos en el mapa" aria-label="Planear ruta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.71 11.29l-9-9a.996.996 0 0 0-1.41 0l-9 9a.996.996 0 0 0 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9a.996.996 0 0 0 0-1.41zM14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/></svg></button>
 </div>
 <div class="buscador-res" id="buscadorResultados"></div>
+<div class="estado-vista" id="estadoVista" role="status" aria-live="polite" hidden></div>
 
 <div class="drawer-scrim" id="drawerScrim"></div>
-<aside class="drawer" id="drawer" aria-hidden="true">
+<aside class="drawer" id="drawer" aria-hidden="true" aria-label="Menú principal" inert>
   <div class="drawer-head">
     <div class="drawer-title">Prospectos &amp; Rutas</div>
     <div class="drawer-sub" id="headerSub">0 registrados</div>
@@ -1137,7 +1196,7 @@
   <div class="sheet-body" id="sheetBody"></div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="leaflet-rotate.js"></script>
@@ -1182,6 +1241,12 @@ let appMapasIniciada = false; // evita arrancar el arranque de datos dos veces
 function alternarVisibilidadPinMaps(){
   const input = document.getElementById("loginPin");
   input.type = (input.type === "password") ? "text" : "password";
+  const ojo = document.getElementById("loginOjo");
+  if(ojo){
+    const visible = input.type === "text";
+    ojo.setAttribute("aria-pressed", visible ? "true" : "false");
+    ojo.setAttribute("aria-label", visible ? "Ocultar código" : "Mostrar código");
+  }
 }
 
 function mostrarErrorLoginMaps(msg){
@@ -3973,7 +4038,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '27-oct · v72 · espacio';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '27-oct · v73 · preferencias';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -5829,18 +5894,26 @@ function crearIconoCluster(cluster){
   });
 }
 
-const MODO_MAPA_KEY = 'gc_modo_mapa_v1';
+const MODO_MAPA_KEY = 'gc_modo_mapa_v1';          // 'agrupado' | 'individual'
+const MAPA_OCULTO_KEY = 'gc_mapa_oculto_v1';      // '1' = "Ocultar" activo
 function obtenerModoMapaGuardado(){
-  // Solo se guarda el modo de agrupación. "Ocultar" es temporal (solo esta
-  // sesión) a propósito: si se guardara, al abrir la app otro día el mapa
-  // aparecería vacío y parecería que se perdieron los datos.
-  return localStorage.getItem(MODO_MAPA_KEY) === 'individual' ? 'individual' : 'agrupado';
+  try{ return localStorage.getItem(MODO_MAPA_KEY) === 'individual' ? 'individual' : 'agrupado'; }
+  catch(e){ return 'agrupado'; }
+}
+// "Ocultar" ahora SÍ se recuerda entre sesiones (a petición de los usuarios). Para que nunca parezca
+// que se perdieron los datos, mientras esté activo se muestra el aviso "Ubicaciones ocultas · Mostrar"
+// sobre el mapa (ver actualizarEstadoVista).
+function obtenerMapaOcultoGuardado(){
+  try{ return localStorage.getItem(MAPA_OCULTO_KEY) === '1'; }catch(e){ return false; }
 }
 function guardarModoMapaPreferido(valor){
-  localStorage.setItem(MODO_MAPA_KEY, valor);
+  setItemSeguro(MODO_MAPA_KEY, valor);
+}
+function guardarMapaOcultoPreferido(oculto){
+  setItemSeguro(MAPA_OCULTO_KEY, oculto ? '1' : '0');
 }
 let modoAgrupacion = obtenerModoMapaGuardado(); // 'agrupado' | 'individual' (lo que se guarda)
-let modoMapa = modoAgrupacion;                   // lo que se ve ahora: también puede ser 'oculto'
+let modoMapa = obtenerMapaOcultoGuardado() ? 'oculto' : modoAgrupacion; // lo que se ve ahora: también puede ser 'oculto'
 
 // Clustering: agrupa en una burbuja los prospectos muy juntos o exactamente
 // sobrepuestos (imposibles de separar solo haciendo zoom) y reduce a la vez
@@ -5858,15 +5931,21 @@ const markersLayer = L.markerClusterGroup({
   chunkedLoading: true,
   maxClusterRadius: 50
 }).addTo(map);
+if(modoMapa === 'oculto') map.removeLayer(markersLayer); // "Ocultar" recordado de la sesión anterior
 let userMarker = null;
 
-function aplicarModoMapa(valor){
+// opts.temporal: cambia lo que se VE sin tocar lo que queda guardado (por ejemplo, al armar una ruta
+// se muestran los pines, pero la preferencia "Ocultar" sigue guardada para la próxima vez).
+function aplicarModoMapa(valor, opts){
+  const temporal = !!(opts && opts.temporal);
   modoMapa = valor;
   if(valor !== 'oculto'){
     modoAgrupacion = valor;
-    guardarModoMapaPreferido(valor);
+    if(!temporal) guardarModoMapaPreferido(valor);
   }
+  if(!temporal) guardarMapaOcultoPreferido(valor === 'oculto');
   markersLayer.options.disableClusteringAtZoom = modoAgrupacion === 'individual' ? 1 : 16;
+  if(typeof actualizarEstadoVista === 'function') actualizarEstadoVista();
   if(valor === 'oculto'){
     // Los pines siguen en memoria; solo se quita la capa del mapa. El punto
     // azul de tu GPS, el radar y las nubes no se tocan.
@@ -6355,7 +6434,7 @@ document.getElementById('btnFit').addEventListener('click', () => {
    anillo verde en cada prospecto que se va tocando en el propio mapa. */
 function activarModoRutaEnMapa(){
   // Para armar una ruta hay que poder tocar los pines: si estaban ocultos, se muestran.
-  if(modoMapa === 'oculto'){ aplicarModoMapa(modoAgrupacion); mostrarToast('Ubicaciones visibles para armar la ruta'); }
+  if(modoMapa === 'oculto'){ aplicarModoMapa(modoAgrupacion, { temporal: true }); mostrarToast('Ubicaciones visibles para armar la ruta'); }
   modoRuta = true;
   document.getElementById('routeBanner').style.display = 'flex';
   document.getElementById('btnPlanRuta').classList.add('active');
@@ -7393,18 +7472,21 @@ function renderAjustes(){
   sheetBody.innerHTML = `
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Aspecto</div>
     <div class="chip-row" style="flex-wrap:wrap; margin-bottom:22px;">
-      ${opciones.map(o => `<button class="chip ${temaPref === o.valor ? 'active' : ''}" data-tema="${o.valor}">${o.label}</button>`).join('')}
+      ${opciones.map(o => `<button class="chip ${temaPref === o.valor ? 'active' : ''}" data-tema="${o.valor}" aria-pressed="${temaPref === o.valor}">${o.label}</button>`).join('')}
     </div>
 
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Modo de mapa</div>
     <div class="chip-row" style="flex-wrap:wrap; margin-bottom:22px;">
-      ${opcionesMapa.map(o => `<button class="chip ${modoMapa === o.valor ? 'active' : ''}" data-modo-mapa="${o.valor}">${o.label}</button>`).join('')}
+      ${opcionesMapa.map(o => `<button class="chip ${modoMapa === o.valor ? 'active' : ''}" data-modo-mapa="${o.valor}" aria-pressed="${modoMapa === o.valor}">${o.label}</button>`).join('')}
     </div>
+    <div class="ajuste-hint" style="margin-top:-14px; margin-bottom:22px;">${modoMapa === 'oculto'
+      ? 'Los pines están ocultos. Aparece un aviso sobre el mapa para volver a mostrarlos.'
+      : '«Ocultar» quita los pines del mapa y se mantiene aunque cierres sesión.'}</div>
 
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Mapa base</div>
     <div class="chip-row" style="flex-wrap:wrap; margin-bottom:${estadoBase.fase === 'fallo' ? '8px' : '22px'};">
       ${[['liberty', '🗺️ Vectorial'], ['positron', '◽ Vectorial claro'], ['satelite', '🛰️ Satélite'], ['clasico', '🖼️ Clásico']]
-        .map(([v, t]) => `<button class="chip ${basePref === v ? 'active' : ''}" data-base-mapa="${v}">${t}</button>`).join('')}
+        .map(([v, t]) => `<button class="chip ${basePref === v ? 'active' : ''}" data-base-mapa="${v}" aria-pressed="${basePref === v}">${t}</button>`).join('')}
     </div>
     ${basePref === 'satelite' ? `
       <div class="save-row" style="margin-bottom:22px; gap:8px;">
@@ -7420,8 +7502,14 @@ function renderAjustes(){
       <button class="btn" id="btnZonaOfflineAjustes" style="flex:1;">⬇️ Mapas descargados</button>
     </div>
 
+    <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Preferencias</div>
+    <div class="ajuste-hint" style="margin-bottom:10px;">Tema, mapa base, modo de mapa, capas activas y filtros se guardan solos en este dispositivo y siguen ahí al volver a entrar.</div>
+    <div class="save-row" style="margin-bottom:22px;">
+      <button class="btn danger" id="btnRestablecerPrefs" style="flex:1;">↺ Restablecer preferencias</button>
+    </div>
+
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Importar datos</div>
-    <div class="save-row">
+    <div class="save-row" style="margin-bottom:22px;">
       <button class="btn primary" id="btnImportarAjustes" style="flex:1">⭳ Importar CSV / JSON</button>
     </div>
     <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Identificador de versión</div>
@@ -7476,6 +7564,7 @@ function renderAjustes(){
     cambiarTab('zonas', 'mapa');
   });
   document.getElementById('btnForzarRecarga').addEventListener('click', forzarRecargaApp);
+  document.getElementById('btnRestablecerPrefs').addEventListener('click', restablecerPreferenciasMaps);
 }
 
 // Borra el caché del Service Worker (shell + tiles) y lo da de baja antes de
@@ -7546,6 +7635,8 @@ function renderZonas(){
 
 /* ---------- Vista: Lista ---------- */
 function renderLista(){
+  guardarFiltrosPrefs();     // los filtros se recuerdan entre sesiones
+  actualizarEstadoVista();   // y el aviso sobre el mapa avisa cuando hay filtros activos
   if(modoRuta) return renderArmandoRuta();
 
   const localidades = localidadesDisponibles();
@@ -7659,6 +7750,7 @@ function renderLista(){
   });
   const selRadio = document.getElementById('selRadio');
   if(selRadio) selRadio.addEventListener('change', () => {
+    guardarPrefsMaps({ radioKm: selRadio.value }); // solo se guarda lo que el usuario elige (no un "Sin límite" por GPS fallido)
     activarFiltroRadio(selRadio.value); // solo afecta la lista, no el mapa
   });
 
@@ -8835,7 +8927,8 @@ function mostrarToast(msg){
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  // Los avisos largos necesitan más tiempo de lectura (mínimo 2.2 s, hasta 6 s).
+  toastTimer = setTimeout(() => t.classList.remove('show'), Math.min(6000, Math.max(2200, 1400 + String(msg).length * 45)));
 }
 
 /* ---------- Avisos, confirmaciones y preguntas con la fachada de Maps ----------
@@ -9201,12 +9294,18 @@ function abrirDrawer(){
   drawerScrim.classList.add('open');
   drawerEl.classList.add('open');
   drawerEl.setAttribute('aria-hidden', 'false');
+  drawerEl.inert = false;   // mientras está cerrado es "inert": el teclado y los lectores de pantalla no entran a sus botones
+  const primero = drawerEl.querySelector('.drawer-item:not([hidden])');
+  if(primero) setTimeout(() => primero.focus({ preventScroll: true }), 60);
 }
 function cerrarDrawer(){
   cerrarFlyout();
+  const teniaFoco = drawerEl.contains(document.activeElement);
   drawerScrim.classList.remove('open');
   drawerEl.classList.remove('open');
   drawerEl.setAttribute('aria-hidden', 'true');
+  drawerEl.inert = true;
+  if(teniaFoco){ const m = document.getElementById('btnMenu'); if(m) m.focus({ preventScroll: true }); } // el foco vuelve al botón ☰
 }
 document.getElementById('btnMenu').addEventListener('click', abrirDrawer);
 drawerScrim.addEventListener('click', cerrarDrawer);
@@ -9973,6 +10072,162 @@ function aplicarPrecioPorSku(idx, sku){
   else it.manual = !!k;
   renderizarItemsVenta();
 }
+/* ════════════════════════════════════════════════════════════
+   PREFERENCIAS DEL USUARIO — se recuerdan entre sesiones, también al cerrar sesión
+   • Modo de mapa (incluido "Ocultar"), tema y mapa base: ya se guardan solos (ver sus claves gc_*).
+   • Capas del mapa activas (radar, nubes, rayos, ciclones, lluvia, fronteras, temperaturas, viento).
+   • Filtros de la lista/mapa y la distancia a la redonda.
+   Todo vive en este dispositivo (localStorage); no se manda al servidor.
+   ════════════════════════════════════════════════════════════ */
+const PREFS_KEY = 'gc_prefs_v1';
+function leerPrefsMaps(){
+  try{ const p = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null'); return (p && typeof p === 'object') ? p : {}; }
+  catch(e){ return {}; }
+}
+function guardarPrefsMaps(cambios){
+  setItemSeguro(PREFS_KEY, JSON.stringify(Object.assign(leerPrefsMaps(), cambios)));
+}
+
+/* ----- Capas del mapa ----- */
+const CAPAS_PREF = [
+  { clave:'radar',     act:'activarRadar',        des:'desactivarRadar',        on:() => radarVisible,     red:true  },
+  { clave:'nubes',     act:'activarNubes',        des:'desactivarNubes',        on:() => nubesVisible,     red:true  },
+  { clave:'rayos',     act:'activarRayos',        des:'desactivarRayos',        on:() => rayosVisible,     red:true  },
+  { clave:'ciclones',  act:'activarCiclones',     des:'desactivarCiclones',     on:() => ciclonesVisible,  red:true  },
+  { clave:'lluvia',    act:'activarLluvia',       des:'desactivarLluvia',       on:() => lluviaVisible,    red:true  },
+  { clave:'fronteras', act:'activarFronteras',    des:'desactivarFronteras',    on:() => fronterasVisible, red:false },
+  { clave:'temp',      act:'activarTemperaturas', des:'desactivarTemperaturas', on:() => tempVisible,      red:true  },
+  { clave:'viento',    act:'activarViento',       des:'desactivarViento',       on:() => vientoVisible,    red:true  }
+];
+let restaurandoPrefsMaps = false; // mientras se restauran las capas NO se guarda (un fallo sin señal no debe borrar la preferencia)
+function guardarCapasActivas(){
+  if(restaurandoPrefsMaps) return;
+  const capas = {};
+  CAPAS_PREF.forEach(c => { try{ if(c.on()) capas[c.clave] = true; }catch(e){} });
+  guardarPrefsMaps({ capas });
+}
+// Cada activar*/desactivar* se envuelve: hace lo suyo y después guarda qué capas quedaron encendidas.
+CAPAS_PREF.forEach(c => {
+  [c.act, c.des].forEach(nombre => {
+    const original = window[nombre];
+    if(typeof original !== 'function') return;
+    window[nombre] = function(){
+      const suprimir = restaurandoPrefsMaps;
+      const r = original.apply(this, arguments);
+      if(!suprimir) Promise.resolve(r).catch(() => {}).then(() => { guardarCapasActivas(); setTimeout(guardarCapasActivas, 1500); });
+      return r;
+    };
+  });
+});
+// El botón ✕ de la barra de lluvia registró la función original, así que se guarda aparte.
+(function(){ const b = document.getElementById('lluviaCerrar'); if(b) b.addEventListener('click', () => setTimeout(guardarCapasActivas, 300)); })();
+
+async function restaurarCapasGuardadas(){
+  const guardadas = leerPrefsMaps().capas || {};
+  const pendientes = CAPAS_PREF.filter(c => guardadas[c.clave]);
+  if(!pendientes.length) return;
+  restaurandoPrefsMaps = true;
+  try{
+    for(const c of pendientes){
+      try{
+        if(c.on()) continue;
+        if(c.red && !navigator.onLine) continue;   // sin señal: se intenta de nuevo en la próxima apertura
+        await window[c.act]();
+      }catch(e){ console.warn('No se pudo restaurar la capa', c.clave, e); }
+      await new Promise(res => setTimeout(res, 300));
+    }
+  } finally { restaurandoPrefsMaps = false; }
+}
+
+/* ----- Filtros ----- */
+const FILTROS_PERSISTIDOS = ['estatus', 'estado', 'localidad', 'frecuencia', 'tipoNegocio'];
+const OPCIONES_RADIO = ['Sin límite', '10', '25', '50', '100'];
+let filtrosCargadosMaps = false, ultimoFiltrosGuardado = '';
+function cargarFiltrosGuardados(){
+  const p = leerPrefsMaps(), f = p.filtros;
+  if(f && typeof f === 'object'){
+    FILTROS_PERSISTIDOS.forEach(k => {
+      if(Array.isArray(f[k])) estadoFiltro[k] = f[k].filter(v => typeof v === 'string');
+    });
+    estadoFiltro.soloPrioridad = f.soloPrioridad === true;
+    estadoFiltro.soloVencidos = f.soloVencidos === true;
+  }
+  if(OPCIONES_RADIO.includes(p.radioKm)) estadoFiltro.radioKm = p.radioKm;
+  filtrosCargadosMaps = true;
+  ultimoFiltrosGuardado = JSON.stringify(f || null);
+}
+function guardarFiltrosPrefs(){
+  if(!filtrosCargadosMaps) return; // antes de cargar lo guardado, no se pisa con los valores por defecto
+  const f = { soloPrioridad: !!estadoFiltro.soloPrioridad, soloVencidos: !!estadoFiltro.soloVencidos };
+  FILTROS_PERSISTIDOS.forEach(k => { f[k] = estadoFiltro[k].slice(); });
+  const s = JSON.stringify(f);
+  if(s === ultimoFiltrosGuardado) return;
+  ultimoFiltrosGuardado = s;
+  guardarPrefsMaps({ filtros: f });
+}
+function limpiarFiltrosMapa(){
+  FILTROS_PERSISTIDOS.forEach(k => { estadoFiltro[k] = []; });
+  estadoFiltro.soloPrioridad = false;
+  estadoFiltro.soloVencidos = false;
+  textoBusqueda = '';
+}
+function contarFiltrosMapa(){
+  return FILTROS_PERSISTIDOS.filter(k => estadoFiltro[k].length > 0).length
+    + (estadoFiltro.soloPrioridad ? 1 : 0) + (estadoFiltro.soloVencidos ? 1 : 0) + (textoBusqueda ? 1 : 0);
+}
+
+/* ----- Aviso sobre el mapa: explica por qué puede verse vacío (pines ocultos o filtros activos) ----- */
+const SVG_OJO_TACHADO = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c5 0 8.6 3.4 10 7a11.8 11.8 0 0 1-2.9 4.2M6.6 6.6A11.9 11.9 0 0 0 2 12c1.4 3.6 5 7 10 7 1.6 0 3-.3 4.3-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+const SVG_EMBUDO = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>';
+function actualizarEstadoVista(){
+  const el = document.getElementById('estadoVista');
+  if(!el) return;
+  const oculto = modoMapa === 'oculto', nf = contarFiltrosMapa();
+  el.hidden = !(oculto || nf > 0);
+  el.innerHTML =
+    (oculto ? `<button type="button" class="vista-pill" data-accion="mostrar" aria-label="Ubicaciones ocultas. Tocar para mostrarlas">${SVG_OJO_TACHADO}<span>Ubicaciones ocultas</span><b>Mostrar</b></button>` : '') +
+    (nf > 0 ? `<button type="button" class="vista-pill" data-accion="quitar-filtros" aria-label="${nf} filtro${nf > 1 ? 's' : ''} activo${nf > 1 ? 's' : ''}. Tocar para quitarlos">${SVG_EMBUDO}<span>${nf} filtro${nf > 1 ? 's' : ''} activo${nf > 1 ? 's' : ''}</span><b>Quitar</b></button>` : '');
+}
+(function(){
+  const el = document.getElementById('estadoVista');
+  if(!el) return;
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-accion]');
+    if(!b) return;
+    if(b.dataset.accion === 'mostrar'){
+      aplicarModoMapa(modoAgrupacion);
+      mostrarToast('Ubicaciones visibles');
+    } else if(b.dataset.accion === 'quitar-filtros'){
+      limpiarFiltrosMapa();
+      renderLista();
+      renderMarcadores();
+      mostrarToast('Filtros quitados');
+    }
+  });
+})();
+
+/* ----- Restablecer todo (botón en Ajustes) ----- */
+async function restablecerPreferenciasMaps(){
+  const ok = await confirmarMaps({
+    titulo: '¿Restablecer preferencias?',
+    mensaje: 'Vuelven a su valor original el tema, el mapa base, el modo de mapa, las capas del mapa y los filtros. Tus prospectos, ventas y sesión no se tocan.',
+    confirmar: 'Restablecer', cancelar: 'Cancelar', tipo: 'peligro'
+  });
+  if(!ok) return;
+  restaurandoPrefsMaps = true;
+  try{ CAPAS_PREF.forEach(c => { try{ if(c.on()) window[c.des](); }catch(e){} }); }
+  finally { restaurandoPrefsMaps = false; }
+  temaPref = 'sistema'; guardarTemaPreferido(temaPref); aplicarTema(temaPref);
+  basePref = 'liberty'; guardarBasePreferida(basePref); aplicarBaseSegunPreferencia();
+  aplicarModoMapa('agrupado');
+  limpiarFiltrosMapa();
+  try{ localStorage.removeItem(PREFS_KEY); }catch(e){}
+  ultimoFiltrosGuardado = '';
+  activarFiltroRadio('100', { silencioso: true });
+  renderLista(); renderMarcadores(); renderAjustes();
+  mostrarToast('Preferencias restablecidas');
+}
+
 /* ---------- Arranque de datos (solo tras iniciar sesión) ----------
    Antes corría de inmediato al cargar el script; ahora se retrasa
    hasta que haya una sesión válida (nueva o restaurada), para que un
@@ -9984,17 +10239,20 @@ function iniciarAppMapasSiHaceFalta(){
   iniciarFirebaseVentaRuta();
   actualizarVisibilidadBotonVenta();
   cerrarSheet(); // estado conocido: nunca debe arrancar abierta de por sí
+  cargarFiltrosGuardados(); // filtros de la sesión anterior, ANTES del primer dibujo
   renderSheetTabs();
   renderMarcadores();
   actualizarHeader();
   renderLista();
+  actualizarEstadoVista();
   if(prospectos.length > 0){ ajustarVistaATodos(); }
   cargarDenueCompartido();
   syncPendientes();
   setInterval(() => syncSiToca(90 * 1000), 2 * 60 * 1000); // cada 2 min mientras la app esté a la vista
   document.addEventListener('visibilitychange', () => { if(!document.hidden) syncSiToca(15 * 1000); });
   window.addEventListener('focus', () => syncSiToca(15 * 1000));
-  activarFiltroRadio('100', { silencioso: true }); // la lista arranca mostrando solo lo cercano (100 km); el mapa sigue mostrando todo
+  activarFiltroRadio(estadoFiltro.radioKm || '100', { silencioso: true }); // la lista arranca con la distancia que dejó el usuario (por defecto 100 km); el mapa sigue mostrando todo
+  setTimeout(restaurarCapasGuardadas, 1200); // capas del mapa (radar, viento, etc.) que dejó activas
   setTimeout(function(){ if (typeof procesarCotizacionPendiente === 'function'){ reintentarMarcadosCotizacion(); procesarCotizacionPendiente(); if (typeof actualizarBadgeCotizaciones === 'function') actualizarBadgeCotizaciones(); } }, 900);
 }
 
