@@ -1292,6 +1292,7 @@ async function manejarInicioDeSesionMaps(){
     if(!o.ok){ mostrarErrorLoginMaps(o.mensaje); btnEl.disabled = false; btnEl.innerText = "Entrar"; }
     return;
   }
+  let respondio = false;   // true cuando el servidor ya contestó: un error posterior NO es falta de señal
   try{
     const r = await fetchConTimeoutMaps(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
       body: JSON.stringify({
@@ -1301,6 +1302,7 @@ async function manejarInicioDeSesionMaps(){
       })
     }, TIMEOUT_LOGIN_MAPS_MS);
     const rs = await r.json();
+    respondio = true;
   if(rs.success){
   // Solo entran admin y vendedores. Como el backend marca esAdmin=true
   // también para vendedores, basta con que venga alguno de los dos flags.
@@ -1346,6 +1348,12 @@ async function manejarInicioDeSesionMaps(){
       btnEl.disabled = false; btnEl.innerText = "Entrar";
     }
   } catch(e){
+    if(respondio){   // el servidor sí contestó: el fallo fue local, se muestra la causa real
+      console.error('Login Maps: error después de la respuesta del servidor', e);
+      mostrarErrorLoginMaps('El servidor respondió, pero no se pudo abrir la sesión en este dispositivo: ' + ((e && e.message) || e));
+      btnEl.disabled = false; btnEl.innerText = "Entrar";
+      return;
+    }
     // Sin respuesta (sin datos, señal débil o tiempo agotado): se prueba con el acceso guardado en este dispositivo.
     btnEl.innerText = "Sin respuesta: entrando sin conexión…";
     const o = await entrarSinSenalMaps(identificador, pin);
@@ -1353,8 +1361,26 @@ async function manejarInicioDeSesionMaps(){
   }
 }
 
+/* ── Espacio de localStorage ──
+   Maps y el catálogo viven en el mismo origen (coodinadorgenref-gc.github.io) y comparten ~5 MB.
+   Si se llena, guardar la sesión lanzaba QuotaExceededError y el login lo mostraba como «sin conexión».
+   Aquí se liberan SOLO cachés que se vuelven a bajar con señal (nunca prospectos ni colas pendientes). */
+function liberarEspacioLocalStorage(){
+  const CACHES_REGENERABLES_LS = ['gc_inventario_gc_cache_v1','gc_existencias_origen_v2','gc_existencias_catalogo_v1','gc_lista_precios_v1','gc_precios_venta_v3','gc_promociones_v1','gc_kits_v1','inventario_cache'];
+  let n = 0;
+  CACHES_REGENERABLES_LS.forEach(k => { try{ if(localStorage.getItem(k) !== null){ localStorage.removeItem(k); n++; } }catch(e){} });
+  return n;
+}
+function setItemSeguro(k, v){
+  try{ localStorage.setItem(k, v); return true; }
+  catch(e){
+    liberarEspacioLocalStorage();
+    try{ localStorage.setItem(k, v); return true; }catch(e2){ console.warn('localStorage lleno, no se pudo guardar', k, e2); return false; }
+  }
+}
+
 function guardarSesionMaps(){
-  localStorage.setItem(SESION_MAPS_KEY, JSON.stringify({
+  setItemSeguro(SESION_MAPS_KEY, JSON.stringify({
     correo: usuarioActual, token: tokenActual, nombre: nombreActual, esAdmin,
     esVendedor: !!window.esVendedorSesion, rol: rolActual || "", almacen: window.almacenCuentaMaps || "",
     accesoOffline: !!accesoOfflinePermitidoMaps,
@@ -1364,7 +1390,7 @@ function guardarSesionMaps(){
 }
 function actualizarTimestampSesionMaps(){
   const s = localStorage.getItem(SESION_MAPS_KEY);
-  if(s){ const o = JSON.parse(s); o.timestamp = new Date().getTime(); localStorage.setItem(SESION_MAPS_KEY, JSON.stringify(o)); }
+  if(s){ const o = JSON.parse(s); o.timestamp = new Date().getTime(); setItemSeguro(SESION_MAPS_KEY, JSON.stringify(o)); }
 }
 
 async function verificarSesionGuardadaMaps(){
@@ -3947,7 +3973,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '26-oct · v70 · cotizador';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '27-oct · v72 · espacio';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
