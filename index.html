@@ -992,7 +992,7 @@ input:focus-visible, textarea:focus-visible{ outline:2px solid var(--ring); outl
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M20 6h-2.18c.11-.31.18-.65.18-1a2 2 0 0 0-2-2c-1.11 0-2 .9-2 2 0-1.1-.89-2-2-2s-2 .9-2 2c0 .35.07.69.18 1H8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg>
     <span class="txt">Nueva venta o cotización</span>
   </button>
-  <button class="drawer-item" id="btnCotizacionesMaps">
+  <button class="drawer-item" id="btnCotizacionesMaps" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
     <span class="txt">Cotizaciones del catálogo</span><span id="cotizBadge" class="badge" hidden style="margin-left:auto;background:var(--ochre);color:#0E1518;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700"></span>
   </button>
@@ -1184,6 +1184,7 @@ input:focus-visible, textarea:focus-visible{ outline:2px solid var(--ring); outl
     <div class="save-row" style="margin-top:10px;">
       <button class="btn teal" id="notaVentaBtnReenviar" style="flex:1;">↻ Reenviar</button>
       <button class="btn" id="notaVentaBtnEditar" style="flex:1;">✎ Editar nota</button>
+      <button class="btn" id="notaVentaBtnACot" style="flex:1;" hidden>→ Cotización</button>
     </div>
   </div>
 </div>
@@ -4038,7 +4039,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '27-oct · v73 · preferencias';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '27-oct · v74 · cotizar';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -9699,6 +9700,12 @@ async function manejarClicHistorialMaps(e){
     if(c) window.Cotizador.accionHistorial(c, bh.dataset.h, bh, () => pintarHistorialMaps(false));
     return;
   }
+  const tarjeta = t.closest('.cz-hcard[data-folio]');
+  if(tarjeta){
+    const c = histCotMaps.lista.find(x => x.folio === tarjeta.dataset.folio);
+    if(c) window.Cotizador.accionHistorial(c, 'ver', null, () => pintarHistorialMaps(false));
+    return;
+  }
   const mas = t.closest('#histMasCot');
   if(mas){
     mas.disabled = true; mas.textContent = 'Cargando…';
@@ -9737,6 +9744,12 @@ function abrirNotaVentaModal(venta){
     if(btnEditarNota){
       btnEditarNota.style.display = (!venta.cancelada && puedeCancelarVenta(venta)) ? '' : 'none';
       btnEditarNota.onclick = () => editarNotaVenta(venta);
+    }
+
+    const btnACot = document.getElementById('notaVentaBtnACot');
+    if(btnACot){
+      btnACot.hidden = !!venta.cancelada || !(window.Cotizador && window.Cotizador.puede && window.Cotizador.puede());
+      btnACot.onclick = () => { cerrarNotaVentaModal(); window.Cotizador.desdeNota(venta); };
     }
 
     // Botón de cancelar (se crea una sola vez y se reutiliza)

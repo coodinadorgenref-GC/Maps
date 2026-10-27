@@ -39,7 +39,10 @@ const IC = {   // íconos SVG (nada de emoji como ícono)
   candado: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M18 8h-1V6a5 5 0 00-10 0v2H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V10a2 2 0 00-2-2zM9 6a3 3 0 016 0v2H9V6z"/></svg>',
   cerrar: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>',
   quitar: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 19a2 2 0 002 2h8a2 2 0 002-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
-  girar: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="cz-giro"><path fill="currentColor" d="M12 4V1L8 5l4 4V6a6 6 0 11-6 6H4a8 8 0 108-8z"/></svg>'
+  girar: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="cz-giro"><path fill="currentColor" d="M12 4V1L8 5l4 4V6a6 6 0 11-6 6H4a8 8 0 108-8z"/></svg>',
+  lupa: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>',
+  ojo: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 110-10 5 5 0 010 10zm0-8a3 3 0 100 6 3 3 0 000-6z"/></svg>',
+  bajar: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>'
 };
 
 /* ───────────── API: el mismo Worker que usa Maps ───────────── */
@@ -250,6 +253,16 @@ html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-tipo{display:inline-block;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.05em;vertical-align:1px}
 .cz-tipo-cot{background:rgba(255,138,30,.2);color:var(--ochre)}
 .cz-tipo-nota{background:rgba(79,168,160,.2);color:var(--teal)}
+.cz-req{color:var(--danger);font-weight:700}
+.cz-fila-id{display:flex;gap:8px;align-items:stretch}.cz-fila-id input{flex:1;min-width:0}
+.cz-btn-buscar{flex:none;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 14px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.cz-pie{margin:2px 0 12px}
+.cz-hcard[data-folio]{cursor:pointer}
+.cz-cv{z-index:2650}
+.cz-cv-marco{display:block;width:100%;height:min(54dvh,520px);border:1px solid var(--line);border-radius:10px;background:#fff}
+.cz-acciones a{min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 13px/1 inherit;display:inline-flex;align-items:center;gap:6px;text-decoration:none;cursor:pointer}
+.cz-overlay a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.cz-acciones button[hidden],.cz-acciones a[hidden]{display:none}
 `;
 
 /* ───────────── Estado ───────────── */
@@ -271,43 +284,49 @@ const HTML = `
   <div class="cz-borrador" id="cz-borrador" hidden role="status"><span>Borrador recuperado (<span id="cz-borrador-hace"></span>)</span><button type="button" class="cz-link" id="cz-empezar">Empezar de nuevo</button></div>
   <div id="cz-form">
     <div class="cz-secs" id="cz-secciones" role="radiogroup" aria-label="Sección de la cotización"></div>
-    <fieldset class="cz-bloque"><legend>Cliente</legend>
-      <div class="cz-campo"><label for="cz-idcliente">ID o teléfono del cliente (opcional)</label>
-        <input id="cz-idcliente" type="text" inputmode="numeric" autocomplete="off" enterkeyhint="search" aria-describedby="cz-id-estado">
+    <fieldset class="cz-bloque"><legend>1 · Cliente</legend>
+      <div class="cz-campo"><label for="cz-idcliente">ID o teléfono del cliente</label>
+        <div class="cz-fila-id">
+          <input id="cz-idcliente" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="15" autocomplete="off" enterkeyhint="search" placeholder="Solo números" aria-describedby="cz-id-estado">
+          <button type="button" class="cz-btn-buscar" id="cz-id-buscar">${IC.lupa} Buscar</button>
+        </div>
         <p class="cz-ayuda" id="cz-id-estado" role="status" aria-live="polite">Con el ID o el teléfono se traen el nombre y el teléfono.</p>
         <div class="cz-lista" id="cz-id-resultados" hidden></div></div>
-      <div class="cz-campo"><label for="cz-cliente">Nombre del cliente</label>
-        <input id="cz-cliente" type="text" autocomplete="off" autocapitalize="words" enterkeyhint="next" aria-describedby="cz-cliente-err">
+      <div class="cz-campo"><label for="cz-cliente">Nombre del cliente <span class="cz-req" aria-hidden="true">*</span></label>
+        <input id="cz-cliente" type="text" autocomplete="off" autocapitalize="words" maxlength="80" required aria-required="true" placeholder="Solo letras" enterkeyhint="next" aria-describedby="cz-cliente-err">
         <p class="cz-err" id="cz-cliente-err" hidden></p></div>
-      <div class="cz-campo"><label for="cz-telefono">Teléfono</label>
-        <input id="cz-telefono" type="tel" inputmode="numeric" autocomplete="off" enterkeyhint="next" aria-describedby="cz-telefono-err">
+      <div class="cz-campo"><label for="cz-telefono">Teléfono <span class="cz-req" aria-hidden="true">*</span></label>
+        <input id="cz-telefono" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="15" autocomplete="off" required aria-required="true" placeholder="10 dígitos" enterkeyhint="next" aria-describedby="cz-telefono-err">
         <p class="cz-err" id="cz-telefono-err" hidden></p></div>
     </fieldset>
-    <fieldset class="cz-bloque"><legend>Motocicleta</legend>
-      <div class="cz-campo"><label for="cz-moto">Modelo</label>
-        <input id="cz-moto" type="text" autocomplete="off" autocapitalize="characters" enterkeyhint="next" role="combobox" aria-expanded="false" aria-controls="cz-moto-sug" aria-describedby="cz-moto-err">
+    <fieldset class="cz-bloque"><legend>2 · Motocicleta y vigencia</legend>
+      <div class="cz-campo"><label for="cz-moto">Motocicleta (modelo) <span class="cz-req" aria-hidden="true">*</span></label>
+        <input id="cz-moto" type="text" maxlength="60" autocomplete="off" autocapitalize="characters" required aria-required="true" placeholder="Escribe el modelo; saldrán sugerencias" enterkeyhint="next" role="combobox" aria-expanded="false" aria-controls="cz-moto-sug" aria-describedby="cz-moto-err">
         <div class="cz-lista" id="cz-moto-sug" role="listbox" hidden></div>
         <p class="cz-err" id="cz-moto-err" hidden></p></div>
       <div class="cz-fila2">
-        <div class="cz-campo"><label for="cz-anio">Año</label>
-          <input id="cz-anio" type="text" inputmode="numeric" maxlength="4" autocomplete="off" aria-describedby="cz-anio-err">
+        <div class="cz-campo"><label for="cz-anio">Año <span class="cz-req" aria-hidden="true">*</span></label>
+          <input id="cz-anio" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" required aria-required="true" placeholder="Ej. 2022" aria-describedby="cz-anio-err">
           <p class="cz-err" id="cz-anio-err" hidden></p></div>
-        <div class="cz-campo"><label for="cz-vigencia">Válida hasta</label>
-          <input id="cz-vigencia" type="date" aria-describedby="cz-vigencia-err">
+        <div class="cz-campo"><label for="cz-vigencia">Vigencia (válida hasta) <span class="cz-req" aria-hidden="true">*</span></label>
+          <input id="cz-vigencia" type="date" required aria-required="true" aria-describedby="cz-vigencia-err">
           <p class="cz-err" id="cz-vigencia-err" hidden></p></div>
       </div>
     </fieldset>
-    <fieldset class="cz-bloque"><legend>Productos</legend>
-      <div class="cz-campo"><label for="cz-buscador">Buscar en todo el inventario (SKU o nombre)</label>
-        <input id="cz-buscador" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-describedby="cz-buscador-err">
+    <fieldset class="cz-bloque"><legend>3 · Productos</legend>
+      <div class="cz-campo"><label for="cz-buscador">Producto: SKU o nombre</label>
+        <input id="cz-buscador" type="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Escribe o pega el SKU…" aria-describedby="cz-buscador-err">
         <p class="cz-err" id="cz-buscador-err" hidden></p>
         <div class="cz-lista" id="cz-resultados" hidden></div></div>
       <div class="cz-oferta" id="cz-oferta" hidden role="status" aria-live="polite"></div>
       <div id="cz-lineas"></div>
-      <button type="button" class="cz-btn-linea" id="cz-add-pedido">+ Producto bajo pedido (con número de parte)</button>
+      <button type="button" class="cz-btn-linea" id="cz-add-pedido">+ Producto bajo pedido (número de parte)</button>
+    </fieldset>
+    <div class="cz-pie">
       <div class="cz-total"><span>Total con IVA</span><span id="cz-total">$0.00</span></div>
       <p class="cz-aviso" id="cz-aviso" role="status"></p>
-    </fieldset>
+      <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente es opcional.</p>
+    </div>
     <div class="cz-error" id="cz-error" role="alert"></div>
     <button type="button" class="cz-btn" id="cz-guardar">Guardar cotización</button>
   </div>
@@ -315,15 +334,37 @@ const HTML = `
     <div class="cz-ayuda" id="cz-listo-titulo">Cotización guardada</div>
     <div class="cz-folio" id="cz-folio"></div>
     <p id="cz-listo-detalle"></p><p class="cz-aviso" id="cz-listo-aviso"></p>
-    <button type="button" class="cz-btn" id="cz-whats">Enviar por WhatsApp</button>
-    <button type="button" class="cz-btn cz-sec2" id="cz-pdf">Compartir PDF</button>
-    <button type="button" class="cz-btn cz-sec2" id="cz-a-nota">Convertir en nota de venta</button>
+    <button type="button" class="cz-btn" id="cz-vista">${IC.ojo} Vista previa de la hoja</button>
+    <button type="button" class="cz-btn cz-sec2" id="cz-whats">Enviar WhatsApp</button>
+    <button type="button" class="cz-btn cz-sec2" id="cz-a-nota">Pasar a nota de venta</button>
     <button type="button" class="cz-btn cz-sec2" id="cz-otra">Nueva cotización</button>
     <button type="button" class="cz-btn cz-sec2" id="cz-historial">Ver mis cotizaciones</button>
+    <button type="button" class="cz-btn cz-sec2" id="cz-cerrar-listo">Cerrar</button>
   </div>
  </div>
 </div>
 <div class="cz-panel" id="cz-panel" hidden role="dialog" aria-modal="true" aria-labelledby="cz-panel-titulo"><div id="cz-panel-cont"></div></div>`;
+
+/* ───────────── Vista previa de la hoja (el mismo PDF que se comparte, dentro de la app) ───────────── */
+const CV_HTML = `
+<div class="cz-overlay cz-cv" id="cv-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="cv-titulo">
+ <div class="cz-card">
+  <div class="cz-top"><h2 id="cv-titulo" style="flex:1;margin:0">Cotización</h2>
+    <button type="button" class="cz-x" id="cv-cerrar" aria-label="Cerrar">${IC.cerrar}</button></div>
+  <p class="cz-ayuda" id="cv-sub" style="margin:0 0 10px"></p>
+  <iframe id="cv-marco" class="cz-cv-marco" title="Vista previa de la cotización"></iframe>
+  <p class="cz-ayuda" style="text-align:center"><a id="cv-aparte" href="#" target="_blank" rel="noopener" style="color:inherit">¿No se ve bien? Ábrela aparte</a></p>
+  <p class="cz-ayuda" id="cv-seg" role="status" aria-live="polite"></p>
+  <div class="cz-acciones">
+    <button type="button" class="cz-prim" id="cv-wa">Reenviar por WhatsApp</button>
+    <a id="cv-descargar" href="#" download="Cotización.pdf" role="button">${IC.bajar} Descargar</a>
+    <button type="button" id="cv-pdf">Compartir PDF</button>
+    <button type="button" id="cv-editar">Editar</button>
+    <button type="button" id="cv-estado">Cambiar estado</button>
+    <button type="button" id="cv-nota">Pasar a nota de venta</button>
+  </div>
+ </div>
+</div>`;
 
 /* ───────────── Errores por campo ───────────── */
 const errGeneral = m => { const e = $('cz-error'); e.textContent = m || ''; e.classList.toggle('cz-ver', !!m); };
@@ -638,7 +679,7 @@ async function guardar() {
   try {
     const datos = {
       cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value,
-      agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccion, origen: 'PISO',
+      agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccion, origen: 'PISO', app: 'maps',
       lineas: lineas.map(l => l.tipo === 'pedido'
         ? { tipo: 'pedido', cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox }
         : (() => { const o = origenActual(l), cur = o.cur; return { tipo: 'catalogo', sku: l.sku, cantidad: l.cantidad, descripcion: l.descripcion, disponibilidad: l.disponibilidad, precioAprox: l.precioAprox,
@@ -888,6 +929,8 @@ async function hojaCotizacionPdf(cot, boton) {
 
 /* ───────────── Historial y seguimiento (mismo historial que el catálogo) ───────────── */
 const ESTADOS = ['Borrador', 'Enviada', 'Vendido', 'Traspaso', 'Rechazado', 'Pedido'];
+/** Maps solo muestra lo que se capturó en Maps (el servidor ya filtra por `app`; si aún no lo hace, lo que traiga la marca de otra app se descarta aquí). */
+const soloMaps = arr => (arr || []).filter(c => !c || !('app' in c) || String(c.app || '').toLowerCase() === 'maps');
 let hist = [], histPag = 1, histTotal = 0, histPorPag = 30, histEstado = '', histTexto = '', histTimer = null;
 const HIST_HTML = `
 <div class="cz-overlay" id="cz-hist-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="cz-hist-titulo">
@@ -914,9 +957,9 @@ async function cargarHistorial(pag) {
   if (!navigator.onLine) { info.textContent = 'Sin señal: el historial se consulta con conexión.'; if (!hist.length) lista.innerHTML = ''; return; }
   info.textContent = 'Cargando…';
   try {
-    const rs = await api('consultarCotizaciones', { filtros: { pagina: pag, estado: histEstado, texto: histTexto } });
+    const rs = await api('consultarCotizaciones', { filtros: { pagina: pag, estado: histEstado, texto: histTexto, app: 'maps' } });
     if (!rs.success) { info.textContent = rs.message || 'No se pudo cargar el historial.'; return; }
-    hist = rs.cotizaciones || []; histPag = rs.pagina || pag; histTotal = rs.total || 0; histPorPag = rs.porPagina || 30;
+    hist = soloMaps(rs.cotizaciones); histPag = rs.pagina || pag; histTotal = rs.total || 0; histPorPag = rs.porPagina || 30;
     info.textContent = histTotal ? histTotal + (histTotal === 1 ? ' cotización' : ' cotizaciones') + (histEstado ? ' · ' + histEstado : '') : 'No hay cotizaciones con ese filtro.';
     pintarHistorial();
   } catch (e) { if (!/sesi/i.test(e.message || '')) info.textContent = 'No se pudo cargar. Revisa tu conexión.'; }
@@ -931,10 +974,10 @@ function tarjetaCot(c, insignia) {
       + (venc ? '<span class="cz-badge cz-aten">' + IC.aviso + ' Vencida</span>' : (vigIso(c.vigencia) ? '<span>Vigente hasta ' + esc(fechaCorta(c.vigencia)) + '</span>' : '')) + '</div>'
       + '<div class="cz-sub">' + esc(c.vendedorNombre || '') + ' · ' + esc(c.agencia || '') + '</div>'
       + '<div class="cz-acciones">'
-      + '<button type="button" data-h="pdf">PDF</button><button type="button" data-h="whats">WhatsApp</button>'
+      + '<button type="button" class="cz-prim" data-h="ver">Vista previa</button><button type="button" data-h="whats">WhatsApp</button>'
       + (editable ? '<button type="button" data-h="editar">Editar</button>' : '')
       + '<button type="button" data-h="estado">Cambiar estado</button>'
-      + (c.estado === 'Vendido' ? '<button type="button" class="cz-prim" data-h="nota">Convertir en nota de venta</button>' : '') + '</div></div>';
+      + (c.estado !== 'Rechazado' ? '<button type="button" data-h="nota">Pasar a nota</button>' : '') + '</div></div>';
 }
 function pintarHistorial() {
   const lista = $('cz-hist-lista');
@@ -958,7 +1001,7 @@ function cambiarEstadoPanel(c, alCambiar) {
     try {
       const rs = await api('cambiarEstadoCotizacion', { folio: c.folio, estado: est, datos: { motivo: motivo } });
       if (!rs.success) { toast(rs.message || 'No se pudo cambiar el estado.'); b.disabled = false; b.textContent = 'Guardar estado'; return; }
-      c.estado = rs.estado || est; cerrarPanel(); toast('Estado: ' + c.estado); (alCambiar || pintarHistorial)();
+      c.estado = rs.estado || est; if (rs.seguimiento) c.seguimiento = rs.seguimiento; cerrarPanel(); toast('Estado: ' + c.estado); (alCambiar || pintarHistorial)();
     } catch (e) { b.disabled = false; b.textContent = 'Guardar estado'; }
   };
   setTimeout(() => sel.focus(), 30);
@@ -970,28 +1013,28 @@ async function listarParaHistorial(pagina, texto, estado) {
   if (!puedeUsarCotizador()) return { ok: false, mensaje: 'Tu cuenta no tiene permiso para cotizar.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 };
   if (!navigator.onLine) return { ok: false, mensaje: 'Sin señal: las cotizaciones se consultan con conexión.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 };
   try {
-    const rs = await api('consultarCotizaciones', { filtros: { pagina: pagina || 1, estado: estado || '', texto: texto || '' } });
+    const rs = await api('consultarCotizaciones', { filtros: { pagina: pagina || 1, estado: estado || '', texto: texto || '', app: 'maps' } });
     if (!rs.success) return { ok: false, mensaje: rs.message || 'No se pudieron cargar las cotizaciones.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 };
     sincronizarDatos();
-    return { ok: true, cotizaciones: rs.cotizaciones || [], total: rs.total || 0, pagina: rs.pagina || pagina || 1, porPagina: rs.porPagina || 30 };
+    return { ok: true, cotizaciones: soloMaps(rs.cotizaciones), total: rs.total || 0, pagina: rs.pagina || pagina || 1, porPagina: rs.porPagina || 30 };
   } catch (e) { return { ok: false, mensaje: /sesi/i.test(e.message || '') ? '' : 'No se pudieron cargar las cotizaciones. Revisa tu conexión.', cotizaciones: [], total: 0, pagina: 1, porPagina: 30 }; }
 }
 /** Acción de un botón de tarjeta (data-h). `repintar` se llama cuando cambia algo de la cotización. */
 function accionHistorial(c, a, b, repintar) {
-  if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(repintar || (() => {}));
+  if (a === 'ver') cvAbrir(c, 'hist', repintar); else if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(repintar || (() => {}));
   else if (a === 'editar') editar(c); else if (a === 'estado') cambiarEstadoPanel(c, repintar); else if (a === 'nota') convertirEnNota(c);
 }
 
-/* ───────────── Cotización vendida → Nota de venta (Maps) ───────────── */
-function convertirEnNota(c) {
-  if (!c) return;
-  cerrar(true); cerrarHistorial(true);
-  abrirVentaRuta(c.cliente || '', c.telefono || '');
+/* ───────────── Cotización ↔ Nota de venta (Maps) ───────────── */
+/** Abre «Nota de venta» con el cliente y los productos ya cargados. items: { tipo, sku, cantidad, descripcion, origen, precio }. */
+function cargarEnNota(cli, items, titulo) {
+  cerrar(true); cerrarHistorial(true); cvCerrar();
+  abrirVentaRuta(cli.cliente || '', cli.telefono || '');
   if (document.getElementById('ventaOverlay').hidden) return;   // sin permiso de vendedor: abrirVentaRuta ya avisó
-  document.getElementById('ventaIdCliente').value = c.idCliente || '';
+  document.getElementById('ventaIdCliente').value = cli.idCliente || '';
   ventaItemsActuales.length = 0;
   let sinPrecio = 0;
-  (c.items || []).forEach(it => {
+  (items || []).forEach(it => {
     const cant = Number(it.cantidad) || 1;
     if (it.tipo === 'pedido') { ventaItemsActuales.push({ sku: '', producto: it.descripcion || 'Refacción bajo pedido', cantidad: cant, precio: Number(it.precio) || 0, manual: true }); if (!(Number(it.precio) > 0)) sinPrecio++; return; }
     const sku = String(it.sku || '').trim(), r = resolverProductoPorSku(sku, false), precio = r ? (Number(r.precio) || 0) : (Number(it.precio) || 0);
@@ -1000,8 +1043,96 @@ function convertirEnNota(c) {
     ventaItemsActuales.push({ sku: sku, producto: (r && r.producto) || it.descripcion || sku, cantidad: cant, precio: precio, precioLista: precio, manual: !(precio > 0), origen: origen, liquidacion: !!(r && r.liquidacion) });
   });
   renderizarItemsVenta();
-  toast('Cotización ' + c.folio + ' cargada en la nota' + (sinPrecio ? ' · ' + sinPrecio + ' sin precio (captúralos)' : '') + '. Revisa precios y origen.');
+  toast(titulo + (sinPrecio ? ' · ' + sinPrecio + ' sin precio (captúralos)' : '') + '. Revisa precios y origen.');
 }
+/** Cotización guardada → nota de venta (cualquier estado menos Rechazado). */
+function convertirEnNota(c) {
+  if (!c) return;
+  cargarEnNota(c, c.items, 'Cotización ' + c.folio + ' cargada en la nota');
+}
+/** Productos que se están capturando en el formulario (aún sin guardar) → forma de items. */
+function itemsDeLineas() {
+  return lineas.map(l => {
+    const p = precioLinea(l);
+    if (l.tipo === 'pedido') return { tipo: 'pedido', cantidad: l.cantidad, descripcion: l.descripcion || 'Refacción bajo pedido', precio: p.valor || 0 };
+    const cur = origenActual(l).cur;
+    return { tipo: 'catalogo', sku: l.sku, cantidad: l.cantidad, descripcion: l.descripcion, origen: cur ? cur.sucursal : '', precio: p.valor || 0 };
+  });
+}
+/** Productos de una nota (en captura o ya guardada) → líneas de la cotización abierta. Devuelve cuántos pasaron y cuántos no. */
+function cargarLineasDeNota(items) {
+  let ok = 0, omitidos = 0, primero = true;
+  (items || []).filter(it => !it.cancelado).forEach(it => {
+    const cant = Math.max(1, Math.min(9999, Math.floor(Number(it.cantidad)) || 1)), sku = String(it.sku || '').trim();
+    if (!sku) { lineas.push({ id: ++seq, tipo: 'pedido', sku: '', descripcion: it.producto || '', disponibilidad: 'Bajo pedido', cantidad: cant, numeroParte: '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' }); ok++; return; }
+    if (primero) { const info = infoSku(sku); const s = info && info.secciones.length && info.secciones.indexOf(seccion) === -1 ? info.secciones.find(puedeCotizarEn) : null; if (s) seccion = s; primero = false; }   // arranca en la sección del primer producto
+    if (agregarSku(sku, cant, true)) {
+      const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(sku));
+      if (l && !(listaGC && listaGC[skuN(sku)]) && Number(it.precio) > 0) l.precioAprox = String(it.precio);   // sin precio en lista: conserva el de la nota
+      ok++;
+    } else omitidos++;
+  });
+  pintarSecciones(); pintarLineas();
+  return { ok: ok, omitidos: omitidos };
+}
+function avisoDeNotaACotizacion(r) {
+  toast(r.ok ? 'Productos de la nota pasados a la cotización (' + r.ok + ')' + (r.omitidos ? ' · ' + r.omitidos + ' no se pudieron copiar (otra sección o sin inventario)' : '') + '. Completa moto y año.' : 'Ningún producto de la nota se pudo copiar a la cotización.');
+}
+/** Nota ya guardada (Historial) → nueva cotización con sus datos y productos. */
+function desdeNota(venta) {
+  if (!venta) return;
+  if (!puedeUsarCotizador()) { toast('Tu cuenta no tiene permiso para cotizar.'); return; }
+  abrir({ nombre: venta.cliente || '', telefono: venta.telefono || '', idCliente: '' });
+  avisoDeNotaACotizacion(cargarLineasDeNota(venta.items));
+}
+
+/* ───────────── Vista previa de la hoja ───────────── */
+let cvUrl = null, cvCot = null, cvRepintar = null;
+function cvLiberar() {
+  const m = $('cv-marco');
+  if (m) { try { m.contentWindow.location.replace('about:blank'); } catch (e) { m.src = 'about:blank'; } }
+  if (cvUrl) { URL.revokeObjectURL(cvUrl); cvUrl = null; }
+}
+function cvCerrar() {
+  const ov = $('cv-overlay'); if (!ov || ov.hidden) return;
+  ov.hidden = true; cvLiberar(); cvCot = null; cvRepintar = null;
+  if ($('cz-overlay').hidden && $('cz-hist-overlay').hidden) document.body.style.overflow = '';
+}
+function textoSeguimiento(c) {
+  const sg = (c && c.seguimiento) || {}, ls = (sg.lineas || []).map(l => (l.origen || 'otra agencia') + (l.eta ? ' (' + l.eta + ')' : '')).join(' · ');
+  if (!c) return '';
+  if (c.estado === 'Enviada') return 'En seguimiento: cuando el cliente responda, marca si fue Vendido, Traspaso, Rechazado o Pedido.';
+  if (c.estado === 'Vendido') return 'Venta completada.';
+  if (c.estado === 'Traspaso') return 'Traspaso: ' + (sg.eta ? 'llega en aprox. ' + sg.eta + '.' : 'sin tiempo estimado.') + (ls ? ' ' + ls : '');
+  if (c.estado === 'Pedido') return 'Pedido: ' + (sg.eta || '2 a 3 semanas, siempre que VENTO tenga disponible') + '.';
+  if (c.estado === 'Rechazado') return 'Motivo del rechazo: ' + (sg.motivo || 'no registrado') + '.';
+  return '';
+}
+function cvPintar() {
+  const c = cvCot; if (!c) return;
+  const vig = vigIso(c.vigencia), tot = (c.total === '' || c.total == null) ? '' : moneda(c.total);
+  $('cv-sub').textContent = [c.cliente, tot, c.estado, vig ? (vencida(c) ? 'Venció el ' : 'Vigente hasta el ') + fechaLarga(vig) : ''].filter(Boolean).join(' · ');
+  $('cv-seg').textContent = textoSeguimiento(c);
+  $('cv-editar').hidden = !(!motivoNoEditable(c) && puedeCotizarEn(seccionDeAgencia(c.agencia)));
+  $('cv-nota').hidden = c.estado === 'Rechazado';
+}
+/** origen: 'hist' (historial) o 'nueva' (recién guardada). repintar: se llama cuando cambia algo de la cotización (estado, envío). */
+async function cvAbrir(cot, origen, repintar) {
+  if (!cot || !cot.folio) return;
+  try {
+    const [jsPDF, logo] = await Promise.all([_cargarJsPdf(), _hojaLogoDe(cot)]);
+    const blob = hojaCotizacionConstruir(jsPDF, cot, logo).output('blob');
+    cvLiberar(); cvUrl = URL.createObjectURL(blob); cvCot = cot; cvRepintar = repintar || null;
+    $('cv-titulo').textContent = 'Cotización ' + cot.folio;
+    const m = $('cv-marco'); try { m.contentWindow.location.replace(cvUrl); } catch (e) { m.src = cvUrl; }
+    $('cv-aparte').href = cvUrl;
+    const dl = $('cv-descargar'); dl.href = cvUrl; dl.download = _cotNombrePdf(cot);   // sale como «Cotización C00006.pdf»
+    cvPintar();
+    $('cv-overlay').hidden = false; document.body.style.overflow = 'hidden';
+    try { $('cv-cerrar').focus(); } catch (e) {}
+  } catch (e) { toast(e && e.message ? e.message : 'No se pudo abrir la vista previa.'); }
+}
+const cvAlCambiar = () => { cvPintar(); if (cvRepintar) { try { cvRepintar(); } catch (e) {} } };
 
 /* ───────────── Pestañas Nota de venta | Cotización (en los dos modales) ───────────── */
 function pestañasVenta() {
@@ -1013,16 +1144,20 @@ function pestañasVenta() {
   x.addEventListener('click', () => cerrarVentaRuta());
   fila.appendChild(d); fila.appendChild(x);
   tit.parentNode.insertBefore(fila, tit);
-  $('cz-vtab-cot').addEventListener('click', async () => {
+  $('cz-vtab-cot').addEventListener('click', () => {   // nota en captura → cotización con sus productos
     if (!puedeUsarCotizador()) { toast('Tu cuenta no tiene permiso para cotizar.'); return; }
     const datos = { nombre: $('ventaCliente').value, telefono: $('ventaTelefono').value, idCliente: $('ventaIdCliente').value };
-    if (typeof ventaItemsActuales !== 'undefined' && ventaItemsActuales.length && !(await confirmarMaps({ titulo: 'Pasar a cotización', mensaje: 'Los productos de esta nota no se copian a la cotización. ¿Continuar?', confirmar: 'Continuar', cancelar: 'Seguir en la nota' }))) return;
+    const items = (typeof ventaItemsActuales !== 'undefined') ? ventaItemsActuales.slice() : [];
     cerrarVentaRuta(); abrir(datos);
+    if (items.length) avisoDeNotaACotizacion(cargarLineasDeNota(items));
   });
 }
+/** Cotización en captura → nota de venta con sus productos (el borrador de la cotización se conserva). */
 function aNotaDesdeCotizador() {
-  const datos = { nombre: $('cz-cliente').value.trim(), tel: $('cz-telefono').value };
-  cerrar(false); abrirVentaRuta(datos.nombre, datos.tel);
+  const cli = { cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto || $('cz-idcliente').value };
+  const items = itemsDeLineas();
+  if (!guardada && !edicion && (lineas.length || cli.cliente || cli.telefono)) borradorAhora();
+  cargarEnNota(cli, items, items.length ? 'Productos de la cotización cargados en la nota' : 'Datos del cliente cargados en la nota');
 }
 
 /* ───────────── Eventos ───────────── */
@@ -1036,13 +1171,22 @@ function enlazar() {
   $('cz-empezar').addEventListener('click', () => { borrarBorrador(); reiniciar(); setTimeout(() => $('cz-idcliente').focus(), 60); });
   $('cz-otra').addEventListener('click', () => { borrarBorrador(); reiniciar(); setTimeout(() => $('cz-idcliente').focus(), 60); });
   $('cz-whats').addEventListener('click', e => enviarWhats(ultima, e.currentTarget));
-  $('cz-pdf').addEventListener('click', e => hojaCotizacionPdf(ultima, e.currentTarget));
+  $('cz-vista').addEventListener('click', () => cvAbrir(ultima, 'nueva', () => { if (ultima && ultima.folio && !$('cz-hist-overlay').hidden) cargarHistorial(histPag); }));
+  $('cz-cerrar-listo').addEventListener('click', () => cerrar(true));
+  $('cv-cerrar').addEventListener('click', cvCerrar);
+  $('cv-overlay').addEventListener('mousedown', e => { if (e.target === $('cv-overlay')) cvCerrar(); });
+  $('cv-wa').addEventListener('click', e => { if (cvCot) enviarWhats(cvCot, e.currentTarget).then(cvAlCambiar); });
+  $('cv-pdf').addEventListener('click', e => hojaCotizacionPdf(cvCot, e.currentTarget));
+  $('cv-editar').addEventListener('click', () => { const c = cvCot; cvCerrar(); editar(c); });
+  $('cv-estado').addEventListener('click', () => { if (cvCot) cambiarEstadoPanel(cvCot, cvAlCambiar); });
+  $('cv-nota').addEventListener('click', () => { const c = cvCot; cvCerrar(); convertirEnNota(c); });
   $('cz-a-nota').addEventListener('click', () => convertirEnNota(ultima));
   $('cz-historial').addEventListener('click', () => { cerrar(true); if (typeof window.abrirHistorialMaps === 'function') window.abrirHistorialMaps('cotizaciones'); else abrirHistorial(); });
   $('cz-secciones').addEventListener('click', e => { const b = e.target.closest('[data-sec]'); if (b) cambiarSeccion(b.dataset.sec); });
   // cliente
   const idc = $('cz-idcliente'); idc.addEventListener('input', () => { const v = soloDigitos(idc.value); if (v !== idc.value) idc.value = v; idResuelto = ''; clearTimeout(idc._t); idc._t = setTimeout(buscarCliente, 600); });
   idc.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(idc._t); buscarCliente(); } });
+  $('cz-id-buscar').addEventListener('click', () => { clearTimeout(idc._t); buscarCliente(); });
   $('cz-id-resultados').addEventListener('click', e => { const b = e.target.closest('[data-cli]'); if (b) elegirCliente(coincidencias[Number(b.dataset.cli)]); });
   const filtrar = (id, fn) => { const el = $(id); el.addEventListener('input', () => { const v = fn(el.value); if (v !== el.value) el.value = v; }); };
   filtrar('cz-cliente', soloLetras); filtrar('cz-telefono', v => soloDigitos(v).slice(0, 15)); filtrar('cz-anio', v => soloDigitos(v).slice(0, 4));
@@ -1095,15 +1239,15 @@ function enlazar() {
   $('cz-hist-texto').addEventListener('input', e => { histTexto = e.target.value.trim(); clearTimeout(histTimer); histTimer = setTimeout(() => cargarHistorial(1), 450); });
   $('cz-hist-estado').addEventListener('change', e => { histEstado = e.target.value; cargarHistorial(1); });
   $('cz-hist-ant').addEventListener('click', () => cargarHistorial(histPag - 1)); $('cz-hist-sig').addEventListener('click', () => cargarHistorial(histPag + 1));
-  $('cz-hist-lista').addEventListener('click', async e => {
-    const b = e.target.closest('[data-h]'); if (!b) return; const card = b.closest('[data-folio]'), c = hist.find(x => x.folio === card.dataset.folio); if (!c) return;
-    const a = b.dataset.h;
-    if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(pintarHistorial);
+  $('cz-hist-lista').addEventListener('click', e => {
+    const card = e.target.closest('[data-folio]'); if (!card) return; const c = hist.find(x => x.folio === card.dataset.folio); if (!c) return;
+    const b = e.target.closest('[data-h]'), a = b ? b.dataset.h : 'ver';   // tocar la tarjeta = vista previa
+    if (a === 'ver') cvAbrir(c, 'hist', pintarHistorial); else if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(pintarHistorial);
     else if (a === 'editar') editar(c); else if (a === 'estado') cambiarEstadoPanel(c); else if (a === 'nota') convertirEnNota(c);
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (!$('cz-panel').hidden) cerrarPanel(); else if (!$('cz-overlay').hidden) cerrar(false); else if (!$('cz-hist-overlay').hidden) cerrarHistorial();
+    if (!$('cz-panel').hidden) cerrarPanel(); else if (!$('cv-overlay').hidden) cvCerrar(); else if (!$('cz-overlay').hidden) cerrar(false); else if (!$('cz-hist-overlay').hidden) cerrarHistorial();
   });
 }
 
@@ -1117,11 +1261,11 @@ function visibilidadBotones() {
 function iniciar() {
   if (document.getElementById('cz-overlay')) return;
   const st = document.createElement('style'); st.id = 'cz-estilos'; st.textContent = CSS; document.head.appendChild(st);
-  const cont = document.createElement('div'); cont.id = 'cz-raiz'; cont.innerHTML = HTML + HIST_HTML; document.body.appendChild(cont);
+  const cont = document.createElement('div'); cont.id = 'cz-raiz'; cont.innerHTML = HTML + HIST_HTML + CV_HTML; document.body.appendChild(cont);
   enlazar(); pestañasVenta(); visibilidadBotones();
   const orig = window.actualizarVisibilidadBotonVenta;   // Maps la llama al iniciar sesión: ahí se muestran u ocultan los botones
   if (typeof orig === 'function') window.actualizarVisibilidadBotonVenta = function () { const r = orig.apply(this, arguments); try { visibilidadBotones(); } catch (e) {} return r; };
 }
-window.Cotizador = { abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
+window.Cotizador = { desdeNota: desdeNota, verCotizacion: cvAbrir, abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();
