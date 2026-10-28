@@ -487,7 +487,7 @@ function pintarLineas() {
       : '<div style="min-width:0"><div class="cz-desc">' + esc(l.descripcion || 'SKU ' + l.sku) + '</div><div class="cz-sku">' + esc(l.sku) + '</div>' + disp + avisoStock + avisosHtml(l.sku, true) + origen + '</div>';
     const precioHtml = (!ped && p.lista)
       ? '<div class="cz-ayuda" style="margin:0">' + moneda(p.valor) + ' c/u</div><div class="cz-imp" id="cz-imp-' + l.id + '">' + moneda(p.valor * l.cantidad) + '</div>'
-      : '<div class="cz-campo" style="margin:0"><label for="cz-pa-' + l.id + '">' + (ped ? 'Precio aproximado' : 'Sin precio en lista: captura uno') + '</label><input id="cz-pa-' + l.id + '" data-id="' + l.id + '" data-campo="precioAprox" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.precioAprox) + '"></div>'
+      : '<div class="cz-campo" style="margin:0"><label for="cz-pa-' + l.id + '">' + (ped ? 'Precio aproximado' : 'Sin precio en lista: captura uno') + '</label><input id="cz-pa-' + l.id + '" data-id="' + l.id + '" data-campo="precioAprox" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.precioAprox) + '"' + (precioBloqueado(l) ? ' readonly aria-readonly="true" title="Precio sugerido de VENTO: solo administración lo puede cambiar"' : '') + '></div>'
         + '<div class="cz-imp" id="cz-imp-' + l.id + '">' + (p.valor === null ? '—' : moneda(p.valor * l.cantidad)) + '</div>';
     return '<div class="cz-linea" id="cz-l-' + l.id + '"><div class="cz-linea-top">' + cabeza
       + '<button type="button" class="cz-quitar" data-id="' + l.id + '" data-act="quitar" aria-label="Quitar ' + esc(ped ? (l.numeroParte || 'producto bajo pedido') : l.sku) + '">' + IC.quitar + '</button></div>'
@@ -524,24 +524,43 @@ function agregarPedido() {
   lineas.push({ id: ++seq, tipo: 'pedido', sku: '', descripcion: '', disponibilidad: 'Bajo pedido', cantidad: 1, numeroParte: '', precioAprox: '' });
   errGeneral(''); pintarLineas(); setTimeout(() => { const i = document.querySelector('#cz-l-' + seq + ' input[data-campo="numeroParte"]'); if (i) i.focus(); }, 30);
 }
-/** Línea bajo pedido: con el número de parte trae el precio aproximado de la lista de VENTO (editable). Solo en Vento / Carabela. */
+/** Precio sugerido de la lista de VENTO (bajo pedido): solo administración lo puede cambiar.
+ *  Vendedores lo ven bloqueado; si la parte no está en la lista o no trae precio, se captura a mano. */
+const soyAdminReal = () => typeof esAdmin !== 'undefined' && esAdmin === true;   // en Maps esAdmin ya excluye a vendedores
+const precioBloqueado = l => !soyAdminReal() && !!l && l.tipo === 'pedido' && Number(l.precioVento) > 0;
+function aplicarBloqueoPrecio(l) {
+  const pa = $('cz-pa-' + l.id); if (!pa) return;
+  const b = precioBloqueado(l);
+  pa.readOnly = b; pa.title = b ? 'Precio sugerido de VENTO: solo administración lo puede cambiar' : ''; pa.setAttribute('aria-readonly', b ? 'true' : 'false');
+}
+/** Cotización o borrador cargado: se confirma en la lista qué precios están bloqueados (sin cambiar lo ya capturado). */
+function verificarBloqueosPrecio() {
+  if (soyAdminReal()) return;
+  lineas.forEach(l => { if (l.tipo === 'pedido' && String(l.numeroParte || '').trim().length >= 3) buscarParte(l.id, true); });
+}
+/** Línea bajo pedido: con el número de parte trae el precio sugerido de la lista de VENTO. Solo en Vento / Carabela.
+ *  soloBloquear: solo confirma el bloqueo, sin tocar lo capturado. */
 let _parteT = {};
-function buscarParte(id) {
+function buscarParte(id, soloBloquear) {
   clearTimeout(_parteT[id]);
   _parteT[id] = setTimeout(async () => {
     const l0 = lineas.find(x => x.id === id); if (!l0) return;
     const np = String(l0.numeroParte || '').trim(), estado = t => { l0.vnTexto = t; const el = $('cz-vn-' + id); if (el) el.textContent = t; };
-    if (np.length < 3 || seccion !== 'VENTO') { estado(''); return; }
+    if (np.length < 3 || seccion !== 'VENTO') { l0.precioVento = 0; aplicarBloqueoPrecio(l0); estado(''); return; }
     estado('Buscando en la lista de VENTO…');
     try {
       const rs = await api('consultarParteVento', { numeroParte: np });
       const l = lineas.find(x => x.id === id); if (!l || String(l.numeroParte || '').trim() !== np) return;
       if (!rs.success) { estado(rs.message || 'No se pudo consultar la lista de VENTO.'); return; }
-      if (!rs.encontrado) { estado('No está en la lista de VENTO: captura el precio aproximado a mano.'); return; }
-      if (!String(l.descripcion || '').trim() && rs.descripcion) { l.descripcion = rs.descripcion; const d = $('cz-ds-' + id); if (d) d.value = rs.descripcion; }
+      if (!rs.encontrado) { l.precioVento = 0; aplicarBloqueoPrecio(l); estado('No está en la lista de VENTO: captura el precio aproximado a mano.'); return; }
+      if (!soloBloquear && !String(l.descripcion || '').trim() && rs.descripcion) { l.descripcion = rs.descripcion; const d = $('cz-ds-' + id); if (d) d.value = rs.descripcion; }
       const partes = [];
-      if (rs.precio > 0) { if (!l.precioManual) { l.precioAprox = Number(rs.precio).toFixed(2); const pa = $('cz-pa-' + id); if (pa) pa.value = l.precioAprox; } partes.push('Precio aproximado de lista: ' + moneda(rs.precio) + ' (editable)'); }
-      else partes.push('Precio pendiente en la lista: captura uno aproximado');
+      if (rs.precio > 0) {
+        l.precioVento = Number(rs.precio);
+        if (!soloBloquear && (!l.precioManual || !soyAdminReal())) { l.precioAprox = Number(rs.precio).toFixed(2); const pa = $('cz-pa-' + id); if (pa) pa.value = l.precioAprox; }   // quien no es admin siempre queda con el precio de lista
+        partes.push('Precio sugerido de lista: ' + moneda(rs.precio) + (soyAdminReal() ? ' (editable)' : ' (solo administración lo modifica)'));
+      } else { l.precioVento = 0; partes.push('Precio pendiente en la lista: captura uno aproximado'); }
+      aplicarBloqueoPrecio(l);
       if (rs.disponibilidad) partes.push('Disponibilidad: ' + rs.disponibilidad + (rs.fechaRecibo ? ' · recibo ' + rs.fechaRecibo : ''));
       if (rs.aplicacion) partes.push('Aplicación: ' + rs.aplicacion);
       estado(partes.join(' · ')); actualizarImportes();
@@ -627,7 +646,7 @@ function restaurarBorrador(d) {
   $('cz-idcliente').value = d.idTexto || ''; idResuelto = d.idCliente || ''; $('cz-cliente').value = d.cliente || ''; $('cz-telefono').value = d.telefono || ''; $('cz-moto').value = d.moto || ''; $('cz-anio').value = d.anio || '';
   if (d.vigencia && d.vigencia >= iso(new Date())) $('cz-vigencia').value = d.vigencia;
   lineas = (d.lineas || []).map(l => Object.assign({}, l, { id: ++seq }));
-  $('cz-borrador-hace').textContent = haceCuanto(d.t); $('cz-borrador').hidden = false; pintarLineas();
+  $('cz-borrador-hace').textContent = haceCuanto(d.t); $('cz-borrador').hidden = false; pintarLineas(); verificarBloqueosPrecio();
 }
 
 /* ───────────── Abrir / reiniciar / cerrar ───────────── */
@@ -677,7 +696,7 @@ async function editar(c) {
     const info = infoSku(it.sku);
     return { id: ++seq, tipo: 'catalogo', sku: String(it.sku || ''), descripcion: it.descripcion || (info && info.nombre) || '', disponibilidad: it.disponibilidad || 'En existencia', cantidad: cant, origen: it.origen || '', precioAprox: it.precioAprox && Number(it.precio) > 0 ? String(it.precio) : '' };
   });
-  pintarSecciones(); pintarLineas();
+  pintarSecciones(); pintarLineas(); verificarBloqueosPrecio();
 }
 const seccionDeAgencia = a => { const t = String(a || '').toUpperCase(); return (t === 'SUZUKI' || t === 'BAJAJ') ? t : 'VENTO'; };
 function motivoNoEditable(c) {
@@ -1243,6 +1262,7 @@ function enlazar() {
   lin.addEventListener('change', e => { const s = e.target.closest('[data-act="origen"]'); if (!s) return; const l = lineas.find(q => q.id === Number(s.dataset.id)); if (l) { l.origen = s.value; pintarLineas(); } });
   lin.addEventListener('input', e => {
     const i = e.target.closest('[data-campo]'); if (!i) return; const l = lineas.find(q => q.id === Number(i.dataset.id)); if (!l) return;
+    if (i.dataset.campo === 'precioAprox' && precioBloqueado(l)) { i.value = l.precioAprox; return; }   // precio sugerido de VENTO: solo administración
     if (i.dataset.campo === 'cantidad') { const n = Math.floor(Number(i.value)); l.cantidad = n >= 1 ? Math.min(n, 9999) : 1; }
     else l[i.dataset.campo] = i.value;
     if (i.dataset.campo === 'precioAprox') l.precioManual = true;
