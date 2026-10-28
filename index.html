@@ -1093,67 +1093,75 @@ input:focus-visible, textarea:focus-visible{ outline:2px solid var(--ring); outl
   <div class="venta-card">
     <div class="venta-titulo">
       <span id="ventaTituloForm">Nueva venta</span>
-      <button onclick="cerrarVentaRuta()" aria-label="Cerrar">✕</button>
+      <button onclick="cerrarVentaRuta('x')" aria-label="Cerrar">✕</button>
     </div>
     <div class="venta-folio" id="ventaFolioPreview"></div>
-    <div class="venta-error" id="ventaError"></div>
+    <div class="cz-borrador" id="ventaBorrador" hidden role="status"><span>Borrador recuperado (<span id="ventaBorradorHace"></span>)</span><button type="button" class="cz-link" onclick="empezarNuevaNotaVenta()">Empezar de nuevo</button></div>
 
-    <div class="venta-campo">
-      <label for="ventaTipoNota">Tipo de nota</label>
-      <select id="ventaTipoNota" onchange="actualizarTipoNotaVenta()">
-        <option value="contado">Venta de contado</option>
-        <option value="credito">Venta a crédito</option>
-        <option value="pedido">Pedido (aún no se entrega)</option>
-      </select>
-    </div>
- 
-    <div class="venta-campo">
-      <label for="ventaCliente">Cliente / prospecto</label>
-      <input type="text" id="ventaCliente" placeholder="Nombre del cliente" enterkeyhint="next">
+    <fieldset class="cz-bloque"><legend>1 · Cliente</legend>
       <div class="venta-campo">
-      <label for="ventaIdCliente">ID de cliente (catálogo)</label>
-      <input type="text" id="ventaIdCliente" placeholder="Opcional" autocomplete="off">
+        <label for="ventaIdCliente">ID de cliente (catálogo)</label>
+        <input type="text" id="ventaIdCliente" inputmode="numeric" placeholder="Opcional" autocomplete="off">
+      </div>
+      <div class="venta-campo">
+        <label for="ventaCliente">Nombre del cliente <span class="cz-req" aria-hidden="true">*</span></label>
+        <input type="text" id="ventaCliente" placeholder="Nombre del cliente" autocomplete="off" required aria-required="true" enterkeyhint="next">
+      </div>
+      <div class="venta-campo">
+        <label for="ventaTelefono">Teléfono</label>
+        <input type="tel" inputmode="numeric" id="ventaTelefono" placeholder="Ej. 9851234567" enterkeyhint="next">
+      </div>
+    </fieldset>
 
-      <label for="ventaTelefono">Teléfono del cliente</label>
-      <input type="tel" inputmode="numeric" id="ventaTelefono" placeholder="Ej. 9851234567" enterkeyhint="next">
+    <fieldset class="cz-bloque"><legend>2 · Tipo de nota y pago</legend>
+      <div class="venta-campo">
+        <label for="ventaTipoNota">Tipo de nota</label>
+        <select id="ventaTipoNota" onchange="actualizarTipoNotaVenta()">
+          <option value="contado">Venta de contado</option>
+          <option value="credito">Venta a crédito</option>
+          <option value="pedido">Pedido (aún no se entrega)</option>
+        </select>
+      </div>
+      <div class="venta-campo">
+        <label for="ventaMetodoPago">Método de pago</label>
+        <select id="ventaMetodoPago" onchange="actualizarCamposPagoVenta()">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="msi">MSI (terminal)</option>
+        </select>
+      </div>
+      <div class="venta-campo" id="ventaCampoReferencia" style="display:none">
+        <label for="ventaReferencia" id="ventaReferenciaLabel">Referencia</label>
+        <input type="text" id="ventaReferencia">
+      </div>
+      <div class="venta-campo" id="ventaCampoMeses" style="display:none">
+        <label for="ventaMeses">Meses (MSI)</label>
+        <input type="number" id="ventaMeses" min="1" max="24" value="3">
+      </div>
+      <div class="venta-campo" id="ventaCampoAnticipo" style="display:none">
+        <label for="ventaAnticipo">Anticipo recibido</label>
+        <input type="number" id="ventaAnticipo" min="0" step="0.01" value="0">
+      </div>
+      <div class="venta-error" id="ventaAvisoPedido" style="display:none; background:transparent; color:var(--text-dim); font-size:11.5px;">
+        Es un pedido: no se descuenta del almacén móvil ni se valida existencia — se entrega y cobra después.
+      </div>
+    </fieldset>
+
+    <fieldset class="cz-bloque"><legend>3 · Productos</legend>
+      <div class="venta-buscador">
+        <input type="text" id="ventaBuscador" placeholder="Buscar producto por SKU o nombre…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-label="Buscar producto">
+        <div class="vr-lista" id="ventaResultados"></div>
+      </div>
+      <div id="ventaItemsLista"></div>
+      <button class="venta-agregar-item" id="btnKitsVenta" type="button" onclick="abrirKitsVenta()">🧰 Agregar kit de servicio (con descuento)</button>
+    </fieldset>
+
+    <div class="venta-pie">
+      <div class="venta-total"><span>Total con IVA</span><span id="ventaTotalMostrado">$0.00</span></div>
+      <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente y el teléfono son opcionales.</p>
+      <div class="venta-error" id="ventaError" role="alert"></div>
+      <button class="venta-btn" id="ventaBtnGuardar" onclick="confirmarVentaRuta()">Generar ticket y enviar</button>
     </div>
-    </div>
- 
-    <div class="venta-buscador">
-      <input type="text" id="ventaBuscador" placeholder="Buscar producto por SKU o nombre…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-label="Buscar producto">
-      <div class="vr-lista" id="ventaResultados"></div>
-    </div>
-    <div id="ventaItemsLista"></div>
-    <button class="venta-agregar-item" id="btnKitsVenta" type="button" onclick="abrirKitsVenta()">🧰 Agregar kit de servicio (con descuento)</button>
-    <button class="venta-agregar-item" onclick="agregarFilaItemVenta()">+ Captura manual (producto fuera de catálogo)</button>
- 
-    <div class="venta-campo">
-      <label for="ventaMetodoPago">Método de pago</label>
-      <select id="ventaMetodoPago" onchange="actualizarCamposPagoVenta()">
-        <option value="efectivo">Efectivo</option>
-        <option value="transferencia">Transferencia</option>
-        <option value="msi">MSI (terminal)</option>
-      </select>
-    </div>
-    <div class="venta-campo" id="ventaCampoReferencia" style="display:none">
-      <label for="ventaReferencia" id="ventaReferenciaLabel">Referencia</label>
-      <input type="text" id="ventaReferencia">
-    </div>
-    <div class="venta-campo" id="ventaCampoMeses" style="display:none">
-      <label for="ventaMeses">Meses (MSI)</label>
-      <input type="number" id="ventaMeses" min="1" max="24" value="3">
-    </div>
-    <div class="venta-campo" id="ventaCampoAnticipo" style="display:none">
-      <label for="ventaAnticipo">Anticipo recibido</label>
-      <input type="number" id="ventaAnticipo" min="0" step="0.01" value="0">
-    </div>
-    <div class="venta-error" id="ventaAvisoPedido" style="display:none; background:transparent; color:var(--text-dim); font-size:11.5px;">
-      Es un pedido: no se descuenta del almacén móvil ni se valida existencia — se entrega y cobra después.
-    </div>
- 
-    <div class="venta-total"><span>Total</span><span id="ventaTotalMostrado">$0.00</span></div>
- 
-    <button class="venta-btn" id="ventaBtnGuardar" onclick="confirmarVentaRuta()">Generar ticket y enviar</button>
   </div>
 </div>
 
@@ -1878,8 +1886,71 @@ let ventaIdInternoActual = "";
 let visitaActualVendedor = null; // cliente de la venta abierta; lo lee el seguimiento en vivo
 let ventaEdicion = null; // si no es null, el formulario está editando una nota ya registrada: { original, restit }
  
-function abrirVentaRuta(nombreCliente, telefonoCliente){
+/* [borrador-venta] */
+/* ---------- Borrador de la nota (solo en este celular, por cuenta) ----------
+   Todo lo capturado en «Nueva venta» se conserva al cerrar el formulario, al pasar a Cotización
+   o al cerrar la app, y se recupera al abrir «Nueva venta» sin cliente precargado.
+   Se borra al generar el ticket. No se guarda al editar una nota ya registrada. */
+const BORRADOR_VENTA_DIAS = 7;
+let borradorVentaT = null, ventaOmitirBorrador = false;
+function claveBorradorVenta(){ return 'ventaBorrador:' + String(usuarioActual || '').toLowerCase(); }
+function _valVenta(id){ const el = document.getElementById(id); return el ? el.value : ''; }
+function ventaHayCapturado(){
+  return !!(_valVenta('ventaCliente').trim() || _valVenta('ventaTelefono').trim() || _valVenta('ventaIdCliente').trim() || ventaItemsActuales.length);
+}
+function borradorVentaAhora(){
+  clearTimeout(borradorVentaT);
+  const ov = document.getElementById('ventaOverlay');
+  if (ventaEdicion || ventaOmitirBorrador || !ov || ov.hidden) return;
+  try {
+    if (!ventaHayCapturado()){ localStorage.removeItem(claveBorradorVenta()); return; }
+    const d = { v: 1, t: Date.now(),
+      tipoNota: _valVenta('ventaTipoNota'), cliente: _valVenta('ventaCliente'), telefono: _valVenta('ventaTelefono'), idCliente: _valVenta('ventaIdCliente'),
+      metodoPago: _valVenta('ventaMetodoPago'), referencia: _valVenta('ventaReferencia'), meses: _valVenta('ventaMeses'), anticipo: _valVenta('ventaAnticipo'),
+      items: ventaItemsActuales.map(function(it){ return Object.assign({}, it); }) };
+    const json = JSON.stringify(d);
+    if (typeof setItemSeguro === 'function') setItemSeguro(claveBorradorVenta(), json); else localStorage.setItem(claveBorradorVenta(), json);
+  } catch (e) { /* es un respaldo: si no cabe, no debe estorbar la captura */ }
+}
+function guardarBorradorVenta(){ clearTimeout(borradorVentaT); borradorVentaT = setTimeout(borradorVentaAhora, 400); }
+function limpiarBorradorVenta(){ clearTimeout(borradorVentaT); try { localStorage.removeItem(claveBorradorVenta()); } catch (e) {} }
+function leerBorradorVenta(){
+  try {
+    const d = JSON.parse(localStorage.getItem(claveBorradorVenta()) || 'null');
+    if (!d || d.v !== 1 || Date.now() - d.t > BORRADOR_VENTA_DIAS * 86400000){ if (d) limpiarBorradorVenta(); return null; }
+    return d;
+  } catch (e) { return null; }
+}
+function haceCuantoVenta(t){
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? 'hace un momento' : m < 60 ? 'hace ' + m + ' min' : m < 1440 ? 'hace ' + Math.round(m / 60) + ' h' : 'hace ' + Math.round(m / 1440) + ' d';
+}
+function restaurarBorradorVenta(d){
+  const set = function(id, v){ const el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); };
+  set('ventaTipoNota', d.tipoNota || 'contado'); set('ventaCliente', d.cliente); set('ventaTelefono', d.telefono); set('ventaIdCliente', d.idCliente);
+  set('ventaMetodoPago', d.metodoPago || 'efectivo'); set('ventaReferencia', d.referencia); set('ventaMeses', d.meses || '3'); set('ventaAnticipo', d.anticipo || '0');
+  visitaActualVendedor = String(d.cliente || '').trim() || null;
+  ventaItemsActuales = [];                 // se ajustan los campos primero; así no se recalculan los precios guardados
+  actualizarCamposPagoVenta(); actualizarTipoNotaVenta();
+  ventaItemsActuales = (d.items || []).map(function(it){ return Object.assign({}, it); });
+  renderizarItemsVenta();
+  document.getElementById('ventaBorradorHace').textContent = haceCuantoVenta(d.t);
+  document.getElementById('ventaBorrador').hidden = false;
+}
+function empezarNuevaNotaVenta(){
+  limpiarBorradorVenta();
+  ['ventaCliente', 'ventaTelefono', 'ventaIdCliente', 'ventaReferencia'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('ventaTipoNota').value = 'contado'; document.getElementById('ventaMetodoPago').value = 'efectivo';
+  document.getElementById('ventaMeses').value = '3'; document.getElementById('ventaAnticipo').value = '0';
+  visitaActualVendedor = null; ventaItemsActuales = [];
+  actualizarCamposPagoVenta(); actualizarTipoNotaVenta(); renderizarItemsVenta();
+  document.getElementById('ventaBorrador').hidden = true;
+}
+/* [/borrador-venta] */
+
+function abrirVentaRuta(nombreCliente, telefonoCliente, opciones){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
+  { const bb = document.getElementById("ventaBorrador"); if (bb) bb.hidden = true; }
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
   ventaIdInternoActual = generarIdInternoVenta();
@@ -1902,6 +1973,7 @@ function abrirVentaRuta(nombreCliente, telefonoCliente){
   renderizarItemsVenta();
   const buscador = document.getElementById("ventaBuscador");
   buscador.value = ""; pintarResultadosVenta();
+  if (!nombreCliente && !telefonoCliente && !(opciones && opciones.sinBorrador)){ const bor = leerBorradorVenta(); if (bor) restaurarBorradorVenta(bor); }   // sin cliente precargado: se recupera lo último capturado
   document.getElementById("ventaOverlay").hidden = false;
   // PC: el cursor arranca donde hay algo que capturar (cliente si está vacío,
   // si no directo en el buscador). En celular no se abre el teclado solo.
@@ -1910,7 +1982,12 @@ function abrirVentaRuta(nombreCliente, telefonoCliente){
     (cli.value.trim() ? buscador : cli).focus();
   }, 60);
 }
-function cerrarVentaRuta(){
+function cerrarVentaRuta(origen){
+  if (!ventaEdicion && !ventaOmitirBorrador && !document.getElementById("ventaOverlay").hidden){
+    const habia = ventaHayCapturado();
+    borradorVentaAhora();   // todo lo capturado queda como borrador
+    if (origen === 'x' && habia) mostrarToast && mostrarToast("Se guardó como borrador en este celular.");
+  }
   document.getElementById("ventaOverlay").hidden = true;
   visitaActualVendedor = null;
   window.cotizacionCatalogoActiva = null; // si se cancela, ya no se marca nada en el catálogo
@@ -1978,6 +2055,7 @@ async function editarNotaVenta(venta){
   sincronizarPreciosRuta();
   visitaActualVendedor = base.cliente || null;
   document.getElementById("ventaTituloForm").innerText = "Editar nota";
+  { const bb = document.getElementById("ventaBorrador"); if (bb) bb.hidden = true; }
   document.getElementById("ventaFolioPreview").innerText = "Editando: " + base.folio;
   const tipo = base.tipoNota || (esPedidoOrig ? "pedido" : "contado");
   document.getElementById("ventaTipoNota").value = tipo;
@@ -2103,15 +2181,6 @@ function actualizarTipoNotaVenta(){
   });
   renderizarItemsVenta();
 } 
-function agregarFilaItemVenta(){
-  // Captura manual: producto que no está en el catálogo (se marca para revisión).
-  ventaItemsActuales.push({ sku: "", producto: "", cantidad: 1, precio: 0, manual: true });
-  renderizarItemsVenta();
-  const w = document.getElementById("ventaItemsLista").lastElementChild;
-  const campo = w && w.querySelector(".vi-sku");
-  if (campo) campo.focus();
-  if (w) w.scrollIntoView({ block: "nearest" });
-}
 function quitarFilaItemVenta(idx){
   ventaItemsActuales.splice(idx, 1);
   renderizarItemsVenta();
@@ -2366,8 +2435,7 @@ function pintarResultadosVenta(){
   ventaResultados = buscarProductosVenta(q);
   ventaResIdx = 0;
   if (!ventaResultados.length){
-    cont.innerHTML = '<div class="vr-vacio">Sin resultados para «' + escapeHtmlVenta(q.trim()) + '».'
-      + '<button type="button" onclick="agregarManualDesdeBusqueda()">Agregar manualmente</button></div>';
+    cont.innerHTML = '<div class="vr-vacio">Sin resultados para «' + escapeHtmlVenta(q.trim()) + '». Solo se pueden agregar productos con inventario.</div>';
     return;
   }
   const esPedido = esVentaPedido();
@@ -2415,25 +2483,16 @@ function elegirResultadoVenta(i){
   if (esPunteroFinoVenta()) enfocarCantidadVenta(idx);
   else b.focus({ preventScroll: true });
 }
-function agregarManualDesdeBusqueda(){
-  const b = document.getElementById('ventaBuscador');
-  const q = b.value.trim();
-  const it = { sku: '', producto: '', cantidad: 1, precio: 0, manual: true };
-  if (q){ if (/\s/.test(q)) it.producto = q; else it.sku = q; }
-  ventaItemsActuales.push(it);
-  b.value = ''; pintarResultadosVenta();
-  renderizarItemsVenta();
-  const w = document.getElementById('ventaItemsLista').lastElementChild;
-  if (w){
-    const campo = w.querySelector(!it.sku ? '.vi-sku' : (!it.producto ? '.vi-producto' : '.vi-precio'));
-    if (campo) campo.focus();
-    w.scrollIntoView({ block: 'nearest' });
-  }
-}
 function ventaEnterSkuFila(idx, el){
   el.blur(); // dispara onchange: resuelve el SKU y repinta la fila
   setTimeout(function(){ enfocarCantidadVenta(idx); }, 0);
 }
+(function(){   // borrador de la nota: cada cambio (teclear, elegir, +/−, quitar) se guarda solo
+  const ov = document.getElementById('ventaOverlay'); if (!ov) return;
+  ['input', 'change', 'click'].forEach(function(ev){ ov.addEventListener(ev, guardarBorradorVenta); });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) borradorVentaAhora(); });
+  window.addEventListener('pagehide', borradorVentaAhora);
+})();
 (function(){
   const b = document.getElementById('ventaBuscador');
   if (!b) return;
@@ -2468,6 +2527,9 @@ errEl.style.display = "none";
   const itemsValidos = ventaItemsActuales.filter(function(it){ return it.producto.trim() && it.cantidad > 0; });
   if (!cliente){ errEl.innerText = "Ingresa el nombre del cliente."; errEl.style.display = "block"; return; }
   if (itemsValidos.length === 0){ errEl.innerText = "Agrega al menos un producto."; errEl.style.display = "block"; return; }
+  if (!edicion && itemsValidos.some(function(it){ return it.manual || !String(it.sku || "").trim(); })){
+    errEl.innerText = "Solo se pueden vender productos con inventario (SKU del catálogo). Quita las líneas sin SKU."; errEl.style.display = "block"; return;
+  }
 
   const tipoNota = document.getElementById("ventaTipoNota").value;
   const esPedido = tipoNota === "pedido";
@@ -2627,7 +2689,9 @@ if(filasADescontar.length > 0) sincronizarAlmacenASheet(filasADescontar); // sin
     // aunque la venta ya estuviera a salvo. Por eso ya no se hace await
     // aquí — se cierra el formulario de inmediato y compartir corre aparte.
     const pdfBlob = generarPdfTicketVenta(venta);
-    cerrarVentaRuta();
+    ventaOmitirBorrador = true;
+    try { cerrarVentaRuta(); } finally { ventaOmitirBorrador = false; }
+    limpiarBorradorVenta();
     const skusManuales = itemsValidos.filter(function(it){ return it.manual; }).map(function(it){ return it.sku || it.producto; });
     mostrarToast && mostrarToast(
       edicion ? ("Nota " + venta.folio + " actualizada.") : ((esPedido ? "Pedido " : "Venta ") + venta.folio + " registrado.")
@@ -4039,7 +4103,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '27-oct · v74 · cotizar';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '27-oct · v75 · nota';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){

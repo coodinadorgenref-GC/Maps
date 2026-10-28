@@ -263,6 +263,24 @@ html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-acciones a{min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 13px/1 inherit;display:inline-flex;align-items:center;gap:6px;text-decoration:none;cursor:pointer}
 .cz-overlay a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .cz-acciones button[hidden],.cz-acciones a[hidden]{display:none}
+/* Pie fijo (como en el catálogo): total y botón siempre a la vista mientras se captura */
+.cz-pie,.venta-pie{position:sticky;bottom:0;z-index:5;background:var(--surface);margin:2px -16px calc(-16px - env(safe-area-inset-bottom,0px));padding:10px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);box-shadow:0 -8px 14px -8px rgba(0,0,0,.35)}
+.cz-pie .cz-total,.venta-pie .venta-total{margin:0 0 2px}
+.cz-pie .cz-btn,.venta-pie .venta-btn{margin-top:8px}
+.cz-pie .cz-ayuda,.venta-pie .cz-ayuda{margin:2px 0 0;font-size:12px}
+.cz-pie .cz-error{margin:6px 0 0}
+/* «Nueva venta» con el mismo aspecto que «Nueva cotización» */
+#ventaOverlay .venta-total{display:flex;justify-content:space-between;align-items:baseline;font-size:15px;font-weight:700}
+#ventaOverlay .venta-total span:last-child{font-size:22px;font-weight:800}
+#ventaOverlay .venta-campo{margin:0 0 10px;position:relative}
+#ventaOverlay .venta-campo:last-child{margin-bottom:0}
+#ventaOverlay .venta-campo label{font-size:13px;font-weight:600;color:var(--text);margin:0 0 4px}
+#ventaOverlay .venta-campo input,#ventaOverlay .venta-campo select{min-height:44px;padding:10px 12px;font-size:16px;border-radius:10px;background:var(--surface)}
+#ventaOverlay .venta-campo input:focus-visible,#ventaOverlay .venta-campo select:focus-visible,#ventaOverlay button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#ventaOverlay .venta-btn{min-height:48px;border-radius:12px;background:var(--accent);color:var(--accent-ink);font:700 15px/1 inherit}
+#ventaOverlay .venta-agregar-item{min-height:44px;border-radius:10px;margin:10px 0 0;font-weight:600}
+#ventaOverlay .cz-bloque .venta-buscador{background:var(--bg);padding:0 0 8px}
+#ventaOverlay .venta-pie .venta-error{margin:8px 0 0}
 `;
 
 /* ───────────── Estado ───────────── */
@@ -326,9 +344,9 @@ const HTML = `
       <div class="cz-total"><span>Total con IVA</span><span id="cz-total">$0.00</span></div>
       <p class="cz-aviso" id="cz-aviso" role="status"></p>
       <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente es opcional.</p>
+      <div class="cz-error" id="cz-error" role="alert"></div>
+      <button type="button" class="cz-btn" id="cz-guardar">Guardar cotización</button>
     </div>
-    <div class="cz-error" id="cz-error" role="alert"></div>
-    <button type="button" class="cz-btn" id="cz-guardar">Guardar cotización</button>
   </div>
   <div id="cz-listo" class="cz-listo" hidden>
     <div class="cz-ayuda" id="cz-listo-titulo">Cotización guardada</div>
@@ -1029,21 +1047,20 @@ function accionHistorial(c, a, b, repintar) {
 /** Abre «Nota de venta» con el cliente y los productos ya cargados. items: { tipo, sku, cantidad, descripcion, origen, precio }. */
 function cargarEnNota(cli, items, titulo) {
   cerrar(true); cerrarHistorial(true); cvCerrar();
-  abrirVentaRuta(cli.cliente || '', cli.telefono || '');
+  abrirVentaRuta(cli.cliente || '', cli.telefono || '', { sinBorrador: true });
   if (document.getElementById('ventaOverlay').hidden) return;   // sin permiso de vendedor: abrirVentaRuta ya avisó
   document.getElementById('ventaIdCliente').value = cli.idCliente || '';
   ventaItemsActuales.length = 0;
-  let sinPrecio = 0;
+  let omitidos = 0;
   (items || []).forEach(it => {
-    const cant = Number(it.cantidad) || 1;
-    if (it.tipo === 'pedido') { ventaItemsActuales.push({ sku: '', producto: it.descripcion || 'Refacción bajo pedido', cantidad: cant, precio: Number(it.precio) || 0, manual: true }); if (!(Number(it.precio) > 0)) sinPrecio++; return; }
-    const sku = String(it.sku || '').trim(), r = resolverProductoPorSku(sku, false), precio = r ? (Number(r.precio) || 0) : (Number(it.precio) || 0);
-    if (!(precio > 0)) sinPrecio++;
+    const sku = String(it.sku || '').trim(), r = (it.tipo === 'pedido' || !sku) ? null : resolverProductoPorSku(sku, false);
+    if (!r) { omitidos++; return; }   // la nota solo admite productos con inventario (bajo pedido o sin SKU no pasan)
+    const cant = Number(it.cantidad) || 1, precio = Number(r.precio) || Number(it.precio) || 0;
     let origen = ''; try { const ops = opcionesOrigenVenta(sku); const m = ops.find(o => String(o.valor).split(' · ')[0] === it.origen); origen = m ? m.valor : origenPorDefectoVenta(sku); } catch (e) {}
-    ventaItemsActuales.push({ sku: sku, producto: (r && r.producto) || it.descripcion || sku, cantidad: cant, precio: precio, precioLista: precio, manual: !(precio > 0), origen: origen, liquidacion: !!(r && r.liquidacion) });
+    ventaItemsActuales.push({ sku: sku, producto: r.producto || it.descripcion || sku, cantidad: cant, precio: precio, precioLista: precio, manual: false, origen: origen, liquidacion: !!r.liquidacion });
   });
   renderizarItemsVenta();
-  toast(titulo + (sinPrecio ? ' · ' + sinPrecio + ' sin precio (captúralos)' : '') + '. Revisa precios y origen.');
+  toast(titulo + (omitidos ? ' · ' + omitidos + ' no pasaron (bajo pedido o sin inventario)' : '') + '. Revisa precios y origen.');
 }
 /** Cotización guardada → nota de venta (cualquier estado menos Rechazado). */
 function convertirEnNota(c) {
@@ -1141,7 +1158,7 @@ function pestañasVenta() {
   const d = document.createElement('div'); d.className = 'cz-modos cz-modos-venta'; d.id = 'cz-modos-venta'; d.setAttribute('role', 'tablist'); d.setAttribute('aria-label', 'Tipo de documento');
   d.innerHTML = '<button type="button" role="tab" aria-selected="true" id="cz-vtab-nota">Nota de venta</button><button type="button" role="tab" aria-selected="false" id="cz-vtab-cot">Cotización</button>';
   const x = document.createElement('button'); x.type = 'button'; x.className = 'cz-x'; x.id = 'cz-vtab-x'; x.setAttribute('aria-label', 'Cerrar'); x.innerHTML = IC.cerrar;
-  x.addEventListener('click', () => cerrarVentaRuta());
+  x.addEventListener('click', () => cerrarVentaRuta('x'));
   fila.appendChild(d); fila.appendChild(x);
   tit.parentNode.insertBefore(fila, tit);
   $('cz-vtab-cot').addEventListener('click', () => {   // nota en captura → cotización con sus productos
