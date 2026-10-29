@@ -1,6 +1,6 @@
 # MASTER — Prospectos & Rutas GC (Maps)
 
-Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v78** (29-oct-2026). Si algo aquí contradice al código, manda el código; corrige este documento.
+Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v79** (29-oct-2026). Si algo aquí contradice al código, manda el código; corrige este documento.
 
 > Convención: lo marcado como **(por confirmar)** no se pudo comprobar leyendo este repositorio (vive en el backend o en otros proyectos).
 
@@ -160,6 +160,7 @@ Redondeo en cotizador: pesos enteros hacia arriba (`194.60 → 195`). El SKU se 
 - **Nueva venta / cotización** comparten interfaz: **1 Cliente · 2 Tipo de nota y pago · 3 Productos**, con campos obligatorios, total con IVA y botón fijos al pie.
 - La nota admite **solo productos con inventario** (sin captura manual). Hay **borrador automático** por cuenta: se recupera al abrir y se borra al generar el ticket.
 - **Folios:** se generan **en el dispositivo**, nunca en el servidor (también un identificador interno que no se muestra al cliente). Cotizaciones: `C000xx`, compartidas con el catálogo.
+- **Borradores (v79, nota y cotización, mismas reglas que el catálogo):** se guardan solos en este celular (`ventaBorrador:<cuenta>`, `czBorrador:<cuenta>:<sección>`), 7 días, cada cambio con 400 ms de espera, y además al cerrar con la X, al ir al historial, al pasar de nota a cotización (o al revés), al ocultar la app (`visibilitychange`) y en `pagehide`. Al abrir «Nueva» se recuperan solos y se avisa con «Borrador recuperado». El cotizador busca el borrador más reciente **en todas las secciones de la cuenta** (antes solo en la sección inicial). Si se abre con datos precargados (desde un punto del mapa o al pasar de nota a cotización), el borrador anterior **no se pierde**: queda de respaldo (`ventaRespaldo:<cuenta>`, `czRespaldo:<cuenta>`) con el aviso «Tienes otra nota/cotización a medias» y los botones Recuperar (intercambia con lo actual) y Descartar. Se borran al guardar/generar el ticket; no se guarda borrador al editar algo ya registrado.
 - **Estados de cotización:** `Borrador`, `Enviada`, `Vendido`, `Traspaso`, `Rechazado`, `Pedido`. Una cotización `Borrador` o `Enviada` con vigencia pasada se considera **vencida**. Vigencia por omisión: **7 días**.
 - Vista previa de la hoja: descargar PDF, compartir, editar, cambiar estado y reenviar. Maps solo muestra las cotizaciones **capturadas en Maps**; las del catálogo se consultan aparte.
 - Nota ↔ cotización: los productos se pasan en los dos sentidos.
@@ -235,6 +236,7 @@ Principio: **profesional y minimalista**, misma identidad (lima `#C4D600` sobre 
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v79 | 29-oct-2026 | Borradores: cotizador busca en todas las secciones, guarda al ir al historial y al ocultar la app; respaldo del borrador anterior al abrir con datos precargados (nota ↔ cotización, mapa) |
 | v78 | 29-oct-2026 | Cotizador: la sección 2 (Motocicleta y vigencia) ya es opcional; el modelo se elige en una lista desplegable flotante (como el catálogo) |
 | v77 | 29-oct-2026 | Refinamiento de interfaz minimalista: foco único, sombras en 3 niveles, objetivos táctiles ≥ 44 px, jerarquía tipográfica, menú con indicador de activo (ver §12.1) |
 | v76 | 28-oct-2026 | Bloqueo del precio sugerido de VENTO en el cotizador (solo admin) |

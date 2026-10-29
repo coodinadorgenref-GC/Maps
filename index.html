@@ -1210,6 +1210,7 @@ html[data-theme="claro"] .text-dim, html[data-theme="claro"] .drawer-sub{ color:
     </div>
     <div class="venta-folio" id="ventaFolioPreview"></div>
     <div class="cz-borrador" id="ventaBorrador" hidden role="status"><span>Borrador recuperado (<span id="ventaBorradorHace"></span>)</span><button type="button" class="cz-link" onclick="empezarNuevaNotaVenta()">Empezar de nuevo</button></div>
+    <div class="cz-borrador" id="ventaRespaldo" hidden role="status"><span>Tienes otra nota a medias (<span id="ventaRespaldoHace"></span>)</span><span><button type="button" class="cz-link" onclick="recuperarRespaldoVenta()">Recuperar</button> · <button type="button" class="cz-link" onclick="descartarRespaldoVenta()">Descartar</button></span></div>
 
     <fieldset class="cz-bloque"><legend>1 · Cliente</legend>
       <div class="venta-campo">
@@ -2011,6 +2012,40 @@ function _valVenta(id){ const el = document.getElementById(id); return el ? el.v
 function ventaHayCapturado(){
   return !!(_valVenta('ventaCliente').trim() || _valVenta('ventaTelefono').trim() || _valVenta('ventaIdCliente').trim() || ventaItemsActuales.length);
 }
+function claveRespaldoVenta(){ return 'ventaRespaldo:' + String(usuarioActual || '').toLowerCase(); }
+function datosVentaActuales(){
+  return { v: 1, t: Date.now(),
+    tipoNota: _valVenta('ventaTipoNota'), cliente: _valVenta('ventaCliente'), telefono: _valVenta('ventaTelefono'), idCliente: _valVenta('ventaIdCliente'),
+    metodoPago: _valVenta('ventaMetodoPago'), referencia: _valVenta('ventaReferencia'), meses: _valVenta('ventaMeses'), anticipo: _valVenta('ventaAnticipo'),
+    items: ventaItemsActuales.map(function(it){ return Object.assign({}, it); }) };
+}
+function borradorVentaVacio(d){ return !d || (!String(d.cliente || '').trim() && !String(d.telefono || '').trim() && !String(d.idCliente || '').trim() && !(d.items || []).length); }
+function leerRespaldoVenta(){
+  try {
+    const d = JSON.parse(localStorage.getItem(claveRespaldoVenta()) || 'null');
+    if (!d || d.v !== 1 || Date.now() - d.t > BORRADOR_VENTA_DIAS * 86400000){ if (d) localStorage.removeItem(claveRespaldoVenta()); return null; }
+    return d;
+  } catch (e) { return null; }
+}
+function pintarRespaldoVenta(){
+  const b = document.getElementById('ventaRespaldo'); if (!b) return;
+  const r = leerRespaldoVenta();
+  if (r && !borradorVentaVacio(r)){ document.getElementById('ventaRespaldoHace').textContent = haceCuantoVenta(r.t); b.hidden = false; } else b.hidden = true;
+}
+/* Al abrir con un cliente precargado (desde el mapa o desde una cotización) la nota que estaba a medias no se pierde: queda de respaldo. */
+function respaldarBorradorVenta(){
+  const prev = leerBorradorVenta();
+  if (prev && !borradorVentaVacio(prev)){ try { localStorage.setItem(claveRespaldoVenta(), JSON.stringify(prev)); } catch (e) {} }
+}
+function recuperarRespaldoVenta(){
+  const r = leerRespaldoVenta(); if (!r){ pintarRespaldoVenta(); return; }
+  const actual = datosVentaActuales();
+  restaurarBorradorVenta(r);
+  try { if (!borradorVentaVacio(actual)) localStorage.setItem(claveRespaldoVenta(), JSON.stringify(actual)); else localStorage.removeItem(claveRespaldoVenta()); } catch (e) {}
+  pintarRespaldoVenta(); borradorVentaAhora();
+  mostrarToast && mostrarToast('Recuperada. Lo que tenías antes quedó de respaldo.');
+}
+function descartarRespaldoVenta(){ try { localStorage.removeItem(claveRespaldoVenta()); } catch (e) {} pintarRespaldoVenta(); }
 function borradorVentaAhora(){
   clearTimeout(borradorVentaT);
   const ov = document.getElementById('ventaOverlay');
@@ -2064,6 +2099,7 @@ function empezarNuevaNotaVenta(){
 function abrirVentaRuta(nombreCliente, telefonoCliente, opciones){
   if (!puedeVenderEnRuta()){ mostrarToast && mostrarToast("Tu cuenta no tiene permiso de vendedor."); return; }
   { const bb = document.getElementById("ventaBorrador"); if (bb) bb.hidden = true; }
+  if ((nombreCliente || telefonoCliente || (opciones && opciones.sinBorrador))) respaldarBorradorVenta();   // abre con datos precargados: lo anterior queda de respaldo
   ventaItemsActuales = [];
   ventaFolioActual = generarFolioVenta();
   ventaIdInternoActual = generarIdInternoVenta();
@@ -2087,6 +2123,7 @@ function abrirVentaRuta(nombreCliente, telefonoCliente, opciones){
   const buscador = document.getElementById("ventaBuscador");
   buscador.value = ""; pintarResultadosVenta();
   if (!nombreCliente && !telefonoCliente && !(opciones && opciones.sinBorrador)){ const bor = leerBorradorVenta(); if (bor) restaurarBorradorVenta(bor); }   // sin cliente precargado: se recupera lo último capturado
+  pintarRespaldoVenta();
   document.getElementById("ventaOverlay").hidden = false;
   // PC: el cursor arranca donde hay algo que capturar (cliente si está vacío,
   // si no directo en el buscador). En celular no se abre el teclado solo.
@@ -4216,7 +4253,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '29-oct · v78 · moto opcional';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '29-oct · v79 · borradores';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){

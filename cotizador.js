@@ -306,6 +306,7 @@ const HTML = `
   </div>
   <h2 id="cz-titulo">Nueva cotización</h2>
   <div class="cz-borrador" id="cz-borrador" hidden role="status"><span>Borrador recuperado (<span id="cz-borrador-hace"></span>)</span><button type="button" class="cz-link" id="cz-empezar">Empezar de nuevo</button></div>
+  <div class="cz-borrador" id="cz-respaldo" hidden role="status"><span>Tienes otra cotización a medias (<span id="cz-respaldo-hace"></span>)</span><span><button type="button" class="cz-link" id="cz-rec-resp">Recuperar</button> · <button type="button" class="cz-link" id="cz-desc-resp">Descartar</button></span></div>
   <div id="cz-form">
     <div class="cz-secs" id="cz-secciones" role="radiogroup" aria-label="Sección de la cotización"></div>
     <fieldset class="cz-bloque"><legend>1 · Cliente</legend>
@@ -635,18 +636,42 @@ const ocultarMotos = () => { const c = $('cz-moto-sug'); if (c) c.hidden = true;
 
 /* ───────────── Borrador local (por cuenta y sección) ───────────── */
 const BORRADOR_DIAS = 7;
-const claveBorrador = () => 'czBorrador:' + String(usuarioActual || '').toLowerCase() + ':' + seccion;
+const claveBorrador = sec => 'czBorrador:' + String(usuarioActual || '').toLowerCase() + ':' + (sec || seccion);
+const claveRespaldo = () => 'czRespaldo:' + String(usuarioActual || '').toLowerCase();
+function datosActuales() {
+  return { v: 1, t: Date.now(), sec: seccion, idCliente: idResuelto, idTexto: $('cz-idcliente').value, cliente: $('cz-cliente').value, telefono: $('cz-telefono').value, moto: $('cz-moto').value, anio: $('cz-anio').value, vigencia: $('cz-vigencia').value, lineas: lineas };
+}
+const borradorVacio = d => !d || (!d.idTexto && !String(d.cliente || '').trim() && !d.telefono && !String(d.moto || '').trim() && !d.anio && !(d.lineas || []).length);
 function borradorAhora() {
   if (edicion || guardada || $('cz-overlay').hidden) return;
-  try {
-    const d = { v: 1, t: Date.now(), idCliente: idResuelto, idTexto: $('cz-idcliente').value, cliente: $('cz-cliente').value, telefono: $('cz-telefono').value, moto: $('cz-moto').value, anio: $('cz-anio').value, vigencia: $('cz-vigencia').value, lineas: lineas };
-    const vacio = !d.idTexto && !d.cliente.trim() && !d.telefono && !d.moto.trim() && !d.anio && !d.lineas.length;
-    if (vacio) localStorage.removeItem(claveBorrador()); else localStorage.setItem(claveBorrador(), JSON.stringify(d));
-  } catch (e) {}
+  try { const d = datosActuales(); if (borradorVacio(d)) localStorage.removeItem(claveBorrador()); else localStorage.setItem(claveBorrador(), JSON.stringify(d)); } catch (e) {}
 }
 function guardarBorrador() { clearTimeout(borradorT); borradorT = setTimeout(borradorAhora, 400); }
-function borrarBorrador() { clearTimeout(borradorT); try { localStorage.removeItem(claveBorrador()); } catch (e) {} }
-function leerBorrador() { try { const d = JSON.parse(localStorage.getItem(claveBorrador()) || 'null'); if (!d || d.v !== 1 || Date.now() - d.t > BORRADOR_DIAS * 86400000) { if (d) borrarBorrador(); return null; } return d; } catch (e) { return null; } }
+function borrarBorrador(sec) { clearTimeout(borradorT); try { localStorage.removeItem(claveBorrador(sec)); } catch (e) {} }
+function leerClave(k, borrar) { try { const d = JSON.parse(localStorage.getItem(k) || 'null'); if (!d || d.v !== 1 || Date.now() - d.t > BORRADOR_DIAS * 86400000) { if (d) borrar(); return null; } return d; } catch (e) { return null; } }
+const leerBorrador = sec => leerClave(claveBorrador(sec), () => borrarBorrador(sec));
+/** El borrador más reciente de la cuenta, esté en la sección que esté (así no se «pierde» si se abre en otra sección). */
+function borradorMasReciente() {
+  let mejor = null;
+  [seccion].concat(seccionesQueCotizo().filter(x => x !== seccion)).forEach(sec => { const d = leerBorrador(sec); if (d && !borradorVacio(d) && (!mejor || d.t > mejor.t)) { d.sec = sec; mejor = d; } });
+  return mejor;
+}
+const leerRespaldo = () => leerClave(claveRespaldo(), () => { try { localStorage.removeItem(claveRespaldo()); } catch (e) {} });
+function pintarRespaldo() {
+  const r = leerRespaldo(), b = $('cz-respaldo'); if (!b) return;
+  if (r && !borradorVacio(r)) { $('cz-respaldo-hace').textContent = haceCuanto(r.t); b.hidden = false; } else b.hidden = true;
+}
+/** Antes de abrir con datos precargados (desde una nota o un punto del mapa) el borrador que había no se pierde: queda de respaldo. */
+function respaldarBorrador(d) { try { if (d && !borradorVacio(d)) localStorage.setItem(claveRespaldo(), JSON.stringify(d)); } catch (e) {} }
+function recuperarRespaldo() {
+  const r = leerRespaldo(); if (!r) { pintarRespaldo(); return; }
+  const actual = datosActuales();
+  if (r.sec && r.sec !== seccion && puedeCotizarEn(r.sec)) { seccion = r.sec; pintarSecciones(); }
+  restaurarBorrador(r);
+  try { if (!borradorVacio(actual)) localStorage.setItem(claveRespaldo(), JSON.stringify(Object.assign(actual, { t: Date.now() }))); else localStorage.removeItem(claveRespaldo()); } catch (e) {}
+  pintarRespaldo(); borradorAhora(); toast('Recuperada. Lo que tenías antes quedó de respaldo.');
+}
+function descartarRespaldo() { try { localStorage.removeItem(claveRespaldo()); } catch (e) {} pintarRespaldo(); }
 const haceCuanto = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'hace un momento' : m < 60 ? 'hace ' + m + ' min' : m < 1440 ? 'hace ' + Math.round(m / 60) + ' h' : 'hace ' + Math.round(m / 1440) + ' d'; };
 function restaurarBorrador(d) {
   $('cz-idcliente').value = d.idTexto || ''; idResuelto = d.idCliente || ''; $('cz-cliente').value = d.cliente || ''; $('cz-telefono').value = d.telefono || ''; $('cz-moto').value = d.moto || ''; $('cz-anio').value = d.anio || '';
@@ -675,15 +700,18 @@ function mostrar() {
 function abrir(datosCliente) {
   if (!puedeUsarCotizador()) { toast('Tu cuenta no tiene permiso para cotizar.'); return; }
   seccion = seccionInicial();
-  const borrador = datosCliente ? null : leerBorrador();
+  const borrador = borradorMasReciente();   // el más reciente de la cuenta, aunque sea de otra sección
+  if (borrador && !datosCliente && borrador.sec !== seccion && puedeCotizarEn(borrador.sec)) seccion = borrador.sec;
+  if (borrador && datosCliente) respaldarBorrador(borrador);   // viene de una nota o del mapa: lo anterior no se pierde
   reiniciar(); mostrar();
-  if (borrador) restaurarBorrador(borrador);
+  if (borrador && !datosCliente) restaurarBorrador(borrador);
   if (datosCliente) { $('cz-cliente').value = soloLetras(datosCliente.nombre || '').trim(); $('cz-telefono').value = soloDigitos(datosCliente.telefono || '').slice(0, 15); $('cz-idcliente').value = datosCliente.idCliente || ''; idResuelto = datosCliente.idCliente || ''; }
+  pintarRespaldo();
   setTimeout(() => { const f = (!$('cz-cliente').value) ? $('cz-idcliente') : $('cz-buscador'); try { f.focus(); } catch (e) {} }, 80);
 }
 async function cerrar(forzar) {
-  if (!forzar && !guardada && !edicion) { borradorAhora(); if (lineas.length || $('cz-cliente').value.trim() || $('cz-telefono').value) toast('Se guardó como borrador en este celular.'); }
-  else if (!forzar && edicion && lineas.length && !guardada && !(await confirmarMaps({ titulo: '¿Descartar los cambios?', mensaje: 'La cotización se queda como estaba.', confirmar: 'Descartar', cancelar: 'Seguir editando', tipo: 'peligro' }))) return;
+  if (!guardada && !edicion) { borradorAhora(); if (!forzar && (lineas.length || $('cz-cliente').value.trim() || $('cz-telefono').value)) toast('Se guardó como borrador en este celular.'); }
+  if (!forzar && edicion && lineas.length && !guardada && !(await confirmarMaps({ titulo: '¿Descartar los cambios?', mensaje: 'La cotización se queda como estaba.', confirmar: 'Descartar', cancelar: 'Seguir editando', tipo: 'peligro' }))) return;
   $('cz-overlay').hidden = true; document.body.style.overflow = ''; cerrarPanel();
 }
 /** Editar una cotización guardada (Borrador o Enviada) que nació en piso/Maps. */
@@ -1205,6 +1233,8 @@ function aNotaDesdeCotizador() {
 /* ───────────── Eventos ───────────── */
 function enlazar() {
   const ov = $('cz-overlay');
+  $('cz-rec-resp').addEventListener('click', recuperarRespaldo); $('cz-desc-resp').addEventListener('click', descartarRespaldo);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) borradorAhora(); }); window.addEventListener('pagehide', borradorAhora);
   $('cz-cerrar').addEventListener('click', () => cerrar(false));
   ov.addEventListener('mousedown', e => { if (e.target === ov) cerrar(false); });
   $('cz-tab-nota').addEventListener('click', aNotaDesdeCotizador);

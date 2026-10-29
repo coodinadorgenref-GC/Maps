@@ -3,7 +3,7 @@
 PWA de Grupo Camejo para **vendedores en ruta**: registra prospectos en un mapa, planea rutas de visita, genera **notas de venta** y **cotizaciones** (con PDF y WhatsApp), controla el **almacén móvil** y consulta clima y radar de lluvia. Funciona **sin señal** una vez instalada.
 
 - **App en vivo:** https://coodinadorgenref-gc.github.io/Maps/
-- **Versión actual:** v78 (29-oct-2026)
+- **Versión actual:** v79 (29-oct-2026)
 - **Documentación técnica completa:** [`MASTER.md`](./MASTER.md)
 
 ## Qué hace
