@@ -1,6 +1,6 @@
 # MASTER — Prospectos & Rutas GC (Maps)
 
-Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026). Si algo aquí contradice al código, manda el código; corrige este documento.
+Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v77** (29-oct-2026, refinamiento de interfaz). Si algo aquí contradice al código, manda el código; corrige este documento.
 
 > Convención: lo marcado como **(por confirmar)** no se pudo comprobar leyendo este repositorio (vive en el backend o en otros proyectos).
 
@@ -199,6 +199,25 @@ Tema `oscuro` / `claro` / `sistema` (clave `gc_tema_v1`, aplicado en `<html data
 - Login con las mismas medidas que REPORTEADOR (448×512); el cierre de sesión avisa con Tab/Shift+Tab y Esc.
 - Indicadores: punto de sincronización (ok / pendiente / sin conexión) y punto de señal de red, independientes entre sí.
 
+### 12.1 Capa de refinamiento (v77)
+
+Principio: **profesional y minimalista**, misma identidad (lima `#C4D600` sobre gris carbón). Se resolvió con una **capa de CSS al final del bloque `<style>` de `index.html`** (comentario `v77 · Refinamiento visual`) que solo ajusta tokens, sombras, foco y estados; no toca la estructura ni las medidas del login. Criterios tomados de la guía UI/UX (accesibilidad y toque primero).
+
+| Tema | Regla vigente |
+|---|---|
+| **Foco** | Un solo anillo visible: `:focus-visible` con `--ring` (lima en oscuro, teal `#2F8F87` en claro). Campos: borde + halo `--ring-soft`. Nunca quitar el foco sin reemplazo. |
+| **Sombras** | Tres niveles: `--shadow-1` (elementos), `--shadow-2` (barra, botones flotantes), `--shadow-3` (menús, hojas, diálogos). Sin sombras sueltas nuevas. |
+| **Toque** | Objetivos de **≥ 44 px** (botones de barra, menú, +/− de cantidad, resultados de búsqueda, quitar línea); separación ≥ 8 px. Botones primarios de **48 px**. |
+| **Movimiento** | Transiciones de **150 ms** solo en color, borde, sombra y opacidad (nunca tamaño). Respeta `prefers-reduced-motion` (bloque ya existente). |
+| **Jerarquía** | Títulos con interletrado negativo ligero; rótulos de sección en mayúsculas pequeñas con `letter-spacing:.08em`; importes y tablas con `tabular-nums`. |
+| **Menú lateral** | Elemento activo con filete de 2 px a la izquierda y degradado tenue; *hover* solo con puntero fino. |
+| **Contraste** | Texto normal ≥ 4.5:1 en ambos temas; en claro el texto secundario del menú sube a `#56626C`. |
+| **Tipografía** | Se mantiene la **fuente del sistema**. No cargar fuentes web (Inter, etc.): rompen el modo sin señal salvo que se precacheen en `SHELL_ASSETS`. |
+| **Nuevos tokens** | `--ring`, `--ring-soft`, `--shadow-1/2/3`, `--ease`, `--t`, `--radius-sm`. Úsalos en lugar de valores sueltos. |
+
+> La paleta que sugirió el generador de la guía (naranja `#EA580C`) **se descartó a propósito**: la marca de Grupo Camejo es la lima. Solo se adoptó el estilo (minimalismo/Swiss), el foco, el toque y la jerarquía.
+
+
 ## 13. Reglas de mantenimiento
 
 1. **Cada cambio sube versión en dos sitios:** `CACHE_SHELL` en `sw.js` (`rutas-gc-shell-vNN`) y `APP_BUILD` en `index.html` (`'dd-mes · vNN · etiqueta'`). Sin esto, los celulares no cargan el cambio.
@@ -215,6 +234,7 @@ Tema `oscuro` / `claro` / `sistema` (clave `gc_tema_v1`, aplicado en `<html data
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v77 | 29-oct-2026 | Refinamiento de interfaz minimalista: foco único, sombras en 3 niveles, objetivos táctiles ≥ 44 px, jerarquía tipográfica, menú con indicador de activo (ver §12.1) |
 | v76 | 28-oct-2026 | Bloqueo del precio sugerido de VENTO en el cotizador (solo admin) |
 | v75 | 28-oct-2026 | Nueva venta con las mismas secciones que la cotización; total con IVA y botón fijos; borrador automático; sin captura manual |
 | v74 | 27-oct-2026 | Cotización con la interfaz del catálogo; vista previa de la hoja; nota↔cotización; Maps solo muestra sus cotizaciones |
@@ -236,4 +256,6 @@ Historial completo: `git log` (265 commits al momento de escribir este documento
 - Actualizar el comentario de `PRECIOS_VENTA` sobre BAJAJ/SUZUKI (§8).
 - Documentar el contrato exacto de cada `action` del Worker (vive en el repo de Apps Script).
 - Reglas de seguridad de Firestore **(por confirmar)**.
+- Revisar con dispositivos reales (iPhone y Android, tema claro y oscuro) la capa v77: tamaños de toque en la barra superior y contraste de los chips del cotizador.
+- Pasar los estilos propios de `cotizador.js` a los tokens de §12.1 (hoy conserva sus valores).
 - Evaluar partir `index.html` en módulos (hoy ~11 700 líneas) sin romper el precacheo del service worker.
