@@ -29,4 +29,4 @@ PWA de Grupo Camejo para vendedores en ruta: prospectos en mapa, rutas, notas de
 - Evaluar partir `index.html` en módulos sin romper el precacheo del service worker.
 
 ## Documentos
-`README.md` (presentación) · `ESTADO.md` (este) · `MASTER.md` (arquitectura, datos, precios, sistema visual, reglas completas).
+`README.md` (presentación) · `ESTADO_Maps.md` (este) · `MASTER.md` (arquitectura, datos, precios, sistema visual, reglas completas).
