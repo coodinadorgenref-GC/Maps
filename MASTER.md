@@ -1,6 +1,6 @@
 # MASTER — Prospectos & Rutas GC (Maps)
 
-Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v77** (29-oct-2026, refinamiento de interfaz). Si algo aquí contradice al código, manda el código; corrige este documento.
+Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v78** (29-oct-2026). Si algo aquí contradice al código, manda el código; corrige este documento.
 
 > Convención: lo marcado como **(por confirmar)** no se pudo comprobar leyendo este repositorio (vive en el backend o en otros proyectos).
 
@@ -163,6 +163,7 @@ Redondeo en cotizador: pesos enteros hacia arriba (`194.60 → 195`). El SKU se 
 - **Estados de cotización:** `Borrador`, `Enviada`, `Vendido`, `Traspaso`, `Rechazado`, `Pedido`. Una cotización `Borrador` o `Enviada` con vigencia pasada se considera **vencida**. Vigencia por omisión: **7 días**.
 - Vista previa de la hoja: descargar PDF, compartir, editar, cambiar estado y reenviar. Maps solo muestra las cotizaciones **capturadas en Maps**; las del catálogo se consultan aparte.
 - Nota ↔ cotización: los productos se pasan en los dos sentidos.
+- **Sección 2 · Motocicleta y vigencia es opcional** (desde v78): modelo, año y vigencia pueden ir vacíos. Si el año se captura debe ser de 4 dígitos; si la vigencia se deja vacía se envía la de omisión (hoy + 7 días); una fecha pasada sigue siendo error. El modelo usa una **lista desplegable flotante** (`.cz-combo` + `.cz-desplegable`): al tocar el campo vacío muestra los modelos y al escribir filtra. **(Por confirmar)** que `guardarCotizacion` del Worker acepte `moto` y `anio` vacíos; el PDF ya omite la línea MOTOCICLETA si no hay datos.
 
 ## 11. Modo sin señal (sw.js)
 
@@ -234,6 +235,7 @@ Principio: **profesional y minimalista**, misma identidad (lima `#C4D600` sobre 
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v78 | 29-oct-2026 | Cotizador: la sección 2 (Motocicleta y vigencia) ya es opcional; el modelo se elige en una lista desplegable flotante (como el catálogo) |
 | v77 | 29-oct-2026 | Refinamiento de interfaz minimalista: foco único, sombras en 3 niveles, objetivos táctiles ≥ 44 px, jerarquía tipográfica, menú con indicador de activo (ver §12.1) |
 | v76 | 28-oct-2026 | Bloqueo del precio sugerido de VENTO en el cotizador (solo admin) |
 | v75 | 28-oct-2026 | Nueva venta con las mismas secciones que la cotización; total con IVA y botón fijos; borrador automático; sin captura manual |

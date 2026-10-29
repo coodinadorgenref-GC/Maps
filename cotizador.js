@@ -193,6 +193,12 @@ const CSS = `
 .cz-sec[aria-checked="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .cz-sec[disabled]{opacity:.55;cursor:default}
 .cz-lista{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.cz-opc{font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-dim)}
+.cz-combo{position:relative}
+.cz-lista.cz-desplegable{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;margin:0;gap:0;padding:4px;max-height:min(260px,40vh);overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-3,0 12px 32px rgba(0,0,0,.35))}
+.cz-lista.cz-desplegable[hidden]{display:none}
+.cz-desplegable .cz-res{border:0;border-radius:8px;background:transparent;min-height:44px}
+.cz-desplegable .cz-res:hover,.cz-desplegable .cz-res:focus-visible{background:var(--surface-2);border-color:transparent}
 .cz-res{display:block;width:100%;text-align:left;min-height:44px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;font:inherit}
 .cz-res:hover,.cz-res:focus-visible{border-color:var(--accent)}
 .cz-res[disabled]{cursor:default;opacity:.9}
@@ -317,17 +323,17 @@ const HTML = `
         <input id="cz-telefono" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="15" autocomplete="off" required aria-required="true" placeholder="10 dígitos" enterkeyhint="next" aria-describedby="cz-telefono-err">
         <p class="cz-err" id="cz-telefono-err" hidden></p></div>
     </fieldset>
-    <fieldset class="cz-bloque"><legend>2 · Motocicleta y vigencia</legend>
-      <div class="cz-campo"><label for="cz-moto">Motocicleta (modelo) <span class="cz-req" aria-hidden="true">*</span></label>
-        <input id="cz-moto" type="text" maxlength="60" autocomplete="off" autocapitalize="characters" required aria-required="true" placeholder="Escribe el modelo; saldrán sugerencias" enterkeyhint="next" role="combobox" aria-expanded="false" aria-controls="cz-moto-sug" aria-describedby="cz-moto-err">
-        <div class="cz-lista" id="cz-moto-sug" role="listbox" hidden></div>
+    <fieldset class="cz-bloque"><legend>2 · Motocicleta y vigencia <span class="cz-opc">(opcional)</span></legend>
+      <div class="cz-campo"><label for="cz-moto">Motocicleta (modelo)</label>
+        <div class="cz-combo"><input id="cz-moto" type="text" maxlength="60" autocomplete="off" autocapitalize="characters" placeholder="Toca para elegir o escribe el modelo" enterkeyhint="next" role="combobox" aria-expanded="false" aria-controls="cz-moto-sug" aria-describedby="cz-moto-err">
+        <div class="cz-lista cz-desplegable" id="cz-moto-sug" role="listbox" hidden></div></div>
         <p class="cz-err" id="cz-moto-err" hidden></p></div>
       <div class="cz-fila2">
-        <div class="cz-campo"><label for="cz-anio">Año <span class="cz-req" aria-hidden="true">*</span></label>
-          <input id="cz-anio" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" required aria-required="true" placeholder="Ej. 2022" aria-describedby="cz-anio-err">
+        <div class="cz-campo"><label for="cz-anio">Año</label>
+          <input id="cz-anio" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="Ej. 2022" aria-describedby="cz-anio-err">
           <p class="cz-err" id="cz-anio-err" hidden></p></div>
-        <div class="cz-campo"><label for="cz-vigencia">Vigencia (válida hasta) <span class="cz-req" aria-hidden="true">*</span></label>
-          <input id="cz-vigencia" type="date" required aria-required="true" aria-describedby="cz-vigencia-err">
+        <div class="cz-campo"><label for="cz-vigencia">Vigencia (válida hasta)</label>
+          <input id="cz-vigencia" type="date" aria-describedby="cz-vigencia-err">
           <p class="cz-err" id="cz-vigencia-err" hidden></p></div>
       </div>
     </fieldset>
@@ -343,7 +349,7 @@ const HTML = `
     <div class="cz-pie">
       <div class="cz-total"><span>Total con IVA</span><span id="cz-total">$0.00</span></div>
       <p class="cz-aviso" id="cz-aviso" role="status"></p>
-      <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente es opcional.</p>
+      <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente y la sección 2 (motocicleta y vigencia) son opcionales.</p>
       <div class="cz-error" id="cz-error" role="alert"></div>
       <button type="button" class="cz-btn" id="cz-guardar">Guardar cotización</button>
     </div>
@@ -394,9 +400,8 @@ function validarCampos() {
   if (!nombre) e.push(['cz-cliente', 'Captura el nombre del cliente.']); else if (!RE_NOMBRE.test(nombre)) e.push(['cz-cliente', 'El nombre solo puede llevar letras.']);
   if (!tel) e.push(['cz-telefono', 'Captura el teléfono del cliente.']); else if (!/^\d+$/.test(tel)) e.push(['cz-telefono', 'El teléfono solo puede llevar números.']);
   else if (tel.length < 10 || tel.length > 15) e.push(['cz-telefono', 'El teléfono debe tener entre 10 y 15 dígitos.']);
-  if (!$('cz-moto').value.trim()) e.push(['cz-moto', 'Captura el modelo de la motocicleta.']);
-  if (!/^\d{4}$/.test(anio) || Number(anio) < 1950 || Number(anio) > new Date().getFullYear() + 1) e.push(['cz-anio', 'El año debe ser de 4 números (por ejemplo 2022).']);
-  if (!vig) e.push(['cz-vigencia', 'Elige hasta qué fecha es válida.']); else if (vig < iso(new Date())) e.push(['cz-vigencia', 'La vigencia no puede ser anterior a hoy.']);
+  if (anio && (!/^\d{4}$/.test(anio) || Number(anio) < 1950 || Number(anio) > new Date().getFullYear() + 1)) e.push(['cz-anio', 'El año debe ser de 4 números (por ejemplo 2022).']);
+  if (vig && vig < iso(new Date())) e.push(['cz-vigencia', 'La vigencia no puede ser anterior a hoy.']);
   if (!lineas.length) e.push(['cz-buscador', 'Agrega al menos un producto.']);
   else if (lineas.find(l => l.tipo === 'pedido' && !String(l.numeroParte).trim())) e.push(['cz-buscador', 'Captura el número de parte de cada producto bajo pedido.']);
   return e;
@@ -622,7 +627,8 @@ const motoClave = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]
 async function cargarMotos() { if (motosCargadas || !navigator.onLine) return; try { const rs = await api('listarMotos'); if (rs && rs.success && Array.isArray(rs.motos)) { motos = rs.motos; motosCargadas = true; try { localStorage.setItem('czMotos', JSON.stringify(motos)); } catch (e) {} } } catch (e) {} }
 function sugerirMotos() {
   const caja = $('cz-moto-sug'), campo = $('cz-moto'), q = motoClave(campo.value), pal = q.split(' ').filter(Boolean);
-  let sug = pal.length ? motos.filter(m => { const k = motoClave(m); return pal.every(p => k.indexOf(p) !== -1); }).sort((a, b) => (motoClave(a).indexOf(q) === 0 ? 0 : 1) - (motoClave(b).indexOf(q) === 0 ? 0 : 1)).filter(m => motoClave(m) !== q).slice(0, 6) : [];
+  // Campo vacío: lista completa (desplegable con desplazamiento). Con texto: coincidencias, las que empiezan igual primero.
+  let sug = pal.length ? motos.filter(m => { const k = motoClave(m); return pal.every(p => k.indexOf(p) !== -1); }).sort((a, b) => (motoClave(a).indexOf(q) === 0 ? 0 : 1) - (motoClave(b).indexOf(q) === 0 ? 0 : 1)).filter(m => motoClave(m) !== q).slice(0, 30) : motos.slice().sort((a, b) => a.localeCompare(b, 'es')).slice(0, 60);
   caja.innerHTML = sug.map((m, i) => '<button type="button" role="option" class="cz-res" data-moto="' + i + '"><b>' + esc(m) + '</b></button>').join(''); caja.hidden = !sug.length; campo.setAttribute('aria-expanded', String(!!sug.length)); caja._sug = sug;
 }
 const ocultarMotos = () => { const c = $('cz-moto-sug'); if (c) c.hidden = true; const m = $('cz-moto'); if (m) m.setAttribute('aria-expanded', 'false'); };
@@ -715,7 +721,7 @@ async function guardar() {
   const btn = $('cz-guardar'); guardando = true; btn.disabled = true; btn.innerHTML = IC.girar + ' Guardando…';
   try {
     const datos = {
-      cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value,
+      cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value || vigOmision(),
       agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccion, origen: 'PISO', app: 'maps',
       lineas: lineas.map(l => l.tipo === 'pedido'
         ? { tipo: 'pedido', cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox }
@@ -1228,7 +1234,7 @@ function enlazar() {
   filtrar('cz-cliente', soloLetras); filtrar('cz-telefono', v => soloDigitos(v).slice(0, 15)); filtrar('cz-anio', v => soloDigitos(v).slice(0, 4));
   // moto
   const m = $('cz-moto'), sug = $('cz-moto-sug');
-  m.addEventListener('focus', () => { if (!motosCargadas) cargarMotos(); }); m.addEventListener('input', sugerirMotos);
+  m.addEventListener('focus', () => { if (!motosCargadas) cargarMotos().then(sugerirMotos); sugerirMotos(); }); m.addEventListener('click', sugerirMotos); m.addEventListener('input', sugerirMotos);
   m.addEventListener('blur', () => setTimeout(ocultarMotos, 150)); m.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); ocultarMotos(); } });
   const elegirMoto = e => { const b = e.target.closest('[data-moto]'); if (b) { e.preventDefault(); $('cz-moto').value = sug._sug[Number(b.dataset.moto)]; ocultarMotos(); errCampo('cz-moto', ''); $('cz-anio').focus(); guardarBorrador(); } };
   sug.addEventListener('mousedown', elegirMoto); sug.addEventListener('touchstart', elegirMoto, { passive: false });
