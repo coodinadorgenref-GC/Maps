@@ -1,6 +1,6 @@
 # MASTER — Prospectos & Rutas GC (Maps)
 
-Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v79** (29-oct-2026). Si algo aquí contradice al código, manda el código; corrige este documento.
+Documento maestro del proyecto: qué es, cómo está armado, de qué depende y cuáles son las reglas para modificarlo. Se escribió a partir del código en la versión **v76** (commit `84ed7aa`, 28-oct-2026) y se actualizó en **v80** (29-oct-2026). Si algo aquí contradice al código, manda el código; corrige este documento.
 
 > Convención: lo marcado como **(por confirmar)** no se pudo comprobar leyendo este repositorio (vive en el backend o en otros proyectos).
 
@@ -164,6 +164,8 @@ Redondeo en cotizador: pesos enteros hacia arriba (`194.60 → 195`). El SKU se 
 - **Estados de cotización:** `Borrador`, `Enviada`, `Vendido`, `Traspaso`, `Rechazado`, `Pedido`. Una cotización `Borrador` o `Enviada` con vigencia pasada se considera **vencida**. Vigencia por omisión: **7 días**.
 - Vista previa de la hoja: descargar PDF, compartir, editar, cambiar estado y reenviar. Maps solo muestra las cotizaciones **capturadas en Maps**; las del catálogo se consultan aparte.
 - Nota ↔ cotización: los productos se pasan en los dos sentidos.
+- **Cotización única (v80):** el cotizador ya no tiene selector de sección: una cotización puede mezclar productos de Vento/Carabela, Suzuki y Bajaj. Cada partida guarda su `seccion` (`seccionDe(info)`: la de tu almacén si hay existencia ahí; si no, la primera donde hay y tu cuenta cotiza; bajo pedido: la tuya; sin permiso = solo consulta). Al servidor se envía `seccion` por partida y, a nivel cotización, `agencia`/`seccion` de la sección con más partidas (`seccionPrincipal()`). La hoja PDF agrupa por sección y pone la franja «Surte: …» solo si hay más de una. **(Por confirmar)** que `guardarCotizacion`/`editarCotizacion` del Worker acepten partidas de varias secciones en una cotización de piso; si las rechaza, hay que relajar esa validación en el servidor.
+- **Hoja con PROMOCIONES (v80):** debajo de la tabla, un bloque «PROMOCIONES» lista, por producto cotizado con promoción vigente (`promoDe`), «Promoción $X · hasta D mes» y «Mayoreo desde N pzas: $X · hasta D mes». Se calcula al generar la hoja con las promociones que tenga el celular en ese momento.
 - **Sección 2 · Motocicleta y vigencia es opcional** (desde v78): modelo, año y vigencia pueden ir vacíos. Si el año se captura debe ser de 4 dígitos; si la vigencia se deja vacía se envía la de omisión (hoy + 7 días); una fecha pasada sigue siendo error. El modelo usa una **lista desplegable flotante** (`.cz-combo` + `.cz-desplegable`): al tocar el campo vacío muestra los modelos y al escribir filtra. **(Por confirmar)** que `guardarCotizacion` del Worker acepte `moto` y `anio` vacíos; el PDF ya omite la línea MOTOCICLETA si no hay datos.
 
 ## 11. Modo sin señal (sw.js)
@@ -236,6 +238,7 @@ Principio: **profesional y minimalista**, misma identidad (lima `#C4D600` sobre 
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v80 | 29-oct-2026 | Cotización única (sin selector de secciones; cada partida lleva su sección y se pueden mezclar), bloque PROMOCIONES en la hoja (mayoreo y promoción vigentes), y las coincidencias del modelo ya no quedan tapadas por la barra del total |
 | v79 | 29-oct-2026 | Borradores: cotizador busca en todas las secciones, guarda al ir al historial y al ocultar la app; respaldo del borrador anterior al abrir con datos precargados (nota ↔ cotización, mapa) |
 | v78 | 29-oct-2026 | Cotizador: la sección 2 (Motocicleta y vigencia) ya es opcional; el modelo se elige en una lista desplegable flotante (como el catálogo) |
 | v77 | 29-oct-2026 | Refinamiento de interfaz minimalista: foco único, sombras en 3 niveles, objetivos táctiles ≥ 44 px, jerarquía tipográfica, menú con indicador de activo (ver §12.1) |

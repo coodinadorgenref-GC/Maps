@@ -195,6 +195,8 @@ const CSS = `
 .cz-lista{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .cz-opc{font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-dim)}
 .cz-combo{position:relative}
+#cz-moto{scroll-margin-top:90px}
+.cz-campo{scroll-margin-top:12px}
 .cz-lista.cz-desplegable{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;margin:0;gap:0;padding:4px;max-height:min(260px,40vh);overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-3,0 12px 32px rgba(0,0,0,.35))}
 .cz-lista.cz-desplegable[hidden]{display:none}
 .cz-desplegable .cz-res{border:0;border-radius:8px;background:transparent;min-height:44px}
@@ -308,7 +310,6 @@ const HTML = `
   <div class="cz-borrador" id="cz-borrador" hidden role="status"><span>Borrador recuperado (<span id="cz-borrador-hace"></span>)</span><button type="button" class="cz-link" id="cz-empezar">Empezar de nuevo</button></div>
   <div class="cz-borrador" id="cz-respaldo" hidden role="status"><span>Tienes otra cotización a medias (<span id="cz-respaldo-hace"></span>)</span><span><button type="button" class="cz-link" id="cz-rec-resp">Recuperar</button> · <button type="button" class="cz-link" id="cz-desc-resp">Descartar</button></span></div>
   <div id="cz-form">
-    <div class="cz-secs" id="cz-secciones" role="radiogroup" aria-label="Sección de la cotización"></div>
     <fieldset class="cz-bloque"><legend>1 · Cliente</legend>
       <div class="cz-campo"><label for="cz-idcliente">ID o teléfono del cliente</label>
         <div class="cz-fila-id">
@@ -410,41 +411,44 @@ function validarCampos() {
 const validarUno = id => { const hit = validarCampos().find(x => x[0] === id); errCampo(id, hit ? hit[1] : ''); };
 
 /* ───────────── Secciones ───────────── */
-function pintarSecciones() {
-  const box = $('cz-secciones'), mias = seccionesQueCotizo();
-  if (mias.length === 1) { box.innerHTML = '<span class="cz-chip cz-ok">' + IC.ok + ' Cotizas en ' + esc(SECCIONES[mias[0]]) + '</span><span class="cz-ayuda" style="margin:0 0 0 6px">El resto del inventario lo ves en modo consulta.</span>'; return; }
-  box.innerHTML = mias.map(s => '<button type="button" class="cz-sec" role="radio" aria-checked="' + (s === seccion) + '" data-sec="' + s + '">' + esc(SECCIONES[s]) + '</button>').join('');
+/* Cotización unificada (v80): ya no hay selector de sección. Cada producto se cotiza con su propia sección y una sola cotización puede mezclarlas. */
+function pintarSecciones() {}
+/** Sección con la que se cotiza un producto: la de tu almacén si ahí hay existencia; si no, la primera donde hay y tu cuenta cotiza. Bajo pedido: la tuya. null = solo consulta. */
+function seccionDe(info) {
+  if (!info) return null;
+  const propia = seccionInicial();
+  if (!(info.stock > 0) || !info.secciones.length) return propia;
+  return [propia].concat(seccionesQueCotizo().filter(x => x !== propia)).find(x => info.secciones.indexOf(x) !== -1) || null;
 }
-async function cambiarSeccion(s) {
-  if (s === seccion || !puedeCotizarEn(s)) return;
-  if (lineas.length && !(await confirmarMaps({ titulo: 'Cambiar de sección', mensaje: 'Una cotización no mezcla secciones. Se quitarán los productos agregados. ¿Continuar?', confirmar: 'Cambiar', cancelar: 'No' }))) return;
-  seccion = s; lineas = []; pintarSecciones(); pintarLineas(); pintarResultados();
-}
+const secDeLinea = l => (l && l.seccion) || seccion;
 /** Tu sección de arranque: la de tu almacén; si cotizas en varias, Vento. */
 const seccionInicial = () => { const m = seccionesQueCotizo(); const a = almacenCuenta(); const propia = a && seccionDeTexto(a); return (propia && m.indexOf(propia) !== -1) ? propia : m[0]; };
-const agenciaAuto = () => (seccion === 'SUZUKI' || seccion === 'BAJAJ') ? seccion : (almacenCuenta().indexOf('CARABELA') !== -1 ? 'CARABELA' : 'VENTO');
+/** Sección principal de la cotización: la que más partidas tiene (empata la tuya). Solo define la agencia con la que se guarda. */
+function seccionPrincipal() {
+  const c = {}; lineas.forEach(l => { if (l.tipo !== 'pedido') c[secDeLinea(l)] = (c[secDeLinea(l)] || 0) + 1; });
+  const ks = Object.keys(c).sort((a, b) => c[b] - c[a] || (a === seccion ? -1 : 1)); return ks[0] || seccion;
+}
+const agenciaAuto = () => { const sp = seccionPrincipal(); return (sp === 'SUZUKI' || sp === 'BAJAJ') ? sp : (almacenCuenta().indexOf('CARABELA') !== -1 ? 'CARABELA' : 'VENTO'); };
 
 /* ───────────── Existencias, origen y traspaso ───────────── */
-const stockEnSeccion = info => info ? Object.keys(info.sucursales).filter(s => seccionDeTexto(s) === seccion).reduce((t, s) => t + info.sucursales[s], 0) : 0;
-function opcionesOrigen(sku) {
-  const info = infoSku(sku); if (!info) return [];
+const stockEnSeccion = (info, sec) => info ? Object.keys(info.sucursales).filter(s => seccionDeTexto(s) === (sec || seccion)).reduce((t, s) => t + info.sucursales[s], 0) : 0;
+function opcionesOrigen(sku, sec) {
+  const info = infoSku(sku); if (!info) return []; sec = sec || seccion;
   const zd = zonaDestino(), propia = tieneAgenciaPropia();
-  return Object.keys(info.sucursales).filter(s => seccionDeTexto(s) === seccion).map(s => {
+  return Object.keys(info.sucursales).filter(s => seccionDeTexto(s) === sec).map(s => {
     const mia = esMiSucursal(s), zo = zonaDe(s);
     return { sucursal: s, cantidad: info.sucursales[s], mia: mia, propia: propia, zonaIgual: !!(zo && zd && zo === zd), eta: (!propia || mia || !zo || !zd) ? '' : (zo === zd ? ETA_MISMA_ZONA : ETA_OTRA_ZONA) };
   }).sort((a, b) => (b.mia - a.mia) || (b.zonaIgual - a.zonaIgual) || (b.cantidad - a.cantidad));
 }
-function origenActual(l) { const o = opcionesOrigen(l.sku), cur = o.find(x => x.sucursal === l.origen) || o[0] || null; if (cur) l.origen = cur.sucursal; return { opc: o, cur: cur }; }
+function origenActual(l) { const o = opcionesOrigen(l.sku, secDeLinea(l)), cur = o.find(x => x.sucursal === l.origen) || o[0] || null; if (cur) l.origen = cur.sucursal; return { opc: o, cur: cur }; }
 
 /* ───────────── Resultados de búsqueda (todo Grupo Camejo) ───────────── */
 function filaResultado(p) {
-  const enSec = p.secciones.indexOf(seccion) !== -1, sinStock = p.stock <= 0;
-  const addable = (enSec || sinStock) && puedeCotizarEn(seccion);
-  const otras = p.secciones.filter(s => s !== seccion);
+  const sinStock = p.stock <= 0, enSec = !sinStock, addable = !!seccionDe(p);
+  const otras = p.secciones;
   let accion;
   if (addable) accion = '<span class="cz-badge ' + (enSec ? 'cz-ok' : 'cz-aten') + '">' + (enSec ? IC.ok + ' En existencia' : IC.aviso + ' Bajo pedido') + '</span>';
-  else if (otras.length && otras.some(puedeCotizarEn)) accion = '<span class="cz-badge cz-aten">' + IC.aviso + ' Está en ' + esc(otras.map(s => SECCIONES[s]).join(', ')) + ': cambia de sección</span>';
-  else accion = '<span class="cz-badge cz-cons">' + IC.candado + ' Solo consulta · ' + esc((otras.length ? otras : p.secciones).map(s => SECCIONES[s]).join(', ')) + '</span>';
+  else accion = '<span class="cz-badge cz-cons">' + IC.candado + ' Solo consulta · ' + esc(otras.map(s => SECCIONES[s]).join(', ')) + '</span>';
   const suc = Object.keys(p.sucursales).sort((a, b) => p.sucursales[b] - p.sucursales[a]).slice(0, 4).map(s => esc(s) + ' (' + p.sucursales[s] + ')').join(' · ');
   const precio = p.precioLista > 0 ? '<span class="cz-precio">' + moneda(arriba(p.precioLista)) + '</span>' : '<span class="cz-sku">Sin precio en lista</span>';
   return '<button type="button" class="cz-res" data-sku="' + esc(p.sku) + '"' + (addable ? '' : ' data-cons="1"') + '>'
@@ -507,11 +511,11 @@ function pintarLineas() {
 function agregarSku(sku, cant, silencioso) {
   const info = infoSku(sku);
   if (!info) { if (!silencioso) toast('Ese SKU no está en el inventario que ve tu cuenta.'); return false; }
-  if (!puedeCotizarEn(seccion)) { toast('Tu cuenta no puede cotizar en esta sección.'); return false; }
-  if (info.stock > 0 && info.secciones.indexOf(seccion) === -1) { if (!silencioso) toast('Ese producto es de otra sección (' + info.secciones.map(s => SECCIONES[s]).join(', ') + '). Una cotización no mezcla secciones.'); return false; }
+  const sec = seccionDe(info);
+  if (!sec) { if (!silencioso) toast('Solo consulta: ese producto es de ' + info.secciones.map(s => SECCIONES[s]).join(', ') + ' y tu cuenta no puede cotizarlo.'); return false; }
   const n = Math.max(1, Math.min(9999, Math.floor(Number(cant)) || 1)), ya = lineas.find(l => l.tipo === 'catalogo' && skuN(l.sku) === info.k);
   if (ya) ya.cantidad = Math.min(ya.cantidad + n, 9999);
-  else lineas.push({ id: ++seq, tipo: 'catalogo', sku: info.sku, descripcion: info.nombre || '', disponibilidad: stockEnSeccion(info) > 0 ? 'En existencia' : 'Bajo pedido', cantidad: n, precioAprox: '' });
+  else lineas.push({ id: ++seq, tipo: 'catalogo', sku: info.sku, descripcion: info.nombre || '', disponibilidad: stockEnSeccion(info, sec) > 0 ? 'En existencia' : 'Bajo pedido', seccion: sec, cantidad: n, precioAprox: '' });
   errGeneral(''); errCampo('cz-buscador', '');
   if (!silencioso) { $('cz-buscador').value = ''; $('cz-resultados').hidden = true; mostrarOferta(info.sku); }
   pintarLineas();
@@ -552,7 +556,7 @@ function buscarParte(id, soloBloquear) {
   _parteT[id] = setTimeout(async () => {
     const l0 = lineas.find(x => x.id === id); if (!l0) return;
     const np = String(l0.numeroParte || '').trim(), estado = t => { l0.vnTexto = t; const el = $('cz-vn-' + id); if (el) el.textContent = t; };
-    if (np.length < 3 || seccion !== 'VENTO') { l0.precioVento = 0; aplicarBloqueoPrecio(l0); estado(''); return; }
+    if (np.length < 3 || secDeLinea(l0) !== 'VENTO') { l0.precioVento = 0; aplicarBloqueoPrecio(l0); estado(''); return; }
     estado('Buscando en la lista de VENTO…');
     try {
       const rs = await api('consultarParteVento', { numeroParte: np });
@@ -631,6 +635,12 @@ function sugerirMotos() {
   // Campo vacío: lista completa (desplegable con desplazamiento). Con texto: coincidencias, las que empiezan igual primero.
   let sug = pal.length ? motos.filter(m => { const k = motoClave(m); return pal.every(p => k.indexOf(p) !== -1); }).sort((a, b) => (motoClave(a).indexOf(q) === 0 ? 0 : 1) - (motoClave(b).indexOf(q) === 0 ? 0 : 1)).filter(m => motoClave(m) !== q).slice(0, 30) : motos.slice().sort((a, b) => a.localeCompare(b, 'es')).slice(0, 60);
   caja.innerHTML = sug.map((m, i) => '<button type="button" role="option" class="cz-res" data-moto="' + i + '"><b>' + esc(m) + '</b></button>').join(''); caja.hidden = !sug.length; campo.setAttribute('aria-expanded', String(!!sug.length)); caja._sug = sug;
+  if (sug.length) subirCampoMoto();
+}
+/** Sube el campo del modelo para que la lista no quede detrás de la barra del total ni del teclado. */
+function subirCampoMoto() {
+  clearTimeout(subirCampoMoto._t);
+  subirCampoMoto._t = setTimeout(() => { try { const c = $('cz-moto').closest('.cz-campo'); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }, 120);
 }
 const ocultarMotos = () => { const c = $('cz-moto-sug'); if (c) c.hidden = true; const m = $('cz-moto'); if (m) m.setAttribute('aria-expanded', 'false'); };
 
@@ -726,9 +736,9 @@ async function editar(c) {
   $('cz-moto').value = c.moto || ''; $('cz-anio').value = c.anio || ''; $('cz-vigencia').value = vigIso(c.vigencia) || vigOmision();
   lineas = (c.items || []).map(it => {
     const cant = Math.max(1, Math.min(9999, Math.floor(Number(it.cantidad)) || 1));
-    if (it.tipo === 'pedido') return { id: ++seq, tipo: 'pedido', sku: '', descripcion: it.descripcion || '', disponibilidad: 'Bajo pedido', cantidad: cant, numeroParte: it.numeroParte || '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' };
+    if (it.tipo === 'pedido') return { id: ++seq, tipo: 'pedido', sku: '', descripcion: it.descripcion || '', disponibilidad: 'Bajo pedido', seccion: sec, cantidad: cant, numeroParte: it.numeroParte || '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' };
     const info = infoSku(it.sku);
-    return { id: ++seq, tipo: 'catalogo', sku: String(it.sku || ''), descripcion: it.descripcion || (info && info.nombre) || '', disponibilidad: it.disponibilidad || 'En existencia', cantidad: cant, origen: it.origen || '', precioAprox: it.precioAprox && Number(it.precio) > 0 ? String(it.precio) : '' };
+    return { id: ++seq, tipo: 'catalogo', sku: String(it.sku || ''), descripcion: it.descripcion || (info && info.nombre) || '', disponibilidad: it.disponibilidad || 'En existencia', seccion: it.seccion || (info && seccionDe(info)) || sec, cantidad: cant, origen: it.origen || '', precioAprox: it.precioAprox && Number(it.precio) > 0 ? String(it.precio) : '' };
   });
   pintarSecciones(); pintarLineas(); verificarBloqueosPrecio();
 }
@@ -750,10 +760,10 @@ async function guardar() {
   try {
     const datos = {
       cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value || vigOmision(),
-      agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccion, origen: 'PISO', app: 'maps',
+      agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccionPrincipal(), origen: 'PISO', app: 'maps',
       lineas: lineas.map(l => l.tipo === 'pedido'
-        ? { tipo: 'pedido', cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox }
-        : (() => { const o = origenActual(l), cur = o.cur; return { tipo: 'catalogo', sku: l.sku, cantidad: l.cantidad, descripcion: l.descripcion, disponibilidad: l.disponibilidad, precioAprox: l.precioAprox,
+        ? { tipo: 'pedido', seccion: secDeLinea(l), cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox }
+        : (() => { const o = origenActual(l), cur = o.cur; return { tipo: 'catalogo', sku: l.sku, seccion: secDeLinea(l), cantidad: l.cantidad, descripcion: l.descripcion, disponibilidad: l.disponibilidad, precioAprox: l.precioAprox,
             origen: cur ? cur.sucursal : '', traspaso: !!(cur && cur.propia && !cur.mia), eta: cur ? cur.eta : '' }; })())
     };
     const ed = edicion;
@@ -762,7 +772,7 @@ async function guardar() {
     guardada = true; borrarBorrador(); if (datos.moto && !motos.some(m => motoClave(m) === motoClave(datos.moto))) motos.push(datos.moto.toUpperCase());
     ultima = { folio: rs.folio || (ed && ed.folio), fecha: rs.fecha || (ed && ed.base.fecha), estado: rs.estado || (ed && ed.base.estado) || 'Borrador', agencia: datos.agencia, cliente: datos.cliente, telefono: datos.telefono, idCliente: datos.idCliente,
       moto: datos.moto, anio: datos.anio, vigencia: vigIso(rs.vigencia) || datos.vigencia, vendedorAgencia: rs.vendedorAgencia, vendedorWhats: rs.vendedorWhats, vendedorRol: rs.vendedorRol || (ed && ed.base.vendedorRol) || '',
-      vendedorNombre: (ed && ed.base.vendedorNombre) || nombreActual || '', total: rs.total, subtotal: rs.subtotal, iva: rs.iva, items: rs.items };
+      vendedorNombre: (ed && ed.base.vendedorNombre) || nombreActual || '', total: rs.total, subtotal: rs.subtotal, iva: rs.iva, items: (rs.items || []).map(it => { if (it.seccion) return it; const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(it.sku)); return l ? Object.assign({}, it, { seccion: secDeLinea(l) }) : it; }) };
     $('cz-form').hidden = true; $('cz-listo').hidden = false; $('cz-folio').textContent = ultima.folio;
     $('cz-listo-detalle').textContent = rs.items.length + (rs.items.length === 1 ? ' producto' : ' productos') + ' · Total ' + moneda(rs.total) + ' · Estado: ' + ultima.estado + ' · Vigente hasta el ' + fechaLarga(ultima.vigencia);
     $('cz-listo-aviso').textContent = rs.sinPrecio ? rs.sinPrecio + ' sin precio: revisa antes de enviarla al cliente.' : '';
@@ -832,7 +842,7 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
     const VERDE = [34, 177, 76], VERDE_TXT = [4, 120, 87], OSC = [15, 23, 42], GRIS = [71, 85, 105], LINEA = [203, 213, 225], FONDO = [241, 245, 249];
     const moneda = n => '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const txt = v => String(v === null || v === undefined ? '' : v).trim();
-    const items = Array.isArray(cot.items) ? cot.items : [];
+    const items = Array.isArray(cot.items) ? cot.items.slice() : [];
     const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
     const mf = /^(\d{4})-(\d{2})-(\d{2})/.exec(txt(cot.fecha));
     const hoy = new Date();
@@ -908,8 +918,10 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
     };
     encabezadoTabla();
     let hayAprox = false, sinPrecio = 0, secPrev = null;
+    const variasSec = new Set(items.map(x => x.seccion).filter(Boolean)).size > 1;   // franja «Surte» solo si la cotización mezcla secciones
+    if (variasSec) { const ord = x => ['VENTO', 'SUZUKI', 'BAJAJ'].indexOf(x.seccion || ''); items.sort((a, b) => (ord(a) < 0 ? 9 : ord(a)) - (ord(b) < 0 ? 9 : ord(b))); }   // agrupa por sección (orden estable)
     items.forEach((it, n) => {
-        if (it.seccion && it.seccion !== secPrev) {   // franja de sección (cotización única)
+        if (variasSec && it.seccion && it.seccion !== secPrev) {   // franja de sección (cotización única)
             if (y + 14 > LIM) { doc.addPage(); y = 14; encabezadoTabla(); }
             doc.setFillColor(226, 232, 240); doc.rect(MX, y, TW, 6, 'F');
             fuente('bold', 8, OSC); doc.text('Surte: ' + (NOM_SEC[it.seccion] || it.seccion), MX + 2, y + 4.2);
@@ -936,6 +948,33 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.15); doc.line(MX, y + hFila, MX + TW, y + hFila);
         y += hFila;
     });
+
+    // ── Promociones vigentes de los productos cotizados (precio de promoción y mayoreo)
+    const promos = [], vistos = {};
+    items.forEach(it => {
+        const sku = txt(it.sku); if (!sku || vistos[sku]) return; vistos[sku] = 1;
+        let pr = null; try { pr = promoDe(sku); } catch (e) {}
+        if (!pr) return;
+        const hasta = pr.hasta ? ' · hasta ' + fechaCorta(pr.hasta) : '', l = [];
+        if (pr.precio > 0) l.push('Promoción ' + moneda(pr.precio) + hasta);
+        if (pr.mayoreo) l.push('Mayoreo desde ' + pr.mayoreo.min + ' pzas: ' + moneda(pr.mayoreo.precio) + hasta);
+        if (l.length) promos.push({ sku: sku, desc: txt(it.descripcion), l: l });
+    });
+    if (promos.length) {
+        y += 6;
+        const encPromo = () => { doc.setFillColor(VERDE_TXT[0], VERDE_TXT[1], VERDE_TXT[2]); doc.rect(MX, y, TW, 6.5, 'F'); fuente('bold', 8, [255, 255, 255]); doc.text('PROMOCIONES', MX + 2, y + 4.5); y += 6.5; };
+        if (y + 22 > LIM) { doc.addPage(); y = 14; }
+        encPromo();
+        promos.forEach(pm => {
+            fuente('bold', 8.5, OSC);
+            const cab = doc.splitTextToSize(pm.sku + (pm.desc ? ' · ' + pm.desc : ''), TW - 4).slice(0, 2), h = cab.length * 4 + pm.l.length * 4.2 + 3;
+            if (y + h > LIM) { doc.addPage(); y = 14; encPromo(); }
+            fuente('bold', 8.5, OSC); doc.text(cab, MX + 2, y + 4.6);
+            fuente('bold', 8.5, VERDE_TXT); pm.l.forEach((t, k) => doc.text(t, MX + 2, y + 4.6 + cab.length * 4 + k * 4.2));
+            doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.15); doc.line(MX, y + h, MX + TW, y + h);
+            y += h;
+        });
+    }
 
     // ── Total y notas
     if (y + 66 > LIM) { doc.addPage(); y = 14; }
@@ -1131,11 +1170,10 @@ function itemsDeLineas() {
 }
 /** Productos de una nota (en captura o ya guardada) → líneas de la cotización abierta. Devuelve cuántos pasaron y cuántos no. */
 function cargarLineasDeNota(items) {
-  let ok = 0, omitidos = 0, primero = true;
+  let ok = 0, omitidos = 0;
   (items || []).filter(it => !it.cancelado).forEach(it => {
     const cant = Math.max(1, Math.min(9999, Math.floor(Number(it.cantidad)) || 1)), sku = String(it.sku || '').trim();
-    if (!sku) { lineas.push({ id: ++seq, tipo: 'pedido', sku: '', descripcion: it.producto || '', disponibilidad: 'Bajo pedido', cantidad: cant, numeroParte: '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' }); ok++; return; }
-    if (primero) { const info = infoSku(sku); const s = info && info.secciones.length && info.secciones.indexOf(seccion) === -1 ? info.secciones.find(puedeCotizarEn) : null; if (s) seccion = s; primero = false; }   // arranca en la sección del primer producto
+    if (!sku) { lineas.push({ id: ++seq, tipo: 'pedido', sku: '', descripcion: it.producto || '', disponibilidad: 'Bajo pedido', seccion: seccion, cantidad: cant, numeroParte: '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' }); ok++; return; }
     if (agregarSku(sku, cant, true)) {
       const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(sku));
       if (l && !(listaGC && listaGC[skuN(sku)]) && Number(it.precio) > 0) l.precioAprox = String(it.precio);   // sin precio en lista: conserva el de la nota
@@ -1254,8 +1292,7 @@ function enlazar() {
   $('cv-nota').addEventListener('click', () => { const c = cvCot; cvCerrar(); convertirEnNota(c); });
   $('cz-a-nota').addEventListener('click', () => convertirEnNota(ultima));
   $('cz-historial').addEventListener('click', () => { cerrar(true); if (typeof window.abrirHistorialMaps === 'function') window.abrirHistorialMaps('cotizaciones'); else abrirHistorial(); });
-  $('cz-secciones').addEventListener('click', e => { const b = e.target.closest('[data-sec]'); if (b) cambiarSeccion(b.dataset.sec); });
-  // cliente
+    // cliente
   const idc = $('cz-idcliente'); idc.addEventListener('input', () => { const v = soloDigitos(idc.value); if (v !== idc.value) idc.value = v; idResuelto = ''; clearTimeout(idc._t); idc._t = setTimeout(buscarCliente, 600); });
   idc.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(idc._t); buscarCliente(); } });
   $('cz-id-buscar').addEventListener('click', () => { clearTimeout(idc._t); buscarCliente(); });
@@ -1274,16 +1311,11 @@ function enlazar() {
   $('cz-form').addEventListener('input', guardarBorrador); $('cz-form').addEventListener('change', guardarBorrador);
   // buscador
   const b = $('cz-buscador'); b.addEventListener('input', pintarResultados);
-  b.addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); const r = buscar(b.value).find(p => ((p.secciones.indexOf(seccion) !== -1) || p.stock <= 0) && puedeCotizarEn(seccion)); if (r) agregarSku(r.sku); });
+  b.addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); const r = buscar(b.value).find(p => seccionDe(p)); if (r) agregarSku(r.sku); });
   $('cz-resultados').addEventListener('click', e => {
     const k = e.target.closest('[data-kit]'); if (k) { abrirKit(k.dataset.kit, k.dataset.sku); return; }
     const r = e.target.closest('[data-sku]'); if (!r) return;
-    if (r.dataset.cons) {   // consulta: si la cuenta puede cotizar en la otra sección, la ofrece; si no, explica
-      const info = infoSku(r.dataset.sku), otras = info ? info.secciones.filter(s => s !== seccion && puedeCotizarEn(s)) : [];
-      if (otras.length) { cambiarSeccion(otras[0]).then(() => { if (seccion === otras[0]) agregarSku(r.dataset.sku); }); }
-      else toast('Solo consulta: ese producto es de otra sección y tu cuenta no puede cotizarlo.');
-      return;
-    }
+    if (r.dataset.cons) { toast('Solo consulta: ese producto es de otra sección y tu cuenta no puede cotizarlo.'); return; }
     agregarSku(r.dataset.sku);
   });
   // líneas y avisos de kit
