@@ -468,7 +468,17 @@ function pintarResultados() {
 
 /* ───────────── Líneas ───────────── */
 function precioLinea(l) {
-  if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) return { valor: arriba(listaGC[skuN(l.sku)].precio), lista: true };
+  if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) {
+    let valor = arriba(listaGC[skuN(l.sku)].precio), oferta = false;
+    const p = promoDe(l.sku);   // ya devuelve null si la promoción venció
+    if (p) {
+      const cand = [];
+      if (p.precio > 0) cand.push(p.precio);
+      if (p.mayoreo && Number(l.cantidad) >= p.mayoreo.min) cand.push(p.mayoreo.precio);
+      if (cand.length) { valor = Math.min.apply(null, cand); oferta = true; }
+    }
+    return { valor: valor, lista: true, oferta: oferta };
+  }
   const a = Number(l.precioAprox); return a > 0 ? { valor: arriba(a), lista: false } : { valor: null, lista: false };
 }
 function actualizarImportes() {
