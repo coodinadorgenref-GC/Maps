@@ -137,6 +137,37 @@ function promoDe(sku) {
     return { precio: pu > 0 ? pu : 0, mayoreo: pm > 0 && mn >= 2 ? { precio: pm, min: mn } : null, hasta: hasta ? iso(new Date(hasta)) : '' };
   } catch (e) { return null; }
 }
+/** Precio unitario con la promoción o el mayoreo vigente. Toma el más bajo entre la lista, la promoción y el mayoreo
+ *  (este último solo si la cantidad alcanza el mínimo): una promoción nunca sube el precio. lista = precio unitario de lista. */
+function precioConPromo(sku, cantidad, lista) {
+  const p = promoDe(sku), cand = [];
+  if (p) {
+    if (p.precio > 0) cand.push(p.precio);
+    if (p.mayoreo && Number(cantidad) >= p.mayoreo.min) cand.push(p.mayoreo.precio);
+  }
+  const mejor = cand.length ? Math.min.apply(null, cand) : null;
+  return (mejor !== null && mejor < lista) ? { valor: mejor, oferta: true } : { valor: lista, oferta: false };
+}
+/** El servidor devuelve la cotización valuada a precio de lista. Aquí se aplica a cada partida de catálogo la promoción o el
+ *  mayoreo vigente según su cantidad, y se recalculan total, subtotal e IVA (los precios ya traen IVA). No modifica la
+ *  cotización original y es idempotente: aplicarla dos veces da el mismo resultado. */
+function cotConPromos(cot) {
+  if (!cot || !Array.isArray(cot.items)) return cot;
+  let cambio = 0, hubo = false;
+  const items = cot.items.map(it => {
+    if (!it || it.tipo === 'pedido' || it.precioAprox === true || !String(it.sku || '').trim()) return it;
+    const lista = Number(it.precio), cant = Number(it.cantidad);
+    if (!(lista > 0) || !(cant > 0)) return it;
+    const r = precioConPromo(it.sku, cant, lista);
+    if (!r.oferta) return it;
+    const importe = Math.round(r.valor * cant * 100) / 100, antes = Number(it.importe);
+    cambio += importe - (isFinite(antes) ? antes : lista * cant); hubo = true;
+    return Object.assign({}, it, { precio: r.valor, importe: importe });
+  });
+  if (!hubo) return cot;
+  const total = Math.round(((Number(cot.total) || 0) + cambio) * 100) / 100, sub = Math.round(total / 1.16 * 100) / 100;
+  return Object.assign({}, cot, { items: items, total: total, subtotal: sub, iva: Math.round((total - sub) * 100) / 100 });
+}
 function kitsDe(sku) {
   try {
     const k0 = skuN(sku);
@@ -469,15 +500,8 @@ function pintarResultados() {
 /* ───────────── Líneas ───────────── */
 function precioLinea(l) {
   if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) {
-    let valor = arriba(listaGC[skuN(l.sku)].precio), oferta = false;
-    const p = promoDe(l.sku);   // ya devuelve null si la promoción venció
-    if (p) {
-      const cand = [];
-      if (p.precio > 0) cand.push(p.precio);
-      if (p.mayoreo && Number(l.cantidad) >= p.mayoreo.min) cand.push(p.mayoreo.precio);
-      if (cand.length) { valor = Math.min.apply(null, cand); oferta = true; }
-    }
-    return { valor: valor, lista: true, oferta: oferta };
+    const r = precioConPromo(l.sku, l.cantidad, arriba(listaGC[skuN(l.sku)].precio));   // promoDe ya devuelve null si la promoción venció
+    return { valor: r.valor, lista: true, oferta: r.oferta };
   }
   const a = Number(l.precioAprox); return a > 0 ? { valor: arriba(a), lista: false } : { valor: null, lista: false };
 }
@@ -780,11 +804,11 @@ async function guardar() {
     const rs = ed ? await api('editarCotizacion', { folio: ed.folio, datos: datos }) : await api('guardarCotizacion', { datos: datos });
     if (!rs.success) { errGeneral(rs.message || (ed ? 'No se pudieron guardar los cambios.' : 'No se pudo guardar la cotización.')); return; }
     guardada = true; borrarBorrador(); if (datos.moto && !motos.some(m => motoClave(m) === motoClave(datos.moto))) motos.push(datos.moto.toUpperCase());
-    ultima = { folio: rs.folio || (ed && ed.folio), fecha: rs.fecha || (ed && ed.base.fecha), estado: rs.estado || (ed && ed.base.estado) || 'Borrador', agencia: datos.agencia, cliente: datos.cliente, telefono: datos.telefono, idCliente: datos.idCliente,
+    ultima = cotConPromos({ folio: rs.folio || (ed && ed.folio), fecha: rs.fecha || (ed && ed.base.fecha), estado: rs.estado || (ed && ed.base.estado) || 'Borrador', agencia: datos.agencia, cliente: datos.cliente, telefono: datos.telefono, idCliente: datos.idCliente,
       moto: datos.moto, anio: datos.anio, vigencia: vigIso(rs.vigencia) || datos.vigencia, vendedorAgencia: rs.vendedorAgencia, vendedorWhats: rs.vendedorWhats, vendedorRol: rs.vendedorRol || (ed && ed.base.vendedorRol) || '',
-      vendedorNombre: (ed && ed.base.vendedorNombre) || nombreActual || '', total: rs.total, subtotal: rs.subtotal, iva: rs.iva, items: (rs.items || []).map(it => { if (it.seccion) return it; const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(it.sku)); return l ? Object.assign({}, it, { seccion: secDeLinea(l) }) : it; }) };
+      vendedorNombre: (ed && ed.base.vendedorNombre) || nombreActual || '', total: rs.total, subtotal: rs.subtotal, iva: rs.iva, items: (rs.items || []).map(it => { if (it.seccion) return it; const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(it.sku)); return l ? Object.assign({}, it, { seccion: secDeLinea(l) }) : it; }) });
     $('cz-form').hidden = true; $('cz-listo').hidden = false; $('cz-folio').textContent = ultima.folio;
-    $('cz-listo-detalle').textContent = rs.items.length + (rs.items.length === 1 ? ' producto' : ' productos') + ' · Total ' + moneda(rs.total) + ' · Estado: ' + ultima.estado + ' · Vigente hasta el ' + fechaLarga(ultima.vigencia);
+    $('cz-listo-detalle').textContent = rs.items.length + (rs.items.length === 1 ? ' producto' : ' productos') + ' · Total ' + moneda(ultima.total) + ' · Estado: ' + ultima.estado + ' · Vigente hasta el ' + fechaLarga(ultima.vigencia);
     $('cz-listo-aviso').textContent = rs.sinPrecio ? rs.sinPrecio + ' sin precio: revisa antes de enviarla al cliente.' : '';
     try { $('cz-whats').focus(); } catch (e) {}
     if (!$('cz-hist-overlay').hidden) cargarHistorial(1);
@@ -846,6 +870,7 @@ function _cotNombrePdf(cot) { return 'Cotización ' + String((cot && cot.folio) 
 
 /** cot: { folio, fecha, agencia, cliente, telefono, idCliente, moto, anio, vendedorNombre, total, items:[{cantidad, sku, descripcion, disponibilidad, precio, precioAprox, importe}] } */
 function hojaCotizacionConstruir(jsPDF, cot, logo) {
+    cot = cotConPromos(cot);   // el servidor la valúa a precio de lista: aquí se respeta la promoción / mayoreo según la cantidad
     const doc = new jsPDF({ unit: 'mm', format: 'letter' });
     doc.setProperties({ title: _cotNombrePdf(cot).replace(/\.pdf$/, ''), subject: 'Cotización ' + String(cot.folio || '') });
     const PW = 215.9, PH = 279.4, MX = 14, TW = PW - 2 * MX, LIM = PH - 18;
