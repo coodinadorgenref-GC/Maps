@@ -959,33 +959,6 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         y += hFila;
     });
 
-    // ── Promociones vigentes de los productos cotizados (precio de promoción y mayoreo)
-    const promos = [], vistos = {};
-    items.forEach(it => {
-        const sku = txt(it.sku); if (!sku || vistos[sku]) return; vistos[sku] = 1;
-        let pr = null; try { pr = promoDe(sku); } catch (e) {}
-        if (!pr) return;
-        const hasta = pr.hasta ? ' · hasta ' + fechaCorta(pr.hasta) : '', l = [];
-        if (pr.precio > 0) l.push('Promoción ' + moneda(pr.precio) + hasta);
-        if (pr.mayoreo) l.push('Mayoreo desde ' + pr.mayoreo.min + ' pzas: ' + moneda(pr.mayoreo.precio) + hasta);
-        if (l.length) promos.push({ sku: sku, desc: txt(it.descripcion), l: l });
-    });
-    if (promos.length) {
-        y += 6;
-        const encPromo = () => { doc.setFillColor(VERDE_TXT[0], VERDE_TXT[1], VERDE_TXT[2]); doc.rect(MX, y, TW, 6.5, 'F'); fuente('bold', 8, [255, 255, 255]); doc.text('PROMOCIONES', MX + 2, y + 4.5); y += 6.5; };
-        if (y + 22 > LIM) { doc.addPage(); y = 14; }
-        encPromo();
-        promos.forEach(pm => {
-            fuente('bold', 8.5, OSC);
-            const cab = doc.splitTextToSize(pm.sku + (pm.desc ? ' · ' + pm.desc : ''), TW - 4).slice(0, 2), h = cab.length * 4 + pm.l.length * 4.2 + 3;
-            if (y + h > LIM) { doc.addPage(); y = 14; encPromo(); }
-            fuente('bold', 8.5, OSC); doc.text(cab, MX + 2, y + 4.6);
-            fuente('bold', 8.5, VERDE_TXT); pm.l.forEach((t, k) => doc.text(t, MX + 2, y + 4.6 + cab.length * 4 + k * 4.2));
-            doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.15); doc.line(MX, y + h, MX + TW, y + h);
-            y += h;
-        });
-    }
-
     // ── Total y notas
     if (y + 66 > LIM) { doc.addPage(); y = 14; }
     y += 6;
@@ -1009,6 +982,33 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
     y += 4.2; doc.text('No hay cancelaciones ni devoluciones en refacciones eléctricas.', MX, y);
     if (vigTxt) { y += 4.2; doc.text('Esta cotización es válida hasta el ' + vigTxt + '.', MX, y); }
     y += 6; fuente('bold', 8, GRIS); doc.text('ESTOS PRECIOS ESTÁN SUJETOS A CAMBIO SIN PREVIO AVISO', MX, y);
+
+    // ── Promociones vigentes de los productos cotizados (después del total y las leyendas)
+    const promos = [], vistos = {};
+    items.forEach(it => {
+        const sku = txt(it.sku); if (!sku || vistos[sku]) return; vistos[sku] = 1;
+        let pr = null; try { pr = promoDe(sku); } catch (e) {}
+        if (!pr) return;
+        const hasta = pr.hasta ? ' · hasta ' + fechaCorta(pr.hasta) : '', l = [];
+        if (pr.precio > 0) l.push('Promoción ' + moneda(pr.precio) + hasta);
+        if (pr.mayoreo) l.push('Mayoreo desde ' + pr.mayoreo.min + ' pzas: ' + moneda(pr.mayoreo.precio) + hasta);
+        if (l.length) promos.push({ sku: sku, desc: txt(it.descripcion), l: l });
+    });
+    if (promos.length) {
+        y += 8;
+        const encPromo = () => { doc.setFillColor(VERDE_TXT[0], VERDE_TXT[1], VERDE_TXT[2]); doc.rect(MX, y, TW, 6.5, 'F'); fuente('bold', 8, [255, 255, 255]); doc.text('PROMOCIONES', MX + 2, y + 4.5); y += 6.5; };
+        if (y + 22 > LIM) { doc.addPage(); y = 14; }
+        encPromo();
+        promos.forEach(pm => {
+            fuente('bold', 8.5, OSC);
+            const cab = doc.splitTextToSize(pm.sku + (pm.desc ? ' · ' + pm.desc : ''), TW - 4).slice(0, 2), h = cab.length * 4 + pm.l.length * 4.2 + 3;
+            if (y + h > LIM) { doc.addPage(); y = 14; encPromo(); }
+            fuente('bold', 8.5, OSC); doc.text(cab, MX + 2, y + 4.6);
+            fuente('bold', 8.5, VERDE_TXT); pm.l.forEach((t, k) => doc.text(t, MX + 2, y + 4.6 + cab.length * 4 + k * 4.2));
+            doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.15); doc.line(MX, y + h, MX + TW, y + h);
+            y += h;
+        });
+    }
 
     // ── Pie de cada hoja
     const n = doc.getNumberOfPages();
