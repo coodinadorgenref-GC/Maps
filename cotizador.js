@@ -139,7 +139,18 @@ function promoDe(sku) {
 }
 /** Precio unitario con la promoción o el mayoreo vigente. Toma el más bajo entre la lista, la promoción y el mayoreo
  *  (este último solo si la cantidad alcanza el mínimo): una promoción nunca sube el precio. lista = precio unitario de lista. */
+/** Precio de liquidación vigente del SKU (viene de la hoja «Precios» vía preciosCalculados, igual que en la nota de venta). null si no es liquidación. */
+function liqDe(sku) {
+  try {
+    const pc = (typeof preciosCalculados !== 'undefined' && preciosCalculados) ? (preciosCalculados[String(sku == null ? '' : sku).trim()] || preciosCalculados[skuN(sku)]) : null;
+    const v = pc && pc.liquidacion ? Number(pc.precio) : 0;
+    return v > 0 ? v : null;
+  } catch (e) { return null; }
+}
 function precioConPromo(sku, cantidad, lista) {
+  // Liquidación: manda su precio y no se le suma promoción ni mayoreo (igual que en la nota de venta).
+  const liq = liqDe(sku);
+  if (liq !== null && (!(lista > 0) || liq < lista)) return { valor: liq, oferta: true, liquidacion: true };
   const p = promoDe(sku), cand = [];
   if (p) {
     if (p.precio > 0) cand.push(p.precio);
@@ -179,7 +190,8 @@ function kitsDe(sku) {
 const kitHasta = k => { const h = (typeof _msFecha === 'function') ? _msFecha(k.vigenteHasta) : null; return h ? iso(new Date(h)) : ''; };
 /** Chips de aviso de un SKU: promoción, mayoreo y kit. conBoton: agrega "Ver kit". */
 function avisosHtml(sku, conBoton) {
-  const out = [], p = promoDe(sku);
+  const out = [], p = promoDe(sku), liq = liqDe(sku);
+  if (liq !== null) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Liquidación ' + moneda(liq) + '</span>');
   if (p && p.precio > 0) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Promoción ' + moneda(p.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
   if (p && p.mayoreo) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Mayoreo desde ' + p.mayoreo.min + ' pzas: ' + moneda(p.mayoreo.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
   kitsDe(sku).slice(0, 2).forEach(k => {
@@ -503,8 +515,9 @@ function pintarResultados() {
 function precioLinea(l) {
   if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) {
     const r = precioConPromo(l.sku, l.cantidad, arriba(listaGC[skuN(l.sku)].precio));   // promoDe ya devuelve null si la promoción venció
-    return { valor: r.valor, lista: true, oferta: r.oferta };
+    return { valor: r.valor, lista: true, oferta: r.oferta, liquidacion: !!r.liquidacion };
   }
+  if (l.tipo === 'catalogo' && liqDe(l.sku) !== null) return { valor: liqDe(l.sku), lista: true, oferta: true, liquidacion: true };   // liquidación sin precio en la lista
   const a = Number(l.precioAprox); return a > 0 ? { valor: arriba(a), lista: false } : { valor: null, lista: false };
 }
 function actualizarImportes() {
@@ -735,7 +748,7 @@ function reiniciar() {
   $('cz-form').hidden = false; $('cz-listo').hidden = true; errGeneral(''); avisoTxt(''); mostrarErrores([]); $('cz-borrador').hidden = true; pintarLineas();
 }
 function sincronizarDatos() {
-  try { sincronizarListaPreciosGC(); sincronizarExistenciasCatalogo(); sincronizarPromociones(); sincronizarKits(); } catch (e) {}
+  try { sincronizarPreciosCalculados(); sincronizarExistenciasCatalogo(); sincronizarPromociones(); sincronizarKits(); } catch (e) {}
 }
 function mostrar() {
   $('cz-overlay').hidden = false; document.body.style.overflow = 'hidden'; pintarSecciones();
