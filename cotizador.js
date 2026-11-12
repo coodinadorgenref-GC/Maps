@@ -161,8 +161,10 @@ function cotConPromos(cot) {
     const r = precioConPromo(it.sku, cant, lista);
     if (!r.oferta) return it;
     const importe = Math.round(r.valor * cant * 100) / 100, antes = Number(it.importe);
-    cambio += importe - (isFinite(antes) ? antes : lista * cant); hubo = true;
-    return Object.assign({}, it, { precio: r.valor, importe: importe });
+    const dif = importe - (isFinite(antes) ? antes : lista * cant);
+    cambio += dif; hubo = true;
+    // ahorroPromo = lo que se ahorra en esta partida frente al precio de lista (se acumula, así aplicarla otra vez no lo pierde)
+    return Object.assign({}, it, { precio: r.valor, importe: importe, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
   });
   if (!hubo) return cot;
   const total = Math.round(((Number(cot.total) || 0) + cambio) * 100) / 100, sub = Math.round(total / 1.16 * 100) / 100;
@@ -1007,6 +1009,18 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
     y += 4.2; doc.text('No hay cancelaciones ni devoluciones en refacciones eléctricas.', MX, y);
     if (vigTxt) { y += 4.2; doc.text('Esta cotización es válida hasta el ' + vigTxt + '.', MX, y); }
     y += 6; fuente('bold', 8, GRIS); doc.text('ESTOS PRECIOS ESTÁN SUJETOS A CAMBIO SIN PREVIO AVISO', MX, y);
+
+    // ── Ahorro por promociones / mayoreo (solo lo que ya está aplicado en los precios de la tabla; sin ahorro no se muestra)
+    const ahorro = Math.round(items.reduce((s, it) => s + (Number(it.ahorroPromo) > 0 ? Number(it.ahorroPromo) : 0), 0) * 100) / 100;
+    if (ahorro > 0) {
+        if (y + 16 > LIM) { doc.addPage(); y = 14 - 6; }
+        y += 6;
+        const hA = 9, FONDO_AHORRO = [236, 253, 245];
+        doc.setFillColor(FONDO_AHORRO[0], FONDO_AHORRO[1], FONDO_AHORRO[2]); doc.rect(MX, y, TW, hA, 'F');
+        doc.setFillColor(VERDE[0], VERDE[1], VERDE[2]); doc.rect(MX, y, 1.4, hA, 'F');
+        fuente('bold', 10, VERDE_TXT); doc.text('En esta compra ahorraste ' + moneda(ahorro), MX + 5, y + 6);
+        y += hA;
+    }
 
     // ── Promociones vigentes de los productos cotizados (después del total y las leyendas)
     const promos = [], vistos = {};
