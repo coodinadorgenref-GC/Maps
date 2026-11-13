@@ -190,9 +190,10 @@ function kitsDe(sku) {
 }
 const kitHasta = k => { const h = (typeof _msFecha === 'function') ? _msFecha(k.vigenteHasta) : null; return h ? iso(new Date(h)) : ''; };
 /** Chips de aviso de un SKU: promoción, mayoreo y kit. conBoton: agrega "Ver kit". */
-function avisosHtml(sku, conBoton) {
+function avisosHtml(sku, conBoton, soloLiq) {
   const out = [], p = promoDe(sku), liq = liqDe(sku);
   if (liq !== null) out.push('<span class="cz-chip cz-liq" title="Pieza en liquidación: ' + moneda(liq) + '">' + IC.bandera + ' Liquidación</span>');
+  if (soloLiq) return out.length ? '<div class="cz-avisos">' + out.join('') + '</div>' : '';
   if (liq === null && p && p.precio > 0) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Promoción ' + moneda(p.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
   if (liq === null && p && p.mayoreo) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Mayoreo desde ' + p.mayoreo.min + ' pzas: ' + moneda(p.mayoreo.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
   kitsDe(sku).slice(0, 2).forEach(k => {
@@ -507,7 +508,7 @@ function filaResultado(p) {
     + '<b>' + esc(p.nombre || 'SKU ' + p.sku) + '</b>'
     + '<span class="cz-sub"><span class="cz-sku">' + esc(p.sku) + '</span>' + precio + accion + '</span>'
     + (suc ? '<span class="cz-sub">' + suc + '</span>' : '')
-    + avisosHtml(p.sku, false) + '</button>';
+    + avisosHtml(p.sku, false, true) + '</button>';   // como en el catálogo: en los resultados no se ofrecen promociones; solo se marca la liquidación
 }
 function pintarResultados() {
   const cont = $('cz-resultados'), q = norm($('cz-buscador').value);
@@ -579,6 +580,7 @@ function agregarSku(sku, cant, silencioso) {
 }
 /** Aviso destacado para ofrecer promoción, mayoreo o kit del SKU recién agregado. */
 function mostrarOferta(sku) {
+  const box0 = $('cz-oferta'); if (box0) { box0.hidden = true; box0.innerHTML = ''; return; }   // sin ofertas al elegir un producto (igual que en el catálogo)
   const box = $('cz-oferta'), p = promoDe(sku), kits = kitsDe(sku), partes = [];
   if (p && p.precio > 0) partes.push('Tiene <b style="display:inline">promoción a ' + moneda(p.precio) + '</b>' + (p.hasta ? ' hasta el ' + esc(fechaLarga(p.hasta)) : ''));
   if (p && p.mayoreo) partes.push('Mayoreo desde ' + p.mayoreo.min + ' piezas a ' + moneda(p.mayoreo.precio) + ' c/u' + (p.hasta ? ' (hasta el ' + esc(fechaLarga(p.hasta)) + ')' : ''));
