@@ -31,6 +31,7 @@ const RE_NOMBRE = new RegExp('^[' + SOLO_LETRAS + '][' + SOLO_LETRAS + " .'-]*$"
 const soloLetras = t => String(t == null ? '' : t).replace(new RegExp('[^' + SOLO_LETRAS + " .'-]", 'g'), '').replace(new RegExp('^[^' + SOLO_LETRAS + ']+'), '').replace(/ {2,}/g, ' ');
 const soloDigitos = t => String(t == null ? '' : t).replace(/\D/g, '');
 const IC = {   // íconos SVG (nada de emoji como ícono)
+  bandera: '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M5 2a1 1 0 011 1v1h12.4a1 1 0 01.9 1.4L17.7 9l1.6 3.6a1 1 0 01-.9 1.4H6v7a1 1 0 11-2 0V3a1 1 0 011-1z"/></svg>',
   ok: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.2L6.5 12l1.4-1.4 2.9 2.9 5.3-5.3 1.4 1.4-6.7 6.6z"/></svg>',
   aviso: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
   camion: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M20 8h-3V4H3a2 2 0 00-2 2v11h2a3 3 0 006 0h6a3 3 0 006 0h2v-5l-3-4zM6 19.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm12 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM17 9.5h2.5l1.9 2.5H17V9.5z"/></svg>',
@@ -175,7 +176,7 @@ function cotConPromos(cot) {
     const dif = importe - (isFinite(antes) ? antes : lista * cant);
     cambio += dif; hubo = true;
     // ahorroPromo = lo que se ahorra en esta partida frente al precio de lista (se acumula, así aplicarla otra vez no lo pierde)
-    return Object.assign({}, it, { precio: r.valor, importe: importe, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
+    return Object.assign({}, it, { precio: r.valor, importe: importe, liquidacion: !!r.liquidacion || it.liquidacion === true, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
   });
   if (!hubo) return cot;
   const total = Math.round(((Number(cot.total) || 0) + cambio) * 100) / 100, sub = Math.round(total / 1.16 * 100) / 100;
@@ -191,9 +192,9 @@ const kitHasta = k => { const h = (typeof _msFecha === 'function') ? _msFecha(k.
 /** Chips de aviso de un SKU: promoción, mayoreo y kit. conBoton: agrega "Ver kit". */
 function avisosHtml(sku, conBoton) {
   const out = [], p = promoDe(sku), liq = liqDe(sku);
-  if (liq !== null) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Liquidación ' + moneda(liq) + '</span>');
-  if (p && p.precio > 0) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Promoción ' + moneda(p.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
-  if (p && p.mayoreo) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Mayoreo desde ' + p.mayoreo.min + ' pzas: ' + moneda(p.mayoreo.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
+  if (liq !== null) out.push('<span class="cz-chip cz-liq" title="Pieza en liquidación: ' + moneda(liq) + '">' + IC.bandera + ' Liquidación</span>');
+  if (liq === null && p && p.precio > 0) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Promoción ' + moneda(p.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
+  if (liq === null && p && p.mayoreo) out.push('<span class="cz-chip cz-promo">' + IC.etiqueta + ' Mayoreo desde ' + p.mayoreo.min + ' pzas: ' + moneda(p.mayoreo.precio) + (p.hasta ? ' · hasta ' + esc(fechaCorta(p.hasta)) : '') + '</span>');
   kitsDe(sku).slice(0, 2).forEach(k => {
     out.push('<span class="cz-chip cz-kit">' + IC.kit + ' Kit «' + esc(k.nombre) + '» −' + Math.round(_kitPct(k)) + '%' + (kitHasta(k) ? ' · hasta ' + esc(fechaCorta(kitHasta(k))) : '')
       + (conBoton ? ' <button type="button" class="cz-link" data-kit="' + esc(k.id) + '" data-sku="' + esc(sku) + '">Ver kit</button>' : '') + '</span>');
@@ -258,6 +259,10 @@ const CSS = `
 .cz-aten{background:rgba(255,138,30,.18);color:var(--ochre)}
 .cz-cons{background:var(--surface-2);color:var(--text-dim)}
 .cz-promo{background:rgba(196,214,0,.18);color:var(--accent)}
+.cz-liq{background:rgba(244,114,128,.12);color:#eba0a9;white-space:nowrap}
+html[data-theme="claro"] .cz-liq{background:rgba(190,45,65,.09);color:#a1303f}
+.cz-pold{font-size:12px;color:var(--text-dim);text-decoration:line-through;margin-left:6px;font-weight:400}
+.cz-lista[hidden]{display:none}
 html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-kit{background:rgba(255,138,30,.18);color:var(--ochre)}
 .cz-avisos{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
@@ -495,7 +500,9 @@ function filaResultado(p) {
   if (addable) accion = '<span class="cz-badge ' + (enSec ? 'cz-ok' : 'cz-aten') + '">' + (enSec ? IC.ok + ' En existencia' : IC.aviso + ' Bajo pedido') + '</span>';
   else accion = '<span class="cz-badge cz-cons">' + IC.candado + ' Solo consulta · ' + esc(otras.map(s => SECCIONES[s]).join(', ')) + '</span>';
   const suc = Object.keys(p.sucursales).sort((a, b) => p.sucursales[b] - p.sucursales[a]).slice(0, 4).map(s => esc(s) + ' (' + p.sucursales[s] + ')').join(' · ');
-  const precio = p.precioLista > 0 ? '<span class="cz-precio">' + moneda(arriba(p.precioLista)) + '</span>' : '<span class="cz-sku">Sin precio en lista</span>';
+  const liqP = liqDe(p.sku), lista = p.precioLista > 0 ? arriba(p.precioLista) : 0;
+  const precio = (liqP !== null && (!lista || liqP < lista)) ? '<span class="cz-precio">' + moneda(liqP) + (lista ? '<s class="cz-pold">' + moneda(lista) + '</s>' : '') + '</span>'
+    : (lista ? '<span class="cz-precio">' + moneda(lista) + '</span>' : '<span class="cz-sku">Sin precio en lista</span>');
   return '<button type="button" class="cz-res" data-sku="' + esc(p.sku) + '"' + (addable ? '' : ' data-cons="1"') + '>'
     + '<b>' + esc(p.nombre || 'SKU ' + p.sku) + '</b>'
     + '<span class="cz-sub"><span class="cz-sku">' + esc(p.sku) + '</span>' + precio + accion + '</span>'
@@ -566,7 +573,7 @@ function agregarSku(sku, cant, silencioso) {
   if (ya) ya.cantidad = Math.min(ya.cantidad + n, 9999);
   else lineas.push({ id: ++seq, tipo: 'catalogo', sku: info.sku, descripcion: info.nombre || '', disponibilidad: stockEnSeccion(info, sec) > 0 ? 'En existencia' : 'Bajo pedido', seccion: sec, cantidad: n, precioAprox: '' });
   errGeneral(''); errCampo('cz-buscador', '');
-  if (!silencioso) { $('cz-buscador').value = ''; $('cz-resultados').hidden = true; mostrarOferta(info.sku); }
+  if (!silencioso) { $('cz-buscador').value = ''; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; mostrarOferta(info.sku); }
   pintarLineas();
   return true;
 }
@@ -744,7 +751,7 @@ function reiniciar() {
   lineas = []; guardada = false; edicion = null; idResuelto = '';
   ['cz-cliente', 'cz-telefono', 'cz-moto', 'cz-anio', 'cz-idcliente', 'cz-buscador'].forEach(id => { $(id).value = ''; });
   $('cz-vigencia').value = vigOmision(); $('cz-titulo').textContent = 'Nueva cotización'; $('cz-guardar').textContent = 'Guardar cotización'; $('cz-listo-titulo').textContent = 'Cotización guardada';
-  $('cz-id-estado').textContent = 'Con el ID o el teléfono se traen el nombre y el teléfono.'; $('cz-id-resultados').hidden = true; $('cz-resultados').hidden = true; $('cz-oferta').hidden = true;
+  $('cz-id-estado').textContent = 'Con el ID o el teléfono se traen el nombre y el teléfono.'; $('cz-id-resultados').hidden = true; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; $('cz-oferta').hidden = true;
   $('cz-form').hidden = false; $('cz-listo').hidden = true; errGeneral(''); avisoTxt(''); mostrarErrores([]); $('cz-borrador').hidden = true; pintarLineas();
 }
 function sincronizarDatos() {
@@ -985,7 +992,8 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         const lDesc = doc.splitTextToSize(txt(it.descripcion) || '—', cols[2].w - 4);
         const lSku = doc.splitTextToSize(txt(it.sku) || '—', cols[1].w - 4);
         const lDisp = doc.splitTextToSize(txt(it.disponibilidad) || '—', cols[3].w - 4);
-        const hFila = Math.max(lDesc.length, lSku.length, lDisp.length, 1) * 4 + 3;
+        const marcaLiq = it.liquidacion === true;
+        const hFila = Math.max(lDesc.length + (marcaLiq ? 1 : 0), lSku.length, lDisp.length, 1) * 4 + 3;
         if (y + hFila > LIM) { doc.addPage(); y = 14; encabezadoTabla(); fuente('normal', 8.5, OSC); }
         if (n % 2 === 1) { doc.setFillColor(FONDO[0], FONDO[1], FONDO[2]); doc.rect(MX, y, TW, hFila, 'F'); }
         const base = y + 5;
@@ -995,6 +1003,7 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         doc.text(lDisp, celdaX(3, 'l'), base);
         doc.text(sinP ? 'Por confirmar' : moneda(it.precio) + (aprox ? '*' : ''), celdaX(4, 'r'), base, { align: 'right' });
         doc.text(sinP ? 'Por confirmar' : moneda(it.importe) + (aprox ? '*' : ''), celdaX(5, 'r'), base, { align: 'right' });
+        if (marcaLiq) { fuente('bold', 7, [163, 48, 63]); doc.text('LIQUIDACIÓN', celdaX(2, 'l'), base + lDesc.length * 4); fuente('normal', 8.5, OSC); }
         doc.setDrawColor(LINEA[0], LINEA[1], LINEA[2]); doc.setLineWidth(0.15); doc.line(MX, y + hFila, MX + TW, y + hFila);
         y += hFila;
     });
@@ -1031,7 +1040,7 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         const hA = 9, FONDO_AHORRO = [236, 253, 245];
         doc.setFillColor(FONDO_AHORRO[0], FONDO_AHORRO[1], FONDO_AHORRO[2]); doc.rect(MX, y, TW, hA, 'F');
         doc.setFillColor(VERDE[0], VERDE[1], VERDE[2]); doc.rect(MX, y, 1.4, hA, 'F');
-        fuente('bold', 10, VERDE_TXT); doc.text('En esta compra ahorraste ' + moneda(ahorro), MX + 5, y + 6);
+        fuente('bold', 10, VERDE_TXT); doc.text('En esta compra ahorras ' + moneda(ahorro), MX + 5, y + 6);
         y += hA;
     }
 
@@ -1372,7 +1381,7 @@ function enlazar() {
   CAMPOS.filter(id => id !== 'cz-buscador').forEach(id => { const el = $(id); el.addEventListener('blur', () => { if (el.value.trim() || el.getAttribute('aria-invalid') === 'true') validarUno(id); }); el.addEventListener('input', () => { if (el.getAttribute('aria-invalid') === 'true') validarUno(id); }); });
   $('cz-form').addEventListener('input', guardarBorrador); $('cz-form').addEventListener('change', guardarBorrador);
   // buscador
-  const b = $('cz-buscador'); b.addEventListener('input', pintarResultados);
+  const b = $('cz-buscador'); ['input', 'search', 'focus'].forEach(ev => b.addEventListener(ev, pintarResultados));   // vacío o de 1 letra: no se muestra nada (ni promociones)
   b.addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); const r = buscar(b.value).find(p => seccionDe(p)); if (r) agregarSku(r.sku); });
   $('cz-resultados').addEventListener('click', e => {
     const k = e.target.closest('[data-kit]'); if (k) { abrirKit(k.dataset.kit, k.dataset.sku); return; }
