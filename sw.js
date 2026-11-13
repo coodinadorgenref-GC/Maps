@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v87';
+const CACHE_SHELL = 'rutas-gc-shell-v88';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -63,18 +63,38 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+// Archivos sin los que la app no abre. Si el caché nuevo no los tiene completos (p. ej. se instaló con
+// señal mala o con datos móviles sin acceso a github.io), NO se borra el caché anterior: así la app
+// sigue abriendo con la versión que ya funcionaba en lugar de mostrar «504 Offline y sin caché».
+const SHELL_CRITICO = ['./index.html', './cotizador.js', './nota-venta.js', './manifest.json'];
+
+async function shellNuevoCompleto(){
+  try{
+    const cache = await caches.open(CACHE_SHELL);
+    const r = await Promise.all(SHELL_CRITICO.map((u) => cache.match(u)));
+    return r.every(Boolean);
+  } catch(e){ return false; }
+}
+
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== CACHE_SHELL && k !== CACHE_TILES)
-          .map((k) => caches.delete(k))
-      )
-    )
-  );
+  event.waitUntil((async () => {
+    if(await shellNuevoCompleto()){
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE_SHELL && k !== CACHE_TILES).map((k) => caches.delete(k)));
+    }
+  })());
   self.clients.claim();
 });
+
+// Busca primero en el caché actual y, si no está, en cualquiera de los anteriores que sigan guardados.
+async function matchShell(request, opts){
+  try{
+    const actual = await caches.open(CACHE_SHELL);
+    const r = await actual.match(request, opts);
+    if(r) return r;
+  } catch(e){}
+  return caches.match(request, opts);
+}
 
 function isTileRequest(url) {
   return /tile\.openstreetmap\.org|tile\.osm\.org|\{s\}\.tile/.test(url);
@@ -136,8 +156,8 @@ self.addEventListener('fetch', (event) => {
   // esperado en reflejar cambios nuevos.
   const esNavegacion = request.mode === 'navigate';
   event.respondWith(
-    caches.match(request, esNavegacion ? { ignoreSearch: true } : undefined).then((cachedDirecto) => {
-      const cached = cachedDirecto || (esNavegacion ? caches.match('./index.html') : null);
+    matchShell(request, esNavegacion ? { ignoreSearch: true } : undefined).then((cachedDirecto) => {
+      const cached = cachedDirecto || (esNavegacion ? matchShell('./index.html') : null);
       return Promise.resolve(cached);
     }).then((cached) => {
       const network = fetch(request, { cache: 'reload' })
