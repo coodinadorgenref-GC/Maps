@@ -500,15 +500,11 @@ function filaResultado(p) {
   let accion;
   if (addable) accion = '<span class="cz-badge ' + (enSec ? 'cz-ok' : 'cz-aten') + '">' + (enSec ? IC.ok + ' En existencia' : IC.aviso + ' Bajo pedido') + '</span>';
   else accion = '<span class="cz-badge cz-cons">' + IC.candado + ' Solo consulta · ' + esc(otras.map(s => SECCIONES[s]).join(', ')) + '</span>';
-  const suc = Object.keys(p.sucursales).sort((a, b) => p.sucursales[b] - p.sucursales[a]).slice(0, 4).map(s => esc(s) + ' (' + p.sucursales[s] + ')').join(' · ');
-  const liqP = liqDe(p.sku), lista = p.precioLista > 0 ? arriba(p.precioLista) : 0;
-  const precio = (liqP !== null && (!lista || liqP < lista)) ? '<span class="cz-precio">' + moneda(liqP) + (lista ? '<s class="cz-pold">' + moneda(lista) + '</s>' : '') + '</span>'
-    : (lista ? '<span class="cz-precio">' + moneda(lista) + '</span>' : '<span class="cz-sku">Sin precio en lista</span>');
+  // Igual que en el catálogo: nombre, SKU y disponibilidad (sin precio, sucursales ni promociones). Solo se marca la liquidación.
   return '<button type="button" class="cz-res" data-sku="' + esc(p.sku) + '"' + (addable ? '' : ' data-cons="1"') + '>'
     + '<b>' + esc(p.nombre || 'SKU ' + p.sku) + '</b>'
-    + '<span class="cz-sub"><span class="cz-sku">' + esc(p.sku) + '</span>' + precio + accion + '</span>'
-    + (suc ? '<span class="cz-sub">' + suc + '</span>' : '')
-    + avisosHtml(p.sku, false, true) + '</button>';   // como en el catálogo: en los resultados no se ofrecen promociones; solo se marca la liquidación
+    + '<span class="cz-sub"><span class="cz-sku">' + esc(p.sku) + '</span>' + accion + '</span>'
+    + avisosHtml(p.sku, false, true) + '</button>';
 }
 function pintarResultados() {
   const cont = $('cz-resultados'), q = norm($('cz-buscador').value);
@@ -551,7 +547,7 @@ function pintarLineas() {
         + '<input id="cz-np-' + l.id + '" data-id="' + l.id + '" data-campo="numeroParte" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="' + esc(l.numeroParte) + '">'
         + '<p class="cz-ayuda" id="cz-vn-' + l.id + '" role="status" aria-live="polite">' + esc(l.vnTexto || '') + '</p></div>'
         + '<div class="cz-campo"><label for="cz-ds-' + l.id + '">Descripción</label><input id="cz-ds-' + l.id + '" data-id="' + l.id + '" data-campo="descripcion" type="text" autocomplete="off" value="' + esc(l.descripcion) + '"></div>' + disp + '</div>'
-      : '<div style="min-width:0"><div class="cz-desc">' + esc(l.descripcion || 'SKU ' + l.sku) + '</div><div class="cz-sku">' + esc(l.sku) + '</div>' + disp + avisoStock + avisosHtml(l.sku, true) + origen + '</div>';
+      : '<div style="min-width:0"><div class="cz-desc">' + esc(l.descripcion || 'SKU ' + l.sku) + '</div><div class="cz-sku">' + esc(l.sku) + '</div>' + disp + avisoStock + avisosHtml(l.sku, false, true) + origen + '</div>';
     const precioHtml = (!ped && p.lista)
       ? '<div class="cz-ayuda" style="margin:0">' + moneda(p.valor) + ' c/u</div><div class="cz-imp" id="cz-imp-' + l.id + '">' + moneda(p.valor * l.cantidad) + '</div>'
       : '<div class="cz-campo" style="margin:0"><label for="cz-pa-' + l.id + '">' + (ped ? 'Precio aproximado' : 'Sin precio en lista: captura uno') + '</label><input id="cz-pa-' + l.id + '" data-id="' + l.id + '" data-campo="precioAprox" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.precioAprox) + '"' + (precioBloqueado(l) ? ' readonly aria-readonly="true" title="Precio sugerido de VENTO: solo administración lo puede cambiar"' : '') + '></div>'
@@ -574,7 +570,7 @@ function agregarSku(sku, cant, silencioso) {
   if (ya) ya.cantidad = Math.min(ya.cantidad + n, 9999);
   else lineas.push({ id: ++seq, tipo: 'catalogo', sku: info.sku, descripcion: info.nombre || '', disponibilidad: stockEnSeccion(info, sec) > 0 ? 'En existencia' : 'Bajo pedido', seccion: sec, cantidad: n, precioAprox: '' });
   errGeneral(''); errCampo('cz-buscador', '');
-  if (!silencioso) { $('cz-buscador').value = ''; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; mostrarOferta(info.sku); }
+  if (!silencioso) { $('cz-buscador').value = ''; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; mostrarOferta(info.sku); try { $('cz-buscador').focus(); } catch (e) {} }
   pintarLineas();
   return true;
 }
