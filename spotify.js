@@ -1,6 +1,8 @@
 /* spotify.js — «Música» en Maps: control remoto de Spotify.
    La música suena en la app de Spotify (o en el navegador de la PC); Maps solo la CONTROLA: play, pausa,
-   siguiente, anterior y playlists. No reproduce audio dentro de la PWA.
+   siguiente, anterior y playlists. No reproduce audio dentro de la PWA: el Web Playback SDK de Spotify no es
+   fiable en iPhone y se detiene al pasar a segundo plano, así que en iOS la app de Spotify tiene que existir
+   como dispositivo (basta con abrirla una vez; mientras suena música sigue activa aunque Maps esté cerrado).
 
    · Inicio de sesión PKCE (sin secret): el repo es público, por eso aquí solo existe el Client ID.
    · Requiere Spotify Premium (en modo desarrollo, además, la cuenta dueña de la app debe ser Premium
@@ -17,12 +19,12 @@ const CFG = {
   clientId: '8e38f253e0524ab8879e698e64bf11da',
   // 'admin' = solo cuentas de administración · 'todos' = cualquier usuario con sesión iniciada.
   visible: 'admin',
-  scopes: 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative'
+  scopes: 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-read-recently-played user-top-read'
 };
 // Debe coincidir EXACTO (mayúsculas incluidas) con el Redirect URI registrado en el panel de Spotify.
 const REDIRECT = (location.origin + location.pathname).replace(/index\.html$/, '');
 
-const LS_TOKEN = 'gc_spotify_v1', LS_PKCE = 'gc_spotify_pkce_v1', LS_CID = 'gc_spotify_cid_v1', LS_PEND = 'gc_spotify_pend_v1';
+const LS_TOKEN = 'gc_spotify_v1', LS_PKCE = 'gc_spotify_pkce_v1', LS_CID = 'gc_spotify_cid_v1', LS_PEND = 'gc_spotify_pend_v1', LS_ORD = 'gc_spotify_orden_v1', LS_ULT = 'gc_spotify_ult_v1', LS_REAB = 'gc_spotify_reabrir_v1';
 const URL_TOKEN = 'https://accounts.spotify.com/api/token', URL_API = 'https://api.spotify.com/v1';
 
 /* ───────────── Utilidades ───────────── */
@@ -76,8 +78,9 @@ async function pedirToken(params) {
 }
 const leerToken = () => { try { return JSON.parse(lsGet(LS_TOKEN) || 'null'); } catch (e) { return null; } };
 function guardarToken(j, previo) {
-  lsSet(LS_TOKEN, JSON.stringify({ a: j.access_token, r: j.refresh_token || (previo && previo.r) || '', e: Date.now() + (Number(j.expires_in) || 3600) * 1000 - 30000 }));
+  lsSet(LS_TOKEN, JSON.stringify({ s: j.scope || (previo && previo.s) || '', a: j.access_token, r: j.refresh_token || (previo && previo.r) || '', e: Date.now() + (Number(j.expires_in) || 3600) * 1000 - 30000 }));
 }
+const tieneEscucha = () => { const t = leerToken(), c = (t && t.s) || ''; return /user-top-read/.test(c) && /user-read-recently-played/.test(c); };
 async function tokenValido() {
   const t = leerToken(); if (!t) return null;
   if (Date.now() < t.e) return t.a;
@@ -86,7 +89,7 @@ async function tokenValido() {
   catch (e) { if (e.codigo === 'invalid_grant') { desconectar(true); } return null; }   // sin señal: se conserva la sesión y se reintenta
 }
 function desconectar(silencioso) {
-  lsDel(LS_TOKEN); S.est = null; S.listas = null; S.listasErr = ''; S.lista = ''; S.pistas = {};
+  lsDel(LS_TOKEN); S.esc = null; S.ctx = null; S.est = null; S.listas = null; S.listasErr = ''; S.lista = ''; S.pistas = {};
   if (!silencioso) toast('Spotify desconectado de Maps.');
   pintar();
 }
@@ -108,20 +111,32 @@ async function procesarRetorno() {
     esperarSesionYAbrir();
   } catch (e) { toast('No se pudo conectar con Spotify: ' + (e.message || 'error desconocido')); }
 }
-function esperarSesionYAbrir() {   // la sesión de Maps tarda un momento en restaurarse tras recargar
-  let n = 0; const iv = setInterval(() => { if (permitido()) { clearInterval(iv); abrir(); } else if (++n > 40) clearInterval(iv); }, 500);
+function esperarSesionYAbrir(l) {   // la sesión de Maps tarda un momento en restaurarse tras recargar
+  let n = 0; const iv = setInterval(() => { if (permitido()) { clearInterval(iv); abrir(l); } else if (++n > 40) clearInterval(iv); }, 500);
 }
 
 /* ───────────── API de Spotify ───────────── */
 const S = { est: null, t0: 0, listas: null, listasErr: '', cargandoListas: false, abierto: false, pausa: 0, vista: '', foco: null,
-            lista: '', filtro: '', marca: null, pistas: {}, reintentando: false };
+            lista: '', filtro: '', marca: null, pistas: {}, reintentando: false,
+            orden: lsGet(LS_ORD) === 'original' ? 'original' : 'top', esc: null, ctx: null, escTs: 0, escCargando: false };
 
+const esperar = ms => new Promise(r => setTimeout(r, ms));
 async function api(metodo, ruta, cuerpo) {
   const tk = await tokenValido();
   if (!tk) { const e = new Error('Sin sesión de Spotify'); e.status = 401; throw e; }
-  const r = await fetch(URL_API + ruta, { method: metodo,
-    headers: Object.assign({ Authorization: 'Bearer ' + tk }, cuerpo ? { 'Content-Type': 'application/json' } : {}),
-    body: cuerpo ? JSON.stringify(cuerpo) : undefined });
+  let r, intento = 0;
+  for (;;) {   // «Bad gateway» y cortes de red son pasajeros: se reintenta (las órdenes POST no, para no saltar dos canciones)
+    try {
+      r = await fetch(URL_API + ruta, { method: metodo,
+        headers: Object.assign({ Authorization: 'Bearer ' + tk }, cuerpo ? { 'Content-Type': 'application/json' } : {}),
+        body: cuerpo ? JSON.stringify(cuerpo) : undefined });
+    } catch (err) {
+      if (metodo !== 'POST' && intento++ < 2) { await esperar(600 * intento); continue; }
+      const e = new Error('Sin conexión'); e.red = true; throw e;
+    }
+    if (r.status >= 502 && r.status <= 504 && metodo !== 'POST' && intento++ < 2) { await esperar(700 * intento); continue; }
+    break;
+  }
   if (r.status === 429) { S.pausa = Date.now() + (Number(r.headers.get('Retry-After')) || 5) * 1000; }
   if (r.status === 204) return null;
   const txt = await r.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) {}
@@ -138,6 +153,8 @@ function textoError(e) {
   if (e && e.status === 403) return 'Spotify no autorizó esta acción. Si es una cuenta nueva, agrégala en «User Management» del panel de la app.';
   if (e && e.status === 429) return 'Spotify pide esperar unos segundos. Inténtalo otra vez.';
   if (e && (e.status === 404)) return 'Spotify no encontró un dispositivo activo.';
+  if (e && e.red) return 'Sin conexión. Revisa tu señal e inténtalo de nuevo.';
+  if (e && e.status >= 500) return 'Spotify tuvo un fallo temporal. Inténtalo de nuevo en unos segundos.';
   return 'No se pudo hablar con Spotify (' + ((e && e.message) || 'error') + ').';
 }
 
@@ -154,7 +171,7 @@ async function refrescar() {
       url: (it.external_urls && it.external_urls.spotify) || ''
     } : null;
     S.t0 = Date.now(); S.error = '';
-  } catch (e) { S.error = e && e.status ? textoError(e) : ''; if (e && e.status === 401) S.est = null; }
+  } catch (e) { S.error = e && e.status && e.status < 500 ? textoError(e) : ''; if (e && e.status === 401) S.est = null; }
   pintar();
 }
 const posActual = () => !S.est ? 0 : Math.min(S.est.dur, S.est.pos + (S.est.playing ? Date.now() - S.t0 : 0));
@@ -175,8 +192,9 @@ const leerPend = () => { try { const p = JSON.parse(lsGet(LS_PEND) || 'null'); r
 const guardarPend = p => { if (p) lsSet(LS_PEND, JSON.stringify(p)); else lsDel(LS_PEND); };
 const esSinDispositivo = e => !!e && (e.sinDispositivo || e.status === 404);
 // A dónde llevar a Spotify: a la playlist o canción que se pidió (o a la app, si fue play/pausa).
-const uriApp = (tipo, extra, extra2) => tipo === 'pista' ? (extra2 || 'spotify:') : tipo === 'lista' ? (extra || 'spotify:') : 'spotify:';
+const uriApp = (tipo, extra, extra2) => tipo === 'pista' || tipo === 'uris' ? (extra2 || 'spotify:') : tipo === 'lista' ? (extra || 'spotify:') : 'spotify:';
 function ejecutar(tipo, extra, extra2) {
+  if (tipo === 'uris') return reproducir({ uris: extra });
   if (tipo === 'lista') return reproducir({ context_uri: extra });
   if (tipo === 'pista') return reproducir({ context_uri: extra, offset: { uri: extra2 } });
   return reproducir();
@@ -189,11 +207,11 @@ async function accion(tipo, extra, extra2) {
       else { await reproducir(); if (S.est) { S.est.playing = true; S.t0 = Date.now(); } }
     } else if (tipo === 'sig') await api('POST', '/me/player/next');
     else if (tipo === 'ant') await api('POST', '/me/player/previous');
-    else if (tipo === 'lista' || tipo === 'pista') await ejecutar(tipo, extra, extra2);
+    else if (tipo === 'lista' || tipo === 'pista' || tipo === 'uris') await ejecutar(tipo, extra, extra2);
     pintar();
     setTimeout(refrescar, 800);   // Spotify tarda un instante en reflejar el cambio
   } catch (e) {
-    const sin = esSinDispositivo(e) && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista');
+    const sin = esSinDispositivo(e) && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista' || tipo === 'uris');
     if (sin) guardarPend({ tipo, extra, extra2, t: Date.now() });
     S.marca = null; marcarActual();
     const msg = textoError(sin ? { sinDispositivo: true } : e);
@@ -222,6 +240,59 @@ async function cargarListas() {
   catch (e) { S.listas = null; S.listasErr = 'No se pudieron cargar tus playlists. Puedes seguir usando los controles.'; }
   S.cargandoListas = false; pintarListas();
 }
+
+/* ───────────── Lo que más escuchas (recientes) ───────────── */
+/* Puntos por canción: top de ~4 semanas (más peso) + top de ~6 meses + últimas 50 reproducciones (más reciente = más puntos).
+   Las playlists se ordenan por la última vez que se oyeron (Spotify indica de qué playlist venía cada reproducción;
+   lo que se toca desde Maps también se anota en este celular). */
+const ultLs = () => { try { return JSON.parse(lsGet(LS_ULT) || '{}') || {}; } catch (e) { return {}; } };
+function anotarUltima(idLista) {
+  const pl = (S.listas || []).find(x => x.id === idLista); if (!pl) return;
+  const u = ultLs(); u[pl.uri] = Date.now(); lsSet(LS_ULT, JSON.stringify(u));
+}
+async function cargarEscuchas(forzar) {
+  if (S.escCargando || !leerToken() || !tieneEscucha()) return;
+  if (S.esc && !forzar && Date.now() - S.escTs < 10 * 60 * 1000) return;
+  S.escCargando = true;
+  const q = r => api('GET', r).catch(() => null), pts = {}, ctx = {};
+  const [c1, c2, m, rec] = await Promise.all([
+    q('/me/top/tracks?time_range=short_term&limit=50'), q('/me/top/tracks?time_range=short_term&limit=49&offset=50'),
+    q('/me/top/tracks?time_range=medium_term&limit=50'), q('/me/player/recently-played?limit=50')]);
+  const suma = (u, n) => { if (u) pts[u] = (pts[u] || 0) + n; };
+  [c1, c2].forEach((j, k) => ((j && j.items) || []).forEach((t, i) => suma(t && t.uri, 100 - i - k * 50)));
+  ((m && m.items) || []).forEach((t, i) => suma(t && t.uri, (50 - i) * 0.6));
+  ((rec && rec.items) || []).forEach((x, i) => {
+    if (!x || !x.track) return;
+    suma(x.track.uri, 40 + (50 - i) * 0.4);
+    const c = x.context; if (c && c.type === 'playlist' && c.uri && !ctx[c.uri]) ctx[c.uri] = Date.parse(x.played_at) || 0;
+  });
+  if (c1 || m || rec) { S.esc = pts; S.ctx = ctx; S.escTs = Date.now(); }
+  S.escCargando = false;
+  pintarListas(); if (S.lista) pintarPistas(S.lista);
+}
+function listasOrdenadas() {
+  const L = S.listas || [];
+  if (S.orden !== 'top') return L;
+  const u = ultLs(), ctx = S.ctx || {};
+  return L.map((p, i) => ({ p: p, i: i, t: Math.max(ctx[p.uri] || 0, u[p.uri] || 0) })).sort((a, b) => (b.t - a.t) || (a.i - b.i)).map(x => x.p);
+}
+function pistasOrdenadas(st) {
+  const arr = st.items.map((t, i) => { t.p = (S.esc && S.esc[t.uri]) || 0; return { t: t, i: i }; });
+  arr.sort((a, b) => (b.t.p - a.t.p) || (a.i - b.i));
+  return arr.map(x => x.t);
+}
+const ordenActivo = () => S.orden === 'top' && !!S.esc;
+function urisOrden(id, desde) {   // al ordenar por escuchas, Spotify recibe las canciones en ese orden (hasta 100)
+  const st = S.pistas[id]; if (!st || !ordenActivo() || st.ordenando) return null;
+  const l = pistasOrdenadas(st).filter(t => !t.local); let i = desde ? l.findIndex(t => t.uri === desde) : 0; if (i < 0) i = 0;
+  const us = l.slice(i, i + 100).map(t => t.uri); return us.length ? us : null;
+}
+function ctlOrden(txt) {
+  if (!tieneEscucha()) return '<div class="sp-nota">Para ordenar por lo que más escuchas, Spotify necesita un permiso más.<button type="button" class="sp-btn sec" id="spConectar">Actualizar permisos</button></div>';
+  const b = (v, t) => '<button type="button" role="radio" data-a="orden" data-v="' + v + '" aria-checked="' + (S.orden === v) + '">' + t + '</button>';
+  return '<div class="sp-seg" role="radiogroup" aria-label="Orden">' + b('top', txt) + b('original', 'Orden original') + '</div>';
+}
+function pintarOrden() { document.querySelectorAll('.sp-seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === S.orden))); }
 
 /* ───────────── Interfaz ───────────── */
 /* Dos pantallas dentro del panel: «Inicio» (ahora suena + tus playlists) y «Playlist» (portada, ▶ y todas sus canciones).
@@ -331,6 +402,18 @@ body.lluvia-activa .sp-mini{bottom:calc(86px + env(safe-area-inset-bottom))}
 html[data-theme="claro"] .sp-src{color:#14803a}
 @media (prefers-reduced-motion:no-preference){.sp-mini{animation:spSube .25s ease-out}}
 @keyframes spSube{from{transform:translateY(20px);opacity:0}to{transform:none;opacity:1}}
+.sp-panel button:focus-visible,.sp-panel a:focus-visible,.sp-panel input:focus-visible,.sp-mini button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sp-seg{display:flex;gap:4px;padding:4px;border-radius:99px;background:var(--surface-2);margin:12px 0 6px}
+.sp-seg button{flex:1;min-height:44px;border:none;border-radius:99px;background:transparent;color:var(--text-dim);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.sp-seg button[aria-checked="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 5px rgba(0,0,0,.3)}
+@media (prefers-reduced-motion:no-preference){.sp-seg button{transition:background .18s,color .18s}}
+.sp-msg:not(:empty){margin:6px 14px 10px;padding:12px 14px;border-radius:14px;background:rgba(214,150,40,.14);border:1px solid rgba(214,150,40,.45);color:var(--text);text-align:left;font-size:13.5px}
+.sp-msg .sp-btn{margin:10px 0 0;min-height:48px}
+.sp-nota .sp-btn{margin:10px 0 0}
+.sp-pista .rk{width:14px;height:14px;fill:var(--accent);flex:none}
+html[data-theme="claro"] .sp-pista .rk{fill:#6b7400}
+.sp-pista{min-height:60px}
+.sp-dh{align-items:center}
 `;
 function asegurarUi() {
   if ($('spFondo')) return;
@@ -364,11 +447,23 @@ function asegurarUi() {
     if (b) {
       const a = b.dataset.a;
       if (a === 'abrirlista') { abrirLista(b.dataset.id); return; }
+      if (a === 'orden') {
+        S.orden = b.dataset.v === 'original' ? 'original' : 'top'; lsSet(LS_ORD, S.orden); pintarOrden(); pintarListas();
+        if (S.orden === 'top') cargarEscuchas();
+        if (S.lista) { pintarPistas(S.lista); completarPistas(S.lista); }
+        return;
+      }
       if (a === 'atras') { volver(); return; }
       if (a === 'mas') { cargarPistas(b.dataset.id, true); return; }
       if (a === 'pista') { S.marca = { u: b.dataset.t, t: Date.now() }; marcarActual(); }
+      if ((a === 'pista' || a === 'lista') && S.lista) {
+        anotarUltima(S.lista);
+        const us = urisOrden(S.lista, a === 'pista' ? b.dataset.t : '');
+        if (us) { accion('uris', us, a === 'pista' ? b.dataset.t : b.dataset.u); return; }
+      }
       accion(a, b.dataset.u, b.dataset.t); return;
     }
+    if (e.target.closest('#spAbrirApp,#spAbrirSp')) lsSet(LS_REAB, JSON.stringify({ t: Date.now(), l: S.lista }));   // si iOS recarga Maps mientras estás en Spotify, el panel se reabre solo
     if (e.target.closest('#spConectar')) { conectar(); return; }
     if (e.target.closest('#spActualizar')) { refrescar(); return; }
     if (e.target.closest('#spDesconectar')) { desconectar(); return; }
@@ -406,7 +501,7 @@ function vistaReproductor() {
     + '<div class="sp-ctl"><button type="button" class="sp-b" data-a="ant" aria-label="Anterior">' + IC.ant + '</button>'
     + '<button type="button" class="sp-b pp" data-a="pp" id="spPP" aria-label="Reproducir o pausar"></button>'
     + '<button type="button" class="sp-b" data-a="sig" aria-label="Siguiente">' + IC.sig + '</button></div>'
-    + '<div class="sp-h4">TUS PLAYLISTS</div>'
+    + '<div class="sp-h4">TUS PLAYLISTS</div>' + ctlOrden('Recientes primero')
     + '<input class="sp-campo" id="spFiltro" type="search" placeholder="Buscar playlist" aria-label="Buscar playlist" autocomplete="off" hidden>'
     + '<div id="spListas"></div>'
     + '<div class="sp-pie"><button type="button" id="spActualizar">Actualizar</button><a id="spAbrirSp" href="https://open.spotify.com" target="_blank" rel="noopener">Abrir Spotify</a>'
@@ -423,11 +518,12 @@ function vistaLista(id) {
   return '<div class="sp-dh">' + (img ? '<img src="' + esc(img) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph"></span>')
     + '<div style="min-width:0"><h3>' + esc(p.name) + '</h3><p>' + esc(meta) + '</p></div></div>'
     + '<button type="button" class="sp-btn" data-a="lista" data-u="' + esc(p.uri) + '">' + IC.play + 'Reproducir playlist</button>'
+    + ctlOrden('Más escuchadas')
     + '<div class="sp-pistas" id="spPistas"></div>';
 }
 function setMsg(t, appUri) {
   const m = $('spMsg'); if (!m) return;
-  m.innerHTML = esc(t || '') + (appUri ? '<a class="sp-btn sec" id="spAbrirApp" href="' + esc(appUri) + '">Abrir Spotify</a>' : '');
+  m.innerHTML = (!t && !appUri) ? '' : '<span class="sp-msgt">' + esc(t || '') + '</span>' + (appUri ? '<a class="sp-btn" id="spAbrirApp" href="' + esc(appUri) + '">Abrir Spotify y volver aquí</a>' : '');
 }
 
 const sinAcentos = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -440,7 +536,7 @@ function pintarListas() {
   if (!S.listas.length) { c.innerHTML = '<p class="sp-ayuda">Aún no tienes playlists. Créalas en Spotify y aparecerán aquí.</p>'; return; }
   if (fl) { fl.hidden = S.listas.length <= 6; if (fl.value !== S.filtro) fl.value = S.filtro; }
   const q = sinAcentos(S.filtro).trim();
-  const ver = q && S.listas.length > 6 ? S.listas.filter(p => sinAcentos(p.name).indexOf(q) >= 0) : S.listas;
+  const todas = listasOrdenadas(), ver = q && S.listas.length > 6 ? todas.filter(p => sinAcentos(p.name).indexOf(q) >= 0) : todas;
   if (!ver.length) { c.innerHTML = '<p class="sp-ayuda">Ninguna playlist coincide con «' + esc(S.filtro.trim()) + '».</p>'; return; }
   // Tocar una playlist ENTRA a ella (portada, ▶ y todas sus canciones).
   c.innerHTML = ver.map(p => {
@@ -494,13 +590,31 @@ function pintarPistas(id) {
   const c = $('spPistas'); if (!c || S.lista !== id) return;
   const st = S.pistas[id], pl = (S.listas || []).find(p => p.id === id);
   if (!st || (st.cargando && !st.items.length)) { c.innerHTML = '<div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div>'; return; }
-  const ua = uriActual();
+  if (st.ordenando) { c.innerHTML = '<p class="sp-nota" role="status">Ordenando por lo que más escuchas… ' + st.items.length + (st.total ? ' de ' + st.total : '') + '</p><div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div>'; return; }
+  const ua = uriActual(), lis = ordenActivo() ? pistasOrdenadas(st) : st.items;
   let h = st.nota ? '<p class="sp-nota">' + esc(st.nota) + '</p>' : '';
-  h += st.items.map((t, i) => '<button type="button" class="sp-pista' + (ua && ua === t.uri ? ' actual' : '') + '" data-a="pista" data-u="' + esc(pl ? pl.uri : 'spotify:playlist:' + id)
+  h += lis.map((t, i) => '<button type="button" class="sp-pista' + (ua && ua === t.uri ? ' actual' : '') + '" data-a="pista" data-u="' + esc(pl ? pl.uri : 'spotify:playlist:' + id)
     + '" data-t="' + esc(t.uri) + '"' + (t.local ? ' disabled' : '') + '><span class="n"><span class="num">' + (i + 1) + '</span><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span></span>'
-    + '<span class="t"><b>' + esc(t.nombre) + '</b><small>' + esc(t.artista) + '</small></span><span class="d">' + (t.dur ? fmt(t.dur) : '') + '</span></button>').join('');
+    + '<span class="t"><b>' + esc(t.nombre) + '</b><small>' + esc(t.artista) + '</small></span>'
+    + (ordenActivo() && t.p > 0 ? '<svg class="rk" viewBox="0 0 24 24" role="img" aria-label="Escuchada recientemente"><path d="M19.48 12.35c-1.57-4.08-7.16-4.3-5.81-10.23.1-.44-.37-.78-.75-.55C9.29 3.71 6.68 8 8.87 13.62c.18.46-.36.89-.75.59-1.81-1.37-2-3.34-1.84-4.75.06-.52-.62-.77-.91-.34C4.69 10.16 4 11.84 4 14.37c.38 5.6 5.11 7.32 6.81 7.54 2.43.31 5.06-.14 6.95-1.87 2.08-1.93 2.84-5.01 1.72-7.69z"/></svg>' : '')
+    + '<span class="d">' + (t.dur ? fmt(t.dur) : '') + '</span></button>').join('');
   if (st.next) h += '<button type="button" class="sp-btn sec" data-a="mas" data-id="' + esc(id) + '"' + (st.cargando ? ' disabled' : '') + '>' + (st.cargando ? 'Cargando…' : 'Ver más canciones') + '</button>';
   c.innerHTML = h; c.classList.toggle('suena', !!(S.est && S.est.playing));
+}
+async function completarPistas(id) {   // para ordenar hace falta tener TODA la playlist (50 canciones por petición, tope 1000)
+  const st = S.pistas[id];
+  if (!st || st.nota || !st.next || S.orden !== 'top' || st.ordenando) return;
+  st.ordenando = true; pintarPistas(id);
+  while (st.next && st.items.length < 1000 && !st.nota) {
+    const antes = st.items.length; await cargarPistas(id, true);
+    if (st.items.length === antes) break;
+  }
+  st.ordenando = false; pintarPistas(id);
+}
+async function prepararLista(id) {
+  const st = S.pistas[id];
+  if (st && !st.nota) pintarPistas(id); else await cargarPistas(id);
+  cargarEscuchas(); await completarPistas(id);
 }
 function marcarActual() {   // resalta la canción que suena, sin volver a dibujar la lista
   const c = $('spPistas'); if (!c) return;
@@ -531,9 +645,9 @@ function pintar() {
     $('spCab').classList.toggle('con-atras', vista === 'lista');
     $('spAtras').hidden = vista !== 'lista';
     $('spTitulo').textContent = vista === 'lista' ? 'Playlist' : 'Música';
-    if (vista === 'rep') { cargarListas(); pintarListas(); }
+    if (vista === 'rep') { cargarListas(); cargarEscuchas(); pintarListas(); }
     if (vista === 'lista') {
-      if (S.pistas[S.lista] && !S.pistas[S.lista].nota) pintarPistas(S.lista); else cargarPistas(S.lista);
+      prepararLista(S.lista);
       const b = $('spAtras'); if (b) b.focus({ preventScroll: true });
     }
   }
@@ -565,10 +679,10 @@ function progreso() {
 }
 
 /* ───────────── Abrir / cerrar ───────────── */
-function abrir() {
+function abrir(l) {
   if (!permitido()) return;
   asegurarUi();
-  S.foco = document.activeElement; S.abierto = true; S.vista = ''; S.lista = ''; S.filtro = '';
+  S.foco = document.activeElement; S.abierto = true; S.vista = ''; S.lista = typeof l === 'string' ? l : ''; S.filtro = '';
   $('spFondo').hidden = false;
   pintar();
   if (leerToken()) refrescar();
@@ -607,6 +721,8 @@ function iniciar() {
     if (leerPend()) reintentarPendiente(); else refrescar();
   });
   setTimeout(() => { if (!document.hidden && permitido() && leerPend()) reintentarPendiente(); }, 2500);   // por si la app se recargó mientras estaba Spotify
+  let reab = null; try { reab = JSON.parse(lsGet(LS_REAB) || 'null'); } catch (e) {} lsDel(LS_REAB);
+  if (reab && Date.now() - reab.t < 10 * 60 * 1000 && leerToken() && !location.search) esperarSesionYAbrir(reab.l || '');
   procesarRetorno().then(() => { pintar(); programar(); });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
