@@ -14,7 +14,7 @@
 const CFG = {
   // Client ID de la app en developer.spotify.com/dashboard (32 caracteres). NUNCA el «Client secret».
   // También se puede pegar desde el panel de Música (se guarda solo en ese dispositivo).
-  clientId: '',
+  clientId: '8e38f253e0524ab8879e698e64bf11da',
   // 'admin' = solo cuentas de administración · 'todos' = cualquier usuario con sesión iniciada.
   visible: 'admin',
   scopes: 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative'
