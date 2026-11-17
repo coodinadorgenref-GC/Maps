@@ -3,7 +3,7 @@
 // para que la herramienta funcione sin señal una vez usada al menos una vez
 // en la zona donde se necesita.
 
-const CACHE_SHELL = 'rutas-gc-shell-v92';
+const CACHE_SHELL = 'rutas-gc-shell-v93';
 const CACHE_TILES = 'rutas-gc-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -20,6 +20,7 @@ const SHELL_ASSETS = [
   './logos-marcas.js',
   './cotizador.js',
   './promos-imagen.js',
+  './spotify.js',
   './fronteras.json',
   './estados.json',
   './localidades.json',
@@ -122,6 +123,10 @@ self.addEventListener('fetch', (event) => {
   // anterior, por lo que el radar/pronóstico podían mostrarse desfasados.
   // Sin señal simplemente fallan y la app ya avisa.
   if (/api\.rainviewer\.com|api\.open-meteo\.com|gibs\.earthdata\.nasa\.gov|mapservices\.weather\.noaa\.gov|ibasemaps-api\.arcgis\.com/.test(url)) return;
+
+  // Spotify (estado de reproducción, playlists, portadas): siempre directo a la red. En cache-first el
+  // reproductor mostraría la canción de hace rato y se guardarían portadas sin necesidad.
+  if (/api\.spotify\.com|accounts\.spotify\.com|\.scdn\.co/.test(url)) return;
 
   // Mapa vectorial (mosaicos, estilos, tipografías) y su librería: directo a la red y a la caché HTTP del
   // navegador. Si pasaran por aquí se guardarían en el shell sin límite y con `cache:'reload'` irían más lentas.

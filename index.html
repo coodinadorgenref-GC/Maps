@@ -869,6 +869,25 @@ input:focus-visible, textarea:focus-visible{ outline:2px solid var(--ring); outl
 .vista-pill b{ font-weight:700; text-decoration:underline; text-underline-offset:3px; }
 .vista-pill:active{ background:var(--surface-2); }
 
+/* Indicador de avance de la ruta: «En ruta · 3 de 8 visitas». Va debajo del buscador; si hay avisos de
+   vista (pines ocultos / filtros) estos se recorren hacia abajo para no encimarse. */
+.chip-visitas{
+  position:fixed; z-index:1190; top:calc(66px + env(safe-area-inset-top)); left:10px;
+  display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:0 14px; max-width:calc(100vw - 20px);
+  border-radius:20px; border:1px solid var(--line); background:var(--surface); color:var(--text);
+  font:inherit; font-size:13px; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,.35);
+}
+.chip-visitas[hidden]{ display:none; }
+.chip-visitas:active{ background:var(--surface-2); }
+.chip-visitas .cv-dot{ width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+.chip-visitas b{ color:var(--accent); font-weight:700; font-variant-numeric:tabular-nums; }
+.chip-visitas.completa .cv-dot{ background:var(--teal); }
+.chip-visitas.completa b{ color:var(--teal); }
+html[data-theme="claro"] .chip-visitas b{ color:#6b7400; }
+html[data-theme="claro"] .chip-visitas.completa b{ color:var(--teal); }
+body.con-chip-visitas .estado-vista{ top:calc(66px + 48px + env(safe-area-inset-top)); }
+.drawer-section[hidden]{ display:none; }
+
 .ajuste-hint{ font-size:12px; line-height:1.45; color:var(--text-dim); }
 /* Los avisos (toast) se ajustaban a la mitad de la pantalla y se partían en 3 líneas */
 .toast{ width:max-content; max-width:min(360px, calc(100vw - 32px)); text-align:center; line-height:1.4; }
@@ -1056,6 +1075,7 @@ html[data-theme="claro"] .text-dim, html[data-theme="claro"] .drawer-sub{ color:
 </div>
 <div class="buscador-res" id="buscadorResultados"></div>
 <div class="estado-vista" id="estadoVista" role="status" aria-live="polite" hidden></div>
+<button type="button" class="chip-visitas" id="chipVisitas" hidden aria-label="Ver la ruta actual"></button>
 
 <div class="drawer-scrim" id="drawerScrim"></div>
 <aside class="drawer" id="drawer" aria-hidden="true" aria-label="Menú principal" inert>
@@ -1078,6 +1098,9 @@ html[data-theme="claro"] .text-dim, html[data-theme="claro"] .drawer-sub{ color:
   <button class="drawer-item" id="btnPlanRuta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.71 11.29l-9-9a.996.996 0 0 0-1.41 0l-9 9a.996.996 0 0 0 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9a.996.996 0 0 0 0-1.41zM14 14.5V12h-4v3H8v-4c0-.55.45-1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/></svg><span class="txt">Planear ruta nueva</span><span class="estado"></span></button>
   <button class="drawer-item" id="btnRutaActual" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg><span class="txt">Ruta actual</span></button>
   <button class="drawer-item" id="btnAgenda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg><span class="txt">Próximas rutas</span></button>
+
+  <div class="drawer-section" id="secMusica" hidden>Música</div>
+  <button class="drawer-item" id="btnMusica" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg><span class="txt">Música</span></button>
 
     <div class="drawer-section">Ventas en ruta</div>
  <button class="drawer-item con-flyout" id="btnVentasFlyout" hidden data-mantener="1">
@@ -1335,7 +1358,8 @@ html[data-theme="claro"] .text-dim, html[data-theme="claro"] .drawer-sub{ color:
 <script src="nota-venta.js"></script>
 <script src="logos-marcas.js"></script>
 <script src="cotizador.js"></script>
-<script src="promos-imagen.js"></script>  
+<script src="promos-imagen.js"></script>
+<script src="spotify.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>  
 <script defer src="https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js"></script>
 
@@ -4258,7 +4282,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '14-nov · v92 · cantidades y promociones visibles';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '16-nov · v93 · música (Spotify) e indicador de visitas';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -6285,6 +6309,7 @@ function contenidoPopupSimple(p, esPrioridad){
 }
 
 function renderMarcadores(){
+  actualizarChipVisitas();   // renderMarcadores corre tras cada alta, edición, borrado o sincronización: el avance de la ruta se refresca solo
   markersLayer.clearLayers();
   marcadoresPorId.clear();
   const nuevosMarcadores = [];
@@ -7103,7 +7128,36 @@ async function obtenerRutaPorCalles(puntos){
 
 let idPeticionRuta = 0; // evita que una respuesta vieja pise una ruta más nueva
 
+// Avance de la ruta actual: cuántas de sus paradas ya tienen la visita de HOY registrada
+// (fecha de última visita = hoy). Se lee de `prospectos` para ver los cambios guardados o sincronizados.
+function visitasDeRuta(){
+  if(!rutaCalculada || !rutaCalculada.paradas || rutaCalculada.paradas.length === 0) return null;
+  const hoy = inicioDelDia(Date.now());
+  let hechas = 0;
+  rutaCalculada.paradas.forEach(par => {
+    const p = prospectos.find(x => x.id === par.id) || par;
+    if(p.fechaUltimaVisita && inicioDelDia(p.fechaUltimaVisita) === hoy) hechas++;
+  });
+  return { hechas, total: rutaCalculada.paradas.length };
+}
+function actualizarChipVisitas(){
+  try{
+    const chip = document.getElementById('chipVisitas'); if(!chip) return;
+    const v = visitasDeRuta();
+    chip.hidden = !v;
+    document.body.classList.toggle('con-chip-visitas', !!v);
+    if(!v) return;
+    const completa = v.hechas >= v.total;
+    chip.classList.toggle('completa', completa);
+    chip.innerHTML = '<span class="cv-dot" aria-hidden="true"></span><span>' + (completa ? 'Ruta completa' : 'En ruta')
+      + ' · <b>' + v.hechas + ' de ' + v.total + '</b> ' + (v.total === 1 ? 'visita' : 'visitas') + '</span>';
+  }catch(e){ /* antes de que exista la ruta (zona temporal de `let`): no hay nada que mostrar */ }
+}
+document.getElementById('chipVisitas').addEventListener('click', () => { cambiarTab('ruta', 'mapa'); });
+document.addEventListener('visibilitychange', () => { if(!document.hidden) actualizarChipVisitas(); });   // al volver a la app pudo cambiar el día
+
 async function dibujarLineaRuta(){
+  actualizarChipVisitas();
   if(lineaRutaLayer){ map.removeLayer(lineaRutaLayer); lineaRutaLayer = null; }
   if(rutaCalculada){ rutaCalculada.distanciaRealKm = null; rutaCalculada.duracionRealMin = null; }
   if(!rutaCalculada || rutaCalculada.paradas.length === 0) return;
@@ -9513,6 +9567,7 @@ function abrirDrawer(){
   ocultarResultadosBusqueda();
   const hayRuta = !!(rutaCalculada && rutaCalculada.paradas && rutaCalculada.paradas.length > 0);
   document.getElementById('btnRutaActual').style.display = hayRuta ? 'flex' : 'none';
+  if(typeof window.musicaActualizarMenu === 'function') window.musicaActualizarMenu();   // spotify.js: muestra «Música» solo a quien corresponde
   drawerScrim.classList.add('open');
   drawerEl.classList.add('open');
   drawerEl.setAttribute('aria-hidden', 'false');
