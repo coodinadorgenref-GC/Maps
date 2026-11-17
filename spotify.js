@@ -22,7 +22,7 @@ const CFG = {
 // Debe coincidir EXACTO (mayúsculas incluidas) con el Redirect URI registrado en el panel de Spotify.
 const REDIRECT = (location.origin + location.pathname).replace(/index\.html$/, '');
 
-const LS_TOKEN = 'gc_spotify_v1', LS_PKCE = 'gc_spotify_pkce_v1', LS_CID = 'gc_spotify_cid_v1';
+const LS_TOKEN = 'gc_spotify_v1', LS_PKCE = 'gc_spotify_pkce_v1', LS_CID = 'gc_spotify_cid_v1', LS_PEND = 'gc_spotify_pend_v1';
 const URL_TOKEN = 'https://accounts.spotify.com/api/token', URL_API = 'https://api.spotify.com/v1';
 
 /* ───────────── Utilidades ───────────── */
@@ -46,7 +46,8 @@ const IC = {
   pausa: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
   sig: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
   ant: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>',
-  cerrar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>'
+  cerrar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+  chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>'
 };
 
 /* ───────────── Inicio de sesión (PKCE) ───────────── */
@@ -111,7 +112,8 @@ function esperarSesionYAbrir() {   // la sesión de Maps tarda un momento en res
 }
 
 /* ───────────── API de Spotify ───────────── */
-const S = { est: null, t0: 0, listas: null, listasErr: '', cargandoListas: false, abierto: false, pausa: 0, vista: '', foco: null };
+const S = { est: null, t0: 0, listas: null, listasErr: '', cargandoListas: false, abierto: false, pausa: 0, vista: '', foco: null,
+            abierta: '', pistas: {}, reintentando: false };
 
 async function api(metodo, ruta, cuerpo) {
   const tk = await tokenValido();
@@ -129,7 +131,7 @@ async function api(metodo, ruta, cuerpo) {
   return j;
 }
 function textoError(e) {
-  if (e && e.sinDispositivo) return 'No hay un dispositivo de Spotify activo. Abre la app de Spotify en tu celular, reproduce algo un momento y vuelve a Maps.';
+  if (e && e.sinDispositivo) return 'Spotify está dormido en tu celular (iOS lo duerme en segundo plano cuando no hay música). Toca «Abrir Spotify», regresa a Maps y se reproducirá sola.';
   if (e && (e.razon === 'PREMIUM_REQUIRED' || (e.status === 403 && /premium/i.test(e.message || '')))) return 'Controlar la reproducción requiere Spotify Premium (los planes Lite y Mini no sirven).';
   if (e && e.status === 401) return 'La sesión de Spotify caducó. Conéctala de nuevo.';
   if (e && e.status === 403) return 'Spotify no autorizó esta acción. Si es una cuenta nueva, agrégala en «User Management» del panel de la app.';
@@ -145,7 +147,7 @@ async function refrescar() {
     S.est = it ? {
       playing: !!j.is_playing, titulo: it.name || '',
       artista: (it.artists || []).map(a => a.name).join(', ') || (it.show && it.show.name) || '',
-      dur: Number(it.duration_ms) || 0, pos: Number(j.progress_ms) || 0,
+      uri: it.uri || '', dur: Number(it.duration_ms) || 0, pos: Number(j.progress_ms) || 0,
       disp: (j.device && j.device.name) || '',
       img: (function () { const im = (it.album && it.album.images) || it.images || []; return (im[1] || im[0] || {}).url || ''; })(),
       url: (it.external_urls && it.external_urls.spotify) || ''
@@ -166,18 +168,50 @@ async function reproducir(cuerpo) {
     await api('PUT', '/me/player/play?device_id=' + encodeURIComponent(disp.id), cuerpo);
   }
 }
-async function accion(tipo, extra) {
-  setMsg('');
+/* Acción pendiente: iOS duerme la app de Spotify en segundo plano y entonces deja de aparecer como dispositivo.
+   Si pasa, se guarda lo que se pidió; al volver de Spotify (botón «Abrir Spotify») se reintenta sola. */
+const leerPend = () => { try { const p = JSON.parse(lsGet(LS_PEND) || 'null'); return p && Date.now() - p.t < 5 * 60 * 1000 ? p : null; } catch (e) { return null; } };
+const guardarPend = p => { if (p) lsSet(LS_PEND, JSON.stringify(p)); else lsDel(LS_PEND); };
+const esSinDispositivo = e => !!e && (e.sinDispositivo || e.status === 404);
+// A dónde llevar a Spotify: a la playlist o canción que se pidió (o a la app, si fue play/pausa).
+const uriApp = (tipo, extra, extra2) => tipo === 'pista' ? (extra2 || 'spotify:') : tipo === 'lista' ? (extra || 'spotify:') : 'spotify:';
+function ejecutar(tipo, extra, extra2) {
+  if (tipo === 'lista') return reproducir({ context_uri: extra });
+  if (tipo === 'pista') return reproducir({ context_uri: extra, offset: { uri: extra2 } });
+  return reproducir();
+}
+async function accion(tipo, extra, extra2) {
+  setMsg(''); guardarPend(null);
   try {
     if (tipo === 'pp') {
       if (S.est && S.est.playing) { await api('PUT', '/me/player/pause'); S.est.pos = posActual(); S.est.playing = false; S.t0 = Date.now(); }
       else { await reproducir(); if (S.est) { S.est.playing = true; S.t0 = Date.now(); } }
     } else if (tipo === 'sig') await api('POST', '/me/player/next');
     else if (tipo === 'ant') await api('POST', '/me/player/previous');
-    else if (tipo === 'lista') await reproducir({ context_uri: extra });
+    else if (tipo === 'lista' || tipo === 'pista') await ejecutar(tipo, extra, extra2);
     pintar();
     setTimeout(refrescar, 800);   // Spotify tarda un instante en reflejar el cambio
-  } catch (e) { setMsg(textoError(e)); if (S.abierto === false) toast(textoError(e)); }
+  } catch (e) {
+    const sin = esSinDispositivo(e) && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista');
+    if (sin) guardarPend({ tipo, extra, extra2, t: Date.now() });
+    const msg = textoError(sin ? { sinDispositivo: true } : e);
+    setMsg(msg, sin ? uriApp(tipo, extra, extra2) : '');
+    if (!S.abierto) toast(msg);
+  }
+}
+/** Al volver a Maps (o recargar) con una acción pendiente: reintenta unos segundos, porque Spotify tarda en despertar. */
+async function reintentarPendiente() {
+  const p = leerPend(); if (!p || S.reintentando || !leerToken()) return;
+  S.reintentando = true; guardarPend(null);
+  try {
+    for (const espera of [700, 1500, 3000]) {
+      await new Promise(r => setTimeout(r, espera));
+      try { await ejecutar(p.tipo, p.extra, p.extra2); setMsg(''); setTimeout(refrescar, 800); return; }
+      catch (e) { if (!esSinDispositivo(e)) { setMsg(textoError(e)); return; } }
+    }
+    setMsg(textoError({ sinDispositivo: true }), uriApp(p.tipo, p.extra, p.extra2));
+    guardarPend(p);
+  } finally { S.reintentando = false; }
 }
 async function cargarListas() {
   if (S.listas || S.cargandoListas || !leerToken()) return;
@@ -227,11 +261,34 @@ const CSS = `
 .sp-b.pp svg{width:34px;height:34px}
 .sp-msg{min-height:20px;font-size:13px;line-height:1.4;color:var(--ochre);margin:6px 0 0;text-align:center}
 .sp-h4{font-size:12px;letter-spacing:.12em;color:var(--text-dim);font-weight:700;margin:16px 0 6px}
-.sp-lista{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:6px;border:none;border-radius:12px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.sp-lista{display:flex;align-items:center;gap:12px;flex:1;min-width:0;min-height:56px;padding:6px;border:none;border-radius:12px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
 .sp-lista:active{background:var(--surface-2)}
 .sp-lista img,.sp-lista .ph{width:44px;height:44px;border-radius:9px;object-fit:cover;flex:none;background:linear-gradient(135deg,var(--accent),#16323a)}
 .sp-lista b{display:block;font-size:14.5px;font-weight:600}
 .sp-lista small{font-size:12px;color:var(--text-dim)}
+.sp-lista .nm{flex:1;min-width:0}
+.sp-lista .nm b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-lista .chev{width:22px;height:22px;fill:var(--text-dim);flex:none;margin-right:2px}
+@media (prefers-reduced-motion:no-preference){.sp-lista .chev{transition:transform .2s}}
+.sp-grupo.abierta>.sp-pl{background:var(--surface-2);border-radius:12px}
+.sp-grupo.abierta .chev{transform:rotate(180deg)}
+.sp-pl{display:flex;align-items:center;gap:4px}
+.sp-plplay{width:44px;height:44px;border:none;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;cursor:pointer;flex:none;margin-right:6px}
+.sp-plplay svg{width:22px;height:22px;fill:currentColor}
+.sp-pistas{margin:4px 0 10px 18px;padding-left:8px;border-left:2px solid var(--line)}
+.sp-pistas[hidden]{display:none}
+.sp-pista{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:4px 8px;border:none;border-radius:10px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.sp-pista:active{background:var(--surface-2)}
+.sp-pista:disabled{opacity:.5;cursor:default}
+.sp-pista .n{width:22px;text-align:right;font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;flex:none}
+.sp-pista .t{flex:1;min-width:0}
+.sp-pista .t b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-pista .t small{display:block;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-pista .d{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;flex:none}
+.sp-pista.actual .t b,.sp-pista.actual .n{color:var(--accent)}
+html[data-theme="claro"] .sp-pista.actual .t b,html[data-theme="claro"] .sp-pista.actual .n{color:#6b7400}
+.sp-nota{font-size:13px;line-height:1.45;color:var(--text-dim);padding:8px 8px;margin:0}
+a.sp-btn{text-decoration:none}
 .sp-pie{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;font-size:12.5px}
 .sp-pie a,.sp-pie button{color:var(--text-dim);background:none;border:none;font:inherit;text-decoration:underline;cursor:pointer;min-height:44px;padding:0 4px;display:inline-flex;align-items:center}
 .sp-mini{position:fixed;left:12px;right:84px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:1155;min-height:60px;border-radius:18px;background:var(--surface);color:var(--text);
@@ -273,7 +330,12 @@ function asegurarUi() {
   $('spCerrar').addEventListener('click', cerrar);
   f.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } });
   f.addEventListener('click', e => {
-    const b = e.target.closest('[data-a]'); if (b) { accion(b.dataset.a, b.dataset.u); return; }
+    const b = e.target.closest('[data-a]');
+    if (b) {
+      if (b.dataset.a === 'abrirlista') { alternarLista(b.dataset.id); return; }
+      if (b.dataset.a === 'mas') { cargarPistas(b.dataset.id, true); return; }
+      accion(b.dataset.a, b.dataset.u, b.dataset.t); return;
+    }
     if (e.target.closest('#spConectar')) { conectar(); return; }
     if (e.target.closest('#spActualizar')) { refrescar(); return; }
     if (e.target.closest('#spDesconectar')) { desconectar(); return; }
@@ -316,7 +378,10 @@ function vistaReproductor() {
     + '<div class="sp-pie"><button type="button" id="spActualizar">Actualizar</button><a id="spAbrirSp" href="https://open.spotify.com" target="_blank" rel="noopener">Abrir Spotify</a>'
     + '<button type="button" id="spDesconectar">Desconectar</button></div>';
 }
-function setMsg(t) { const m = $('spMsg'); if (m) m.textContent = t || ''; }
+function setMsg(t, appUri) {
+  const m = $('spMsg'); if (!m) return;
+  m.innerHTML = esc(t || '') + (appUri ? '<a class="sp-btn sec" id="spAbrirApp" href="' + esc(appUri) + '">Abrir Spotify</a>' : '');
+}
 
 function pintarListas() {
   const c = $('spListas'); if (!c) return;
@@ -327,10 +392,71 @@ function pintarListas() {
   c.innerHTML = S.listas.map(p => {
     const n = p.tracks && p.tracks.total != null ? p.tracks.total : (p.items && p.items.total != null ? p.items.total : null);
     const img = (p.images && p.images.length) ? p.images[p.images.length - 1].url : '';
-    return '<button type="button" class="sp-lista" data-a="lista" data-u="' + esc(p.uri) + '">'
+    const ab = S.abierta === p.id, id = esc(p.id);
+    // Tocar el nombre despliega sus canciones; el botón ▶ de la derecha reproduce la playlist completa.
+    return '<div class="sp-grupo' + (ab ? ' abierta' : '') + '" data-id="' + id + '"><div class="sp-pl">'
+      + '<button type="button" class="sp-lista" data-a="abrirlista" data-id="' + id + '" aria-expanded="' + ab + '" aria-controls="spPis_' + id + '">'
       + (img ? '<img src="' + esc(img) + '" alt="" referrerpolicy="no-referrer" loading="lazy">' : '<span class="ph"></span>')
-      + '<span><b>' + esc(p.name) + '</b>' + (n != null ? '<small>' + n + (n === 1 ? ' canción' : ' canciones') + '</small>' : '') + '</span></button>';
+      + '<span class="nm"><b>' + esc(p.name) + '</b>' + (n != null ? '<small>' + n + (n === 1 ? ' canción' : ' canciones') + '</small>' : '') + '</span>' + IC.chev + '</button>'
+      + '<button type="button" class="sp-plplay" data-a="lista" data-u="' + esc(p.uri) + '" aria-label="Reproducir la playlist ' + esc(p.name) + '">' + IC.play + '</button></div>'
+      + '<div class="sp-pistas" id="spPis_' + id + '"' + (ab ? '' : ' hidden') + '></div></div>';
   }).join('');
+  if (S.abierta) pintarPistas(S.abierta);
+}
+
+const NOTA_AJENA = 'Spotify solo permite ver las canciones de las playlists que tú creaste o en las que colaboras (límite de las apps en modo desarrollo). Esta sí la puedes reproducir con el botón ▶.';
+function alternarLista(id) {
+  S.abierta = S.abierta === id ? '' : id;
+  document.querySelectorAll('#spListas .sp-grupo').forEach(g => {
+    const on = g.dataset.id === S.abierta;
+    g.classList.toggle('abierta', on);
+    g.querySelector('.sp-lista').setAttribute('aria-expanded', on ? 'true' : 'false');
+    g.querySelector('.sp-pistas').hidden = !on;
+  });
+  if (!S.abierta) return;
+  pintarPistas(id);
+  const g = document.querySelector('#spListas .sp-grupo[data-id="' + id.replace(/"/g, '') + '"]'); if (g) g.scrollIntoView({ block: 'nearest' });
+  if (!S.pistas[id]) cargarPistas(id);
+}
+async function cargarPistas(id, mas) {
+  const st = S.pistas[id] || (S.pistas[id] = { items: [], total: 0, next: false, cargando: false, nota: '' });
+  if (st.cargando) return;
+  st.cargando = true; st.nota = ''; pintarPistas(id);
+  const off = mas ? st.items.length : 0, base = '/playlists/' + encodeURIComponent(id);
+  try {
+    let j;
+    try { j = await api('GET', base + '/items?limit=50&offset=' + off); }
+    catch (e) { if (e.status === 404 || e.status === 400) j = await api('GET', base + '/tracks?limit=50&offset=' + off); else throw e; }   // ruta anterior a febrero 2026
+    if (!j || !Array.isArray(j.items)) st.nota = NOTA_AJENA;   // en modo desarrollo, las playlists ajenas solo traen metadatos
+    else {
+      const nuevos = j.items.map(x => {
+        const t = x && (x.item || x.track);   // «track» pasó a «item» en 2026
+        if (!t || !t.uri) return null;
+        return { uri: t.uri, nombre: t.name || '(sin título)', artista: (t.artists || []).map(a => a.name).join(', ') || (t.show && t.show.name) || '',
+                 dur: Number(t.duration_ms) || 0, local: !!t.is_local || /^spotify:local:/.test(t.uri) };
+      }).filter(Boolean);
+      st.items = mas ? st.items.concat(nuevos) : nuevos;
+      st.total = Number(j.total) || st.items.length; st.next = !!j.next;
+      if (!st.items.length) st.nota = 'Esta playlist no tiene canciones que se puedan mostrar.';
+    }
+  } catch (e) {
+    st.nota = (e.status === 403 || e.status === 404) ? NOTA_AJENA : 'No se pudieron cargar las canciones (' + ((e && e.message) || 'error') + ').';
+  }
+  st.cargando = false; pintarPistas(id);
+}
+function pintarPistas(id) {
+  const c = $('spPis_' + id); if (!c) return;
+  const st = S.pistas[id], pl = (S.listas || []).find(p => p.id === id);
+  if (!st || (st.cargando && !st.items.length)) { c.innerHTML = '<p class="sp-nota">Cargando canciones…</p>'; return; }
+  let h = st.nota ? '<p class="sp-nota">' + esc(st.nota) + '</p>' : '';
+  h += st.items.map((t, i) => '<button type="button" class="sp-pista' + (S.est && S.est.uri === t.uri ? ' actual' : '') + '" data-a="pista" data-u="' + esc(pl ? pl.uri : '')
+    + '" data-t="' + esc(t.uri) + '"' + (t.local ? ' disabled' : '') + '><span class="n">' + (i + 1) + '</span><span class="t"><b>' + esc(t.nombre) + '</b><small>'
+    + esc(t.artista) + '</small></span><span class="d">' + (t.dur ? fmt(t.dur) : '') + '</span></button>').join('');
+  if (st.next) h += '<button type="button" class="sp-btn sec" data-a="mas" data-id="' + esc(id) + '"' + (st.cargando ? ' disabled' : '') + '>' + (st.cargando ? 'Cargando…' : 'Ver más canciones') + '</button>';
+  c.innerHTML = h;
+}
+function marcarActual() {   // resalta la canción que suena, sin volver a dibujar la lista
+  document.querySelectorAll('#spListas .sp-pista').forEach(b => b.classList.toggle('actual', !!(S.est && S.est.uri === b.dataset.t)));
 }
 
 function pintar() {
@@ -362,6 +488,7 @@ function pintar() {
     if (e && e.img) { if (im.getAttribute('src') !== e.img) im.src = e.img; im.hidden = false; ph.hidden = true; } else { im.hidden = true; ph.hidden = false; }
     const lnk = $('spAbrirSp'); if (lnk) lnk.href = (e && e.url) || 'https://open.spotify.com';
     if (S.error && e) setMsg(S.error);
+    marcarActual();
   }
   progreso();
 }
@@ -395,19 +522,26 @@ window.musicaActualizarMenu = function () {
 };
 
 let timer = null;
+// Sondeo adaptativo para cuidar la batería y los datos: más seguido solo si suena música y el panel está abierto.
+// (El avance de la barra se calcula en el celular entre consultas, no necesita preguntar cada segundo.)
+function intervalo() { const suena = !!(S.est && S.est.playing); return S.abierto ? (suena ? 4000 : 8000) : (suena ? 8000 : 25000); }
 function programar() {
   clearTimeout(timer);
   timer = setTimeout(async () => {
     if (!document.hidden && permitido() && leerToken() && Date.now() >= S.pausa) await refrescar(); else pintar();
     programar();
-  }, S.abierto ? 3000 : 6000);
+  }, intervalo());
 }
 
 function iniciar() {
   asegurarUi();
   const b = $('btnMusica'); if (b) b.addEventListener('click', abrir);
-  setInterval(() => { if (S.est && (S.abierto || ($('spMini') && !$('spMini').hidden))) progreso(); }, 1000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && permitido() && leerToken()) refrescar(); });
+  setInterval(() => { if (!document.hidden && S.est && (S.abierto || ($('spMini') && !$('spMini').hidden))) progreso(); }, 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !permitido() || !leerToken()) return;
+    if (leerPend()) reintentarPendiente(); else refrescar();
+  });
+  setTimeout(() => { if (!document.hidden && permitido() && leerPend()) reintentarPendiente(); }, 2500);   // por si la app se recargó mientras estaba Spotify
   procesarRetorno().then(() => { pintar(); programar(); });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();

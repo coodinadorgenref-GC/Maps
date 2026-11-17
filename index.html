@@ -4282,7 +4282,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '16-nov · v93 · música (Spotify) e indicador de visitas';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '17-nov · v94 · música: lista de canciones y Spotify en segundo plano';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
