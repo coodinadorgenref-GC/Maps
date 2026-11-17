@@ -47,7 +47,8 @@ const IC = {
   sig: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
   ant: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>',
   cerrar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
-  chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>'
+  der: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>',
+  atras: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>'
 };
 
 /* ───────────── Inicio de sesión (PKCE) ───────────── */
@@ -85,7 +86,7 @@ async function tokenValido() {
   catch (e) { if (e.codigo === 'invalid_grant') { desconectar(true); } return null; }   // sin señal: se conserva la sesión y se reintenta
 }
 function desconectar(silencioso) {
-  lsDel(LS_TOKEN); S.est = null; S.listas = null; S.listasErr = '';
+  lsDel(LS_TOKEN); S.est = null; S.listas = null; S.listasErr = ''; S.lista = ''; S.pistas = {};
   if (!silencioso) toast('Spotify desconectado de Maps.');
   pintar();
 }
@@ -113,7 +114,7 @@ function esperarSesionYAbrir() {   // la sesión de Maps tarda un momento en res
 
 /* ───────────── API de Spotify ───────────── */
 const S = { est: null, t0: 0, listas: null, listasErr: '', cargandoListas: false, abierto: false, pausa: 0, vista: '', foco: null,
-            abierta: '', pistas: {}, reintentando: false };
+            lista: '', filtro: '', marca: null, pistas: {}, reintentando: false };
 
 async function api(metodo, ruta, cuerpo) {
   const tk = await tokenValido();
@@ -194,6 +195,7 @@ async function accion(tipo, extra, extra2) {
   } catch (e) {
     const sin = esSinDispositivo(e) && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista');
     if (sin) guardarPend({ tipo, extra, extra2, t: Date.now() });
+    S.marca = null; marcarActual();
     const msg = textoError(sin ? { sinDispositivo: true } : e);
     setMsg(msg, sin ? uriApp(tipo, extra, extra2) : '');
     if (!S.abierto) toast(msg);
@@ -216,23 +218,28 @@ async function reintentarPendiente() {
 async function cargarListas() {
   if (S.listas || S.cargandoListas || !leerToken()) return;
   S.cargandoListas = true; pintarListas();
-  try { const j = await api('GET', '/me/playlists?limit=20'); S.listas = ((j && j.items) || []).filter(Boolean); S.listasErr = ''; }
+  try { const j = await api('GET', '/me/playlists?limit=50'); S.listas = ((j && j.items) || []).filter(Boolean); S.listasErr = ''; }
   catch (e) { S.listas = null; S.listasErr = 'No se pudieron cargar tus playlists. Puedes seguir usando los controles.'; }
   S.cargandoListas = false; pintarListas();
 }
 
 /* ───────────── Interfaz ───────────── */
+/* Dos pantallas dentro del panel: «Inicio» (ahora suena + tus playlists) y «Playlist» (portada, ▶ y todas sus canciones).
+   Al entrar a una playlist aparece abajo un mini-reproductor fijo para pausar/saltar sin salir de ella. */
 const CSS = `
 .sp-fondo{position:fixed;inset:0;z-index:2100;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center}
 .sp-fondo[hidden]{display:none}
-.sp-panel{width:100%;max-width:520px;max-height:90vh;overflow:auto;background:var(--surface);color:var(--text);border-radius:22px 22px 0 0;border:1px solid var(--line);
-  padding:14px 20px calc(22px + env(safe-area-inset-bottom));box-shadow:0 -12px 40px rgba(0,0,0,.5)}
-.sp-cab{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.sp-cab h2{font-size:21px;font-weight:800;flex:1;margin:0}
+.sp-panel{width:100%;max-width:520px;max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);color:var(--text);
+  border-radius:22px 22px 0 0;border:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -12px 40px rgba(0,0,0,.5)}
+.sp-panel.alta{height:92vh;height:92dvh}
+.sp-cab{display:flex;align-items:center;gap:10px;padding:12px 16px 8px 20px;flex:none}
+.sp-cab h2{font-size:21px;font-weight:800;flex:1;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-cab.con-atras{padding-left:12px}
 .sp-conn{font-size:11.5px;font-weight:700;background:#1DB954;color:#07140b;padding:5px 10px;border-radius:99px}
-.sp-conn[hidden]{display:none}
-.sp-x{width:44px;height:44px;border:none;border-radius:50%;background:var(--surface-2);color:var(--text);display:grid;place-items:center;cursor:pointer}
+.sp-conn[hidden],.sp-x[hidden],.sp-np2[hidden],.sp-campo[hidden]{display:none}
+.sp-x{width:44px;height:44px;border:none;border-radius:50%;background:var(--surface-2);color:var(--text);display:grid;place-items:center;cursor:pointer;flex:none}
 .sp-x svg{width:22px;height:22px;fill:currentColor}
+#spCuerpo{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:4px 20px 16px}
 .sp-centro{text-align:center;padding:14px 6px 4px}
 .sp-grande{width:88px;height:88px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;margin:8px auto 18px}
 .sp-grande svg{width:44px;height:44px;fill:currentColor}
@@ -242,69 +249,85 @@ const CSS = `
 .sp-ayuda ol{margin:0 0 12px;padding-left:20px;text-align:left}
 .sp-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:52px;border:none;border-radius:99px;font:inherit;font-weight:800;font-size:16px;cursor:pointer;
   background:#1DB954;color:#07140b;margin:6px 0}
+.sp-btn svg{width:22px;height:22px;fill:currentColor}
 .sp-btn.sec{background:var(--surface-2);color:var(--text);font-weight:700;font-size:14px;min-height:44px}
 .sp-btn:disabled{opacity:.55;cursor:default}
-.sp-campo{width:100%;min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);padding:0 12px;font:inherit;font-size:14px;margin:4px 0 8px}
+a.sp-btn{text-decoration:none}
+.sp-campo{width:100%;min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);padding:0 12px;font:inherit;font-size:16px;margin:4px 0 8px}
 .sp-np{display:flex;gap:16px;align-items:center}
-.sp-art{width:112px;height:112px;border-radius:14px;flex:none;object-fit:cover;background:linear-gradient(135deg,var(--accent),#2c7a5a 60%,#16323a);display:block}
-.sp-tt{font-size:20px;font-weight:800;line-height:1.15;overflow-wrap:anywhere}
+.sp-art{width:104px;height:104px;border-radius:14px;flex:none;object-fit:cover;background:linear-gradient(135deg,var(--accent),#2c7a5a 60%,#16323a);display:block}
 .sp-art[hidden]{display:none}
-.sp-aa{font-size:14px;color:var(--text-dim);margin-top:5px}
-.sp-src{font-size:12px;color:#1DB954;font-weight:700;margin-top:10px}
-.sp-barra{margin-top:18px;height:6px;border-radius:9px;background:var(--surface-2);position:relative;overflow:hidden}
+.sp-tt{font-size:20px;font-weight:800;line-height:1.15;overflow-wrap:anywhere}
+.sp-aa{font-size:14px;color:var(--text-dim);margin-top:5px;line-height:1.35}
+.sp-src{font-size:12px;color:#1DB954;font-weight:700;margin-top:8px}
+.sp-barra{margin-top:16px;height:6px;border-radius:9px;background:var(--surface-2);position:relative;overflow:hidden}
 .sp-barra i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);border-radius:9px}
 .sp-tiempos{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-dim);margin-top:6px;font-variant-numeric:tabular-nums}
-.sp-ctl{display:flex;align-items:center;justify-content:center;gap:30px;margin:10px 0 4px}
+.sp-ctl{display:flex;align-items:center;justify-content:center;gap:30px;margin:8px 0 2px}
 .sp-b{width:52px;height:52px;border:none;border-radius:50%;background:var(--surface-2);color:var(--text);display:grid;place-items:center;cursor:pointer}
 .sp-b svg{width:26px;height:26px;fill:currentColor}
 .sp-b.pp{width:68px;height:68px;background:var(--accent);color:var(--accent-ink)}
 .sp-b.pp svg{width:34px;height:34px}
-.sp-msg{min-height:20px;font-size:13px;line-height:1.4;color:var(--ochre);margin:6px 0 0;text-align:center}
-.sp-h4{font-size:12px;letter-spacing:.12em;color:var(--text-dim);font-weight:700;margin:16px 0 6px}
-.sp-lista{display:flex;align-items:center;gap:12px;flex:1;min-width:0;min-height:56px;padding:6px;border:none;border-radius:12px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.sp-msg{font-size:13px;line-height:1.4;color:var(--ochre);margin:0;padding:6px 20px 4px;text-align:center;flex:none}
+.sp-msg:empty{display:none}
+.sp-h4{font-size:12px;letter-spacing:.12em;color:var(--text-dim);font-weight:700;margin:18px 0 6px}
+.sp-lista{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:6px 8px;margin:0 -8px;box-sizing:content-box;border:none;border-radius:14px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
 .sp-lista:active{background:var(--surface-2)}
-.sp-lista img,.sp-lista .ph{width:44px;height:44px;border-radius:9px;object-fit:cover;flex:none;background:linear-gradient(135deg,var(--accent),#16323a)}
-.sp-lista b{display:block;font-size:14.5px;font-weight:600}
-.sp-lista small{font-size:12px;color:var(--text-dim)}
+.sp-lista img,.sp-lista .ph{width:52px;height:52px;border-radius:10px;object-fit:cover;flex:none;background:linear-gradient(135deg,var(--accent),#16323a)}
 .sp-lista .nm{flex:1;min-width:0}
-.sp-lista .nm b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sp-lista .chev{width:22px;height:22px;fill:var(--text-dim);flex:none;margin-right:2px}
-@media (prefers-reduced-motion:no-preference){.sp-lista .chev{transition:transform .2s}}
-.sp-grupo.abierta>.sp-pl{background:var(--surface-2);border-radius:12px}
-.sp-grupo.abierta .chev{transform:rotate(180deg)}
-.sp-pl{display:flex;align-items:center;gap:4px}
-.sp-plplay{width:44px;height:44px;border:none;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;cursor:pointer;flex:none;margin-right:6px}
-.sp-plplay svg{width:22px;height:22px;fill:currentColor}
-.sp-pistas{margin:4px 0 10px 18px;padding-left:8px;border-left:2px solid var(--line)}
-.sp-pistas[hidden]{display:none}
-.sp-pista{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:4px 8px;border:none;border-radius:10px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.sp-lista b{display:block;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-lista small{display:block;font-size:12.5px;color:var(--text-dim);margin-top:2px}
+.sp-lista .chev{width:24px;height:24px;fill:var(--text-dim);flex:none}
+.sp-sk{height:52px;border-radius:12px;background:var(--surface-2);margin:10px 0;opacity:.6}
+@media (prefers-reduced-motion:no-preference){.sp-sk{animation:spSk 1.1s ease-in-out infinite alternate}}
+@keyframes spSk{from{opacity:.35}to{opacity:.7}}
+.sp-dh{display:flex;gap:16px;align-items:flex-end;margin:6px 0 12px}
+.sp-dh img,.sp-dh .ph{width:128px;height:128px;border-radius:14px;object-fit:cover;flex:none;background:linear-gradient(135deg,var(--accent),#16323a);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.sp-dh h3{font-size:21px;font-weight:800;line-height:1.15;margin:0 0 6px;overflow-wrap:anywhere}
+.sp-dh p{margin:0;font-size:13px;color:var(--text-dim)}
+.sp-pistas{margin:10px -8px 0}
+.sp-pista{display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:6px 8px;border:none;border-radius:12px;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer}
 .sp-pista:active{background:var(--surface-2)}
 .sp-pista:disabled{opacity:.5;cursor:default}
-.sp-pista .n{width:22px;text-align:right;font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;flex:none}
+.sp-pista .n{width:26px;display:flex;justify-content:flex-end;font-size:12.5px;color:var(--text-dim);font-variant-numeric:tabular-nums;flex:none}
 .sp-pista .t{flex:1;min-width:0}
-.sp-pista .t b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sp-pista .t small{display:block;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-pista .t b{display:block;font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-pista .t small{display:block;font-size:12.5px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 .sp-pista .d{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;flex:none}
-.sp-pista.actual .t b,.sp-pista.actual .n{color:var(--accent)}
-html[data-theme="claro"] .sp-pista.actual .t b,html[data-theme="claro"] .sp-pista.actual .n{color:#6b7400}
-.sp-nota{font-size:13px;line-height:1.45;color:var(--text-dim);padding:8px 8px;margin:0}
-a.sp-btn{text-decoration:none}
+.sp-pista .eq{display:none;align-items:flex-end;gap:2px;height:14px}
+.sp-pista .eq i{width:3px;height:35%;background:var(--accent);border-radius:1px}
+.sp-pista.actual{background:var(--surface-2)}
+.sp-pista.actual .num{display:none}
+.sp-pista.actual .eq{display:inline-flex}
+.sp-pista.actual .t b{color:var(--accent)}
+html[data-theme="claro"] .sp-pista.actual .t b{color:#6b7400}
+html[data-theme="claro"] .sp-pista .eq i{background:#6b7400}
+@media (prefers-reduced-motion:no-preference){
+  .sp-pistas.suena .eq i{animation:spEq .9s ease-in-out infinite alternate}
+  .sp-pistas.suena .eq i:nth-child(2){animation-delay:.3s}
+  .sp-pistas.suena .eq i:nth-child(3){animation-delay:.6s}
+}
+@keyframes spEq{from{height:25%}to{height:100%}}
+.sp-nota{font-size:13px;line-height:1.45;color:var(--text-dim);background:var(--surface-2);border-radius:12px;padding:10px 12px;margin:8px 0}
 .sp-pie{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;font-size:12.5px}
 .sp-pie a,.sp-pie button{color:var(--text-dim);background:none;border:none;font:inherit;text-decoration:underline;cursor:pointer;min-height:44px;padding:0 4px;display:inline-flex;align-items:center}
-.sp-mini{position:fixed;left:12px;right:84px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:1155;min-height:60px;border-radius:18px;background:var(--surface);color:var(--text);
+.sp-mini,.sp-np2{background:var(--surface);color:var(--text)}
+.sp-mini{position:fixed;left:12px;right:84px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:1155;min-height:60px;border-radius:18px;
   border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;align-items:center;gap:6px;padding:0 8px 0 6px;overflow:hidden}
 .sp-mini[hidden]{display:none}
 body.lluvia-activa .sp-mini{bottom:calc(86px + env(safe-area-inset-bottom))}
-.sp-mini .info{display:flex;align-items:center;gap:10px;flex:1;min-width:0;border:none;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:56px;padding:0}
-.sp-mini .info img,.sp-mini .info .ph{width:42px;height:42px;border-radius:10px;object-fit:cover;flex:none;background:linear-gradient(135deg,var(--accent),#16323a)}
-.sp-mini .tx{min-width:0}
-.sp-mini .tx b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sp-mini .tx span{display:block;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sp-mini .mb{width:44px;height:44px;border:none;border-radius:50%;background:transparent;color:var(--text);display:grid;place-items:center;cursor:pointer;flex:none}
-.sp-mini .mb svg{width:22px;height:22px;fill:currentColor}
-.sp-mini .mb.pp{background:var(--accent);color:var(--accent-ink)}
+.sp-np2{flex:none;position:relative;display:flex;align-items:center;gap:6px;padding:8px 10px 6px 12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.sp-mini .info,.sp-np2 .info{display:flex;align-items:center;gap:10px;flex:1;min-width:0;border:none;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:56px;padding:0}
+.sp-mini .info img,.sp-mini .info .ph,.sp-np2 .info .ph{width:42px;height:42px;border-radius:10px;object-fit:cover;flex:none;background:linear-gradient(135deg,var(--accent),#16323a)}
+.sp-mini .tx,.sp-np2 .tx{min-width:0}
+.sp-mini .tx b,.sp-np2 .tx b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-mini .tx span,.sp-np2 .tx span{display:block;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-mini .mb,.sp-np2 .mb{width:44px;height:44px;border:none;border-radius:50%;background:transparent;color:var(--text);display:grid;place-items:center;cursor:pointer;flex:none}
+.sp-mini .mb svg,.sp-np2 .mb svg{width:22px;height:22px;fill:currentColor}
+.sp-mini .mb.pp,.sp-np2 .mb.pp{background:var(--accent);color:var(--accent-ink)}
 .sp-mini .mp{position:absolute;left:10px;right:10px;bottom:0;height:3px;border-radius:9px;background:var(--surface-2)}
-.sp-mini .mp i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);border-radius:9px}
+.sp-np2 .mp{position:absolute;left:0;right:0;top:0;height:3px;background:var(--line)}
+.sp-mini .mp i,.sp-np2 .mp i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);border-radius:9px}
 html[data-theme="claro"] .sp-src{color:#14803a}
 @media (prefers-reduced-motion:no-preference){.sp-mini{animation:spSube .25s ease-out}}
 @keyframes spSube{from{transform:translateY(20px);opacity:0}to{transform:none;opacity:1}}
@@ -313,10 +336,16 @@ function asegurarUi() {
   if ($('spFondo')) return;
   const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
   const f = document.createElement('div'); f.id = 'spFondo'; f.className = 'sp-fondo'; f.hidden = true;
-  f.innerHTML = '<div class="sp-panel" role="dialog" aria-modal="true" aria-labelledby="spTitulo">'
-    + '<div class="sp-cab"><h2 id="spTitulo">Música</h2><span class="sp-conn" id="spConn" hidden>Spotify</span>'
+  f.innerHTML = '<div class="sp-panel" id="spPanel" role="dialog" aria-modal="true" aria-labelledby="spTitulo">'
+    + '<div class="sp-cab" id="spCab"><button type="button" class="sp-x" id="spAtras" data-a="atras" aria-label="Volver a tus playlists" hidden>' + IC.atras + '</button>'
+    + '<h2 id="spTitulo">Música</h2><span class="sp-conn" id="spConn" hidden>Spotify</span>'
     + '<button type="button" class="sp-x" id="spCerrar" aria-label="Cerrar música">' + IC.cerrar + '</button></div>'
-    + '<div id="spCuerpo"></div></div>';
+    + '<div id="spCuerpo"></div>'
+    + '<p class="sp-msg" id="spMsg" role="status" aria-live="polite"></p>'
+    + '<div class="sp-np2" id="spNP" role="group" aria-label="Reproductor" hidden><div class="mp"><i id="spnBar"></i></div>'
+    + '<button type="button" class="info" data-a="atras" aria-label="Ir al reproductor"><span class="ph" id="spnArt"></span><span class="tx"><b id="spnT"></b><span id="spnA"></span></span></button>'
+    + '<button type="button" class="mb pp" data-a="pp" id="spnPP" aria-label="Reproducir o pausar"></button>'
+    + '<button type="button" class="mb" data-a="sig" aria-label="Siguiente">' + IC.sig + '</button></div></div>';
   document.body.appendChild(f);
   const m = document.createElement('div'); m.id = 'spMini'; m.className = 'sp-mini'; m.hidden = true;
   m.setAttribute('role', 'group'); m.setAttribute('aria-label', 'Reproductor de música');
@@ -328,13 +357,17 @@ function asegurarUi() {
 
   f.addEventListener('click', e => { if (e.target === f) cerrar(); });
   $('spCerrar').addEventListener('click', cerrar);
-  f.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); cerrar(); } });
+  f.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); if (S.lista) volver(); else cerrar(); } });
+  f.addEventListener('input', e => { if (e.target.id === 'spFiltro') { S.filtro = e.target.value; pintarListas(); } });
   f.addEventListener('click', e => {
     const b = e.target.closest('[data-a]');
     if (b) {
-      if (b.dataset.a === 'abrirlista') { alternarLista(b.dataset.id); return; }
-      if (b.dataset.a === 'mas') { cargarPistas(b.dataset.id, true); return; }
-      accion(b.dataset.a, b.dataset.u, b.dataset.t); return;
+      const a = b.dataset.a;
+      if (a === 'abrirlista') { abrirLista(b.dataset.id); return; }
+      if (a === 'atras') { volver(); return; }
+      if (a === 'mas') { cargarPistas(b.dataset.id, true); return; }
+      if (a === 'pista') { S.marca = { u: b.dataset.t, t: Date.now() }; marcarActual(); }
+      accion(a, b.dataset.u, b.dataset.t); return;
     }
     if (e.target.closest('#spConectar')) { conectar(); return; }
     if (e.target.closest('#spActualizar')) { refrescar(); return; }
@@ -373,50 +406,57 @@ function vistaReproductor() {
     + '<div class="sp-ctl"><button type="button" class="sp-b" data-a="ant" aria-label="Anterior">' + IC.ant + '</button>'
     + '<button type="button" class="sp-b pp" data-a="pp" id="spPP" aria-label="Reproducir o pausar"></button>'
     + '<button type="button" class="sp-b" data-a="sig" aria-label="Siguiente">' + IC.sig + '</button></div>'
-    + '<p class="sp-msg" id="spMsg" role="status" aria-live="polite"></p>'
-    + '<div class="sp-h4">TUS PLAYLISTS</div><div id="spListas"></div>'
+    + '<div class="sp-h4">TUS PLAYLISTS</div>'
+    + '<input class="sp-campo" id="spFiltro" type="search" placeholder="Buscar playlist" aria-label="Buscar playlist" autocomplete="off" hidden>'
+    + '<div id="spListas"></div>'
     + '<div class="sp-pie"><button type="button" id="spActualizar">Actualizar</button><a id="spAbrirSp" href="https://open.spotify.com" target="_blank" rel="noopener">Abrir Spotify</a>'
     + '<button type="button" id="spDesconectar">Desconectar</button></div>';
+}
+const imgGrande = p => { const im = (p && p.images) || []; return (im[0] || {}).url || ''; };
+const imgChica = p => { const im = (p && p.images) || []; return (im[im.length - 1] || {}).url || ''; };
+const cuenta = p => p && p.tracks && p.tracks.total != null ? p.tracks.total : (p && p.items && p.items.total != null ? p.items.total : null);
+const txtCanciones = n => n + (n === 1 ? ' canción' : ' canciones');
+function vistaLista(id) {
+  const p = (S.listas || []).find(x => x.id === id) || { id: id, name: 'Playlist', uri: 'spotify:playlist:' + id, images: [] };
+  const n = cuenta(p), img = imgGrande(p), dueno = p.owner && p.owner.display_name;
+  const meta = [n != null ? txtCanciones(n) : '', dueno ? 'de ' + dueno : ''].filter(Boolean).join(' · ');
+  return '<div class="sp-dh">' + (img ? '<img src="' + esc(img) + '" alt="" referrerpolicy="no-referrer">' : '<span class="ph"></span>')
+    + '<div style="min-width:0"><h3>' + esc(p.name) + '</h3><p>' + esc(meta) + '</p></div></div>'
+    + '<button type="button" class="sp-btn" data-a="lista" data-u="' + esc(p.uri) + '">' + IC.play + 'Reproducir playlist</button>'
+    + '<div class="sp-pistas" id="spPistas"></div>';
 }
 function setMsg(t, appUri) {
   const m = $('spMsg'); if (!m) return;
   m.innerHTML = esc(t || '') + (appUri ? '<a class="sp-btn sec" id="spAbrirApp" href="' + esc(appUri) + '">Abrir Spotify</a>' : '');
 }
 
+const sinAcentos = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 function pintarListas() {
   const c = $('spListas'); if (!c) return;
-  if (S.cargandoListas) { c.innerHTML = '<p class="sp-ayuda">Cargando tus playlists…</p>'; return; }
+  const fl = $('spFiltro');
+  if (S.cargandoListas) { c.innerHTML = '<div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div>'; return; }
   if (S.listasErr) { c.innerHTML = '<p class="sp-ayuda">' + esc(S.listasErr) + '</p>'; return; }
   if (!S.listas) { c.innerHTML = ''; return; }
-  if (!S.listas.length) { c.innerHTML = '<p class="sp-ayuda">No hay playlists en tu cuenta.</p>'; return; }
-  c.innerHTML = S.listas.map(p => {
-    const n = p.tracks && p.tracks.total != null ? p.tracks.total : (p.items && p.items.total != null ? p.items.total : null);
-    const img = (p.images && p.images.length) ? p.images[p.images.length - 1].url : '';
-    const ab = S.abierta === p.id, id = esc(p.id);
-    // Tocar el nombre despliega sus canciones; el botón ▶ de la derecha reproduce la playlist completa.
-    return '<div class="sp-grupo' + (ab ? ' abierta' : '') + '" data-id="' + id + '"><div class="sp-pl">'
-      + '<button type="button" class="sp-lista" data-a="abrirlista" data-id="' + id + '" aria-expanded="' + ab + '" aria-controls="spPis_' + id + '">'
+  if (!S.listas.length) { c.innerHTML = '<p class="sp-ayuda">Aún no tienes playlists. Créalas en Spotify y aparecerán aquí.</p>'; return; }
+  if (fl) { fl.hidden = S.listas.length <= 6; if (fl.value !== S.filtro) fl.value = S.filtro; }
+  const q = sinAcentos(S.filtro).trim();
+  const ver = q && S.listas.length > 6 ? S.listas.filter(p => sinAcentos(p.name).indexOf(q) >= 0) : S.listas;
+  if (!ver.length) { c.innerHTML = '<p class="sp-ayuda">Ninguna playlist coincide con «' + esc(S.filtro.trim()) + '».</p>'; return; }
+  // Tocar una playlist ENTRA a ella (portada, ▶ y todas sus canciones).
+  c.innerHTML = ver.map(p => {
+    const n = cuenta(p), img = imgChica(p);
+    return '<button type="button" class="sp-lista" data-a="abrirlista" data-id="' + esc(p.id) + '">'
       + (img ? '<img src="' + esc(img) + '" alt="" referrerpolicy="no-referrer" loading="lazy">' : '<span class="ph"></span>')
-      + '<span class="nm"><b>' + esc(p.name) + '</b>' + (n != null ? '<small>' + n + (n === 1 ? ' canción' : ' canciones') + '</small>' : '') + '</span>' + IC.chev + '</button>'
-      + '<button type="button" class="sp-plplay" data-a="lista" data-u="' + esc(p.uri) + '" aria-label="Reproducir la playlist ' + esc(p.name) + '">' + IC.play + '</button></div>'
-      + '<div class="sp-pistas" id="spPis_' + id + '"' + (ab ? '' : ' hidden') + '></div></div>';
+      + '<span class="nm"><b>' + esc(p.name) + '</b>' + (n != null ? '<small>' + txtCanciones(n) + '</small>' : '') + '</span>' + IC.der + '</button>';
   }).join('');
-  if (S.abierta) pintarPistas(S.abierta);
 }
 
-const NOTA_AJENA = 'Spotify solo permite ver las canciones de las playlists que tú creaste o en las que colaboras (límite de las apps en modo desarrollo). Esta sí la puedes reproducir con el botón ▶.';
-function alternarLista(id) {
-  S.abierta = S.abierta === id ? '' : id;
-  document.querySelectorAll('#spListas .sp-grupo').forEach(g => {
-    const on = g.dataset.id === S.abierta;
-    g.classList.toggle('abierta', on);
-    g.querySelector('.sp-lista').setAttribute('aria-expanded', on ? 'true' : 'false');
-    g.querySelector('.sp-pistas').hidden = !on;
-  });
-  if (!S.abierta) return;
-  pintarPistas(id);
-  const g = document.querySelector('#spListas .sp-grupo[data-id="' + id.replace(/"/g, '') + '"]'); if (g) g.scrollIntoView({ block: 'nearest' });
-  if (!S.pistas[id]) cargarPistas(id);
+const NOTA_AJENA = 'Spotify solo permite ver las canciones de las playlists que tú creaste o en las que colaboras (límite de las apps en modo desarrollo). Esta sí la puedes reproducir con el botón verde.';
+function abrirLista(id) { S.lista = id; pintar(); }
+function volver() {
+  const id = S.lista; S.lista = ''; S.vista = ''; pintar();
+  const b = id && document.querySelector('#spListas .sp-lista[data-id="' + String(id).replace(/"/g, '') + '"]');
+  if (b) { try { b.scrollIntoView({ block: 'center' }); b.focus({ preventScroll: true }); } catch (e) {} }
 }
 async function cargarPistas(id, mas) {
   const st = S.pistas[id] || (S.pistas[id] = { items: [], total: 0, next: false, cargando: false, nota: '' });
@@ -444,19 +484,29 @@ async function cargarPistas(id, mas) {
   }
   st.cargando = false; pintarPistas(id);
 }
+function uriActual() {   // la canción que se acaba de tocar se marca al instante, sin esperar a que Spotify confirme
+  const m = S.marca, u = S.est && S.est.uri;
+  if (m && u === m.u) S.marca = null;
+  else if (m && Date.now() - m.t < 6000) return m.u;
+  return u || '';
+}
 function pintarPistas(id) {
-  const c = $('spPis_' + id); if (!c) return;
+  const c = $('spPistas'); if (!c || S.lista !== id) return;
   const st = S.pistas[id], pl = (S.listas || []).find(p => p.id === id);
-  if (!st || (st.cargando && !st.items.length)) { c.innerHTML = '<p class="sp-nota">Cargando canciones…</p>'; return; }
+  if (!st || (st.cargando && !st.items.length)) { c.innerHTML = '<div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div><div class="sp-sk"></div>'; return; }
+  const ua = uriActual();
   let h = st.nota ? '<p class="sp-nota">' + esc(st.nota) + '</p>' : '';
-  h += st.items.map((t, i) => '<button type="button" class="sp-pista' + (S.est && S.est.uri === t.uri ? ' actual' : '') + '" data-a="pista" data-u="' + esc(pl ? pl.uri : '')
-    + '" data-t="' + esc(t.uri) + '"' + (t.local ? ' disabled' : '') + '><span class="n">' + (i + 1) + '</span><span class="t"><b>' + esc(t.nombre) + '</b><small>'
-    + esc(t.artista) + '</small></span><span class="d">' + (t.dur ? fmt(t.dur) : '') + '</span></button>').join('');
+  h += st.items.map((t, i) => '<button type="button" class="sp-pista' + (ua && ua === t.uri ? ' actual' : '') + '" data-a="pista" data-u="' + esc(pl ? pl.uri : 'spotify:playlist:' + id)
+    + '" data-t="' + esc(t.uri) + '"' + (t.local ? ' disabled' : '') + '><span class="n"><span class="num">' + (i + 1) + '</span><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span></span>'
+    + '<span class="t"><b>' + esc(t.nombre) + '</b><small>' + esc(t.artista) + '</small></span><span class="d">' + (t.dur ? fmt(t.dur) : '') + '</span></button>').join('');
   if (st.next) h += '<button type="button" class="sp-btn sec" data-a="mas" data-id="' + esc(id) + '"' + (st.cargando ? ' disabled' : '') + '>' + (st.cargando ? 'Cargando…' : 'Ver más canciones') + '</button>';
-  c.innerHTML = h;
+  c.innerHTML = h; c.classList.toggle('suena', !!(S.est && S.est.playing));
 }
 function marcarActual() {   // resalta la canción que suena, sin volver a dibujar la lista
-  document.querySelectorAll('#spListas .sp-pista').forEach(b => b.classList.toggle('actual', !!(S.est && S.est.uri === b.dataset.t)));
+  const c = $('spPistas'); if (!c) return;
+  const u = uriActual();
+  c.classList.toggle('suena', !!(S.est && S.est.playing));
+  c.querySelectorAll('.sp-pista').forEach(b => b.classList.toggle('actual', !!u && b.dataset.t === u));
 }
 
 function pintar() {
@@ -470,32 +520,47 @@ function pintar() {
   }
   if (!S.abierto) { progreso(); return; }
   $('spConn').hidden = !con;
-  const vista = !clientId() ? 'id' : !con ? 'con' : 'rep';
+  const base = !clientId() ? 'id' : !con ? 'con' : 'rep';
+  if (base === 'rep' && S.lista) { /* pantalla de playlist */ } else S.lista = '';
+  const vista = base === 'rep' && S.lista ? 'lista' : base, clave = vista + '|' + S.lista;
   const cuerpo = $('spCuerpo');
-  if (S.vista !== vista) {
-    cuerpo.innerHTML = vista === 'id' ? vistaSinId() : vista === 'con' ? vistaConectar() : vistaReproductor();
-    S.vista = vista;
-    if (vista === 'rep') cargarListas();
-    pintarListas();
+  if (S.vista !== clave) {
+    cuerpo.innerHTML = vista === 'id' ? vistaSinId() : vista === 'con' ? vistaConectar() : vista === 'lista' ? vistaLista(S.lista) : vistaReproductor();
+    S.vista = clave; cuerpo.scrollTop = 0;
+    $('spPanel').classList.toggle('alta', vista === 'lista');
+    $('spCab').classList.toggle('con-atras', vista === 'lista');
+    $('spAtras').hidden = vista !== 'lista';
+    $('spTitulo').textContent = vista === 'lista' ? 'Playlist' : 'Música';
+    if (vista === 'rep') { cargarListas(); pintarListas(); }
+    if (vista === 'lista') {
+      if (S.pistas[S.lista] && !S.pistas[S.lista].nota) pintarPistas(S.lista); else cargarPistas(S.lista);
+      const b = $('spAtras'); if (b) b.focus({ preventScroll: true });
+    }
   }
+  const np = $('spNP'); if (np) np.hidden = !(vista === 'lista' && !!S.est);
+  const e = S.est;
   if (vista === 'rep') {
-    const e = S.est;
     $('spTit').textContent = e ? e.titulo : 'Nada sonando';
-    $('spArtista').textContent = e ? e.artista : (S.error || 'Abre Spotify en tu celular y reproduce algo; aquí aparecerá.');
+    $('spArtista').textContent = e ? e.artista : (S.error || 'Elige una playlist de abajo o reproduce algo en Spotify.');
     $('spDisp').textContent = e && e.disp ? 'Sonando en ' + e.disp : '';
     $('spPP').innerHTML = e && e.playing ? IC.pausa : IC.play;
     const im = $('spArt'), ph = $('spArtPh');
     if (e && e.img) { if (im.getAttribute('src') !== e.img) im.src = e.img; im.hidden = false; ph.hidden = true; } else { im.hidden = true; ph.hidden = false; }
     const lnk = $('spAbrirSp'); if (lnk) lnk.href = (e && e.url) || 'https://open.spotify.com';
-    if (S.error && e) setMsg(S.error);
+  }
+  if (vista === 'lista' && e) {
+    $('spnT').textContent = e.titulo; $('spnA').textContent = e.artista; $('spnPP').innerHTML = e.playing ? IC.pausa : IC.play;
+    $('spnArt').style.background = e.img ? 'url("' + e.img.replace(/"/g, '%22') + '") center/cover' : '';
     marcarActual();
   }
+  if (S.error && e && vista !== 'id' && vista !== 'con') setMsg(S.error);
   progreso();
 }
 function progreso() {
   const e = S.est; if (!e) return;
   const p = posActual(), pct = e.dur ? (100 * p / e.dur) : 0;
   if (S.abierto && $('spBar')) { $('spBar').style.width = pct + '%'; $('spT1').textContent = fmt(p); $('spT2').textContent = fmt(e.dur); }
+  if (S.abierto && $('spnBar')) $('spnBar').style.width = pct + '%';
   if ($('spmBar')) $('spmBar').style.width = pct + '%';
 }
 
@@ -503,7 +568,7 @@ function progreso() {
 function abrir() {
   if (!permitido()) return;
   asegurarUi();
-  S.foco = document.activeElement; S.abierto = true; S.vista = '';
+  S.foco = document.activeElement; S.abierto = true; S.vista = ''; S.lista = ''; S.filtro = '';
   $('spFondo').hidden = false;
   pintar();
   if (leerToken()) refrescar();
