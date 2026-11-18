@@ -4282,7 +4282,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '18-nov · v99 · música: salto directo a Spotify sin recargar Maps';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '18-nov · v100 · corrige mira de ubicación manual que no desaparecía; Spotify despertador';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -6991,6 +6991,8 @@ function cancelarSeleccionEnMapa(){
 function confirmarSeleccionEnMapa(lat, lng){
   pickingLocation = false;
   document.getElementById('pickBanner').style.display = 'none';
+  // La mira central (＋) solo existe mientras se elige: antes quedaba pegada a la pantalla después de confirmar.
+  document.getElementById('pickCrosshair').classList.remove('visible');
   fijarCoordTemporal(lat, lng);
   abrirSheet();
   if(currentTab !== 'alta') cambiarTab('alta');

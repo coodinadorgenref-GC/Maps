@@ -20,7 +20,7 @@ const CFG = {
   // 'admin' = solo cuentas de administración · 'todos' = cualquier usuario con sesión iniciada.
   visible: 'admin',
   // URL de la app web de Apps Script «spotify-despertar.gs» (ver ese archivo). Vacía = sin servidor: solo se reintenta desde Maps.
-  despertarUrl: '',
+  despertarUrl: 'https://script.google.com/macros/s/AKfycby1wCdyQf50VZl1RxZ6ujPY5ISlUYJ3cEO6W7ckbA6wNUBjAKLStc96xHaFSpKkZhBX/exec',
   scopes: 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-read-recently-played user-top-read'
 };
 // Debe coincidir EXACTO (mayúsculas incluidas) con el Redirect URI registrado en el panel de Spotify.
