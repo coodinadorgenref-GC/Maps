@@ -19,12 +19,14 @@ const CFG = {
   clientId: '8e38f253e0524ab8879e698e64bf11da',
   // 'admin' = solo cuentas de administración · 'todos' = cualquier usuario con sesión iniciada.
   visible: 'admin',
+  // URL de la app web de Apps Script «spotify-despertar.gs» (ver ese archivo). Vacía = sin servidor: solo se reintenta desde Maps.
+  despertarUrl: '',
   scopes: 'user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-read-recently-played user-top-read'
 };
 // Debe coincidir EXACTO (mayúsculas incluidas) con el Redirect URI registrado en el panel de Spotify.
 const REDIRECT = (location.origin + location.pathname).replace(/index\.html$/, '');
 
-const LS_TOKEN = 'gc_spotify_v1', LS_PKCE = 'gc_spotify_pkce_v1', LS_CID = 'gc_spotify_cid_v1', LS_PEND = 'gc_spotify_pend_v1', LS_ORD = 'gc_spotify_orden_v1', LS_ULT = 'gc_spotify_ult_v1', LS_REAB = 'gc_spotify_reabrir_v1';
+const LS_TOKEN = 'gc_spotify_v1', LS_PKCE = 'gc_spotify_pkce_v1', LS_CID = 'gc_spotify_cid_v1', LS_PEND = 'gc_spotify_pend_v1', LS_ORD = 'gc_spotify_orden_v1', LS_ULT = 'gc_spotify_ult_v1', LS_REAB = 'gc_spotify_reabrir_v1', LS_SRV = 'gc_spotify_srv_v1';
 const URL_TOKEN = 'https://accounts.spotify.com/api/token', URL_API = 'https://api.spotify.com/v1';
 
 /* ───────────── Utilidades ───────────── */
@@ -58,21 +60,6 @@ const b64u = buf => btoa(String.fromCharCode.apply(null, new Uint8Array(buf))).r
 function aleatorio(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return b64u(a).slice(0, n); }
 async function desafio(v) { return b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))); }
 
-/* Autorización PKCE lista de antemano. Se calcula antes del toque para poder navegar de forma SÍNCRONA dentro del gesto
-   (iOS solo abre la app de Spotify desde un enlace universal si la navegación nace de un toque directo). */
-async function prepararSalto() {
-  if (S.pre && Date.now() - S.pre.t < 8 * 60 * 1000) return;
-  const cid = clientId(); if (!cid || !(window.crypto && crypto.subtle)) return;
-  const v = aleatorio(96), st = aleatorio(24);
-  const q = new URLSearchParams({ response_type: 'code', client_id: cid, scope: CFG.scopes, redirect_uri: REDIRECT, state: st,
-                                  code_challenge_method: 'S256', code_challenge: await desafio(v) });
-  S.pre = { v: v, s: st, t: Date.now(), url: 'https://accounts.spotify.com/authorize?' + q.toString() };
-}
-function saltoAutorizacion() {   // true si salió hacia Spotify. Spotify se abre, dice «autorizado» y regresa a Maps (como Nike Run Club)
-  const pre = S.pre; if (!pre) return false;
-  if (!lsSet(LS_PKCE, JSON.stringify({ v: pre.v, s: pre.s, t: Date.now(), w: 1, l: S.lista }))) return false;
-  S.pre = null; location.href = pre.url; return true;
-}
 async function conectar() {
   const cid = clientId();
   if (!cid) { toast('Falta el Client ID de Spotify.'); return; }
@@ -122,8 +109,8 @@ async function procesarRetorno() {
   }
   try {
     guardarToken(await pedirToken({ grant_type: 'authorization_code', code: codigo, redirect_uri: REDIRECT, code_verifier: pk.v }));
-    if (pk.w && leerPend()) { esperarSesionYAbrir(pk.l || ''); reintentarPendiente(); }   // vuelta del salto: a reproducir
-    else { toast('Spotify conectado.'); esperarSesionYAbrir(); }
+    toast('Spotify conectado.');
+    esperarSesionYAbrir();
   } catch (e) { toast('No se pudo conectar con Spotify: ' + (e.message || 'error desconocido')); }
 }
 function esperarSesionYAbrir(l) {   // la sesión de Maps tarda un momento en restaurarse tras recargar
@@ -211,6 +198,23 @@ const guardarPend = p => { if (p) lsSet(LS_PEND, JSON.stringify(p)); else lsDel(
 const esSinDispositivo = e => !!e && (e.sinDispositivo || e.status === 404);
 /* «Salto» a Spotify, como hace Nike Run Club con el SDK nativo: iOS solo deja despertar a Spotify abriéndolo un instante.
    Debe lanzarse dentro del toque del usuario. Al volver a Maps (botón « Maps de arriba a la izquierda) se reintenta sola. */
+/* Spotify solo aparece como dispositivo mientras está al frente, y entonces Maps está dormido. Por eso, justo antes de saltar,
+   se le encarga a un pequeño servidor (Apps Script) que espere a que Spotify despierte y le mande el «play». */
+function cuerpoPlay(tipo, extra, extra2) {
+  if (tipo === 'uris') return { uris: extra };
+  if (tipo === 'lista') return { context_uri: extra };
+  if (tipo === 'pista') return { context_uri: extra, offset: { uri: extra2 } };
+  return {};
+}
+function avisarServidor(tipo, extra, extra2) {
+  const url = (CFG.despertarUrl || lsGet(LS_SRV) || '').trim(), t = leerToken();
+  if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url) || !t || t.e - Date.now() < 120000) return false;   // el token debe durar lo que el servidor espera
+  try {
+    fetch(url, { method: 'POST', mode: 'no-cors', keepalive: true, headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                 body: JSON.stringify({ t: t.a, b: cuerpoPlay(tipo, extra, extra2) }) }).catch(() => {});
+    return true;
+  } catch (e) { return false; }
+}
 function irASpotify(uri) {
   lsSet(LS_REAB, JSON.stringify({ t: Date.now(), l: S.lista }));
   const a = document.createElement('a'); a.href = uri; a.rel = 'noopener'; a.style.display = 'none';
@@ -219,7 +223,6 @@ function irASpotify(uri) {
 async function verDispositivos() {   // ¿Spotify está despierto como dispositivo? (iOS lo duerme al pasar a segundo plano sin música)
   S.tDisp = Date.now();
   try { const d = await api('GET', '/me/player/devices'); S.dormido = !((d && d.devices) || []).length; } catch (e) {}
-  if (S.dormido) prepararSalto();
 }
 // A dónde llevar a Spotify: a la playlist o canción que se pidió (o a la app, si fue play/pausa).
 const uriApp = (tipo, extra, extra2) => tipo === 'pista' || tipo === 'uris' ? (extra2 || 'spotify:') : tipo === 'lista' ? (extra || 'spotify:') : 'spotify:';
@@ -232,9 +235,10 @@ function ejecutar(tipo, extra, extra2) {
 async function accion(tipo, extra, extra2) {
   setMsg(''); guardarPend(null);
   if (S.dormido && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista' || tipo === 'uris') && !(S.est && S.est.playing)) {
-    guardarPend({ tipo, extra, extra2, t: Date.now() });   // Spotify duerme: salto directo, sin pasos intermedios
-    setMsg('Abriendo Spotify… si no regresa solo, toca « Maps (arriba a la izquierda) y empezará sola.');
-    if (!saltoAutorizacion()) irASpotify(uriApp(tipo, extra, extra2));
+    const srv = avisarServidor(tipo, extra, extra2);   // Spotify duerme: se avisa al servidor y se salta directo, sin pasos intermedios
+    guardarPend({ tipo, extra, extra2, t: Date.now(), srv });
+    setMsg(srv ? 'Abriendo Spotify… sonará sola. Para volver toca « Maps (arriba a la izquierda).' : 'Abriendo Spotify… regresa con « Maps (arriba a la izquierda) y empezará sola.');
+    irASpotify(uriApp(tipo, extra, extra2));
     return;
   }
   try {
@@ -248,7 +252,7 @@ async function accion(tipo, extra, extra2) {
     setTimeout(refrescar, 800);   // Spotify tarda un instante en reflejar el cambio
   } catch (e) {
     const sin = esSinDispositivo(e) && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista' || tipo === 'uris');
-    if (sin) { guardarPend({ tipo, extra, extra2, t: Date.now() }); S.dormido = true; prepararSalto(); }
+    if (sin) { guardarPend({ tipo, extra, extra2, t: Date.now() }); S.dormido = true; }
     S.marca = null; marcarActual();
     const msg = textoError(sin ? { sinDispositivo: true } : e);
     setMsg(msg, sin ? uriApp(tipo, extra, extra2) : '');
@@ -261,12 +265,13 @@ async function reintentarPendiente() {
   S.reintentando = true; guardarPend(null);
   try {
     setMsg('Esperando a que Spotify despierte…');
-    for (const espera of [600, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 3000, 3000, 3000]) {   // ~21 s: Spotify sigue vivo unos segundos al pasar a segundo plano
+    for (const espera of [250, 600, 900, 1200, 1500, 2000, 2000, 2000, 3000, 3000, 3000]) {   // ~20 s: Spotify sigue vivo unos segundos al pasar a segundo plano
       await new Promise(r => setTimeout(r, espera));
+      if (p.srv) { try { const j = await api('GET', '/me/player'); if (j && j.is_playing) { S.dormido = false; setMsg(''); setTimeout(refrescar, 300); return; } } catch (e) {} }
       try { await ejecutar(p.tipo, p.extra, p.extra2); S.dormido = false; setMsg(''); setTimeout(refrescar, 800); return; }
       catch (e) { if (!esSinDispositivo(e)) { setMsg(textoError(e)); return; } }
     }
-    S.dormido = true; prepararSalto();
+    S.dormido = true;
     setMsg('Spotify no despertó. Toca el botón verde: se abrirá en esa playlist y, si no arranca sola, pulsa ▶ allí.', uriApp(p.tipo, p.extra, p.extra2));
     guardarPend(p);
   } finally { S.reintentando = false; }
