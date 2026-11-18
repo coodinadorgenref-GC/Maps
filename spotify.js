@@ -118,7 +118,7 @@ function esperarSesionYAbrir(l) {   // la sesión de Maps tarda un momento en re
 /* ───────────── API de Spotify ───────────── */
 const S = { est: null, t0: 0, listas: null, listasErr: '', cargandoListas: false, abierto: false, pausa: 0, vista: '', foco: null,
             lista: '', filtro: '', marca: null, pistas: {}, reintentando: false,
-            orden: lsGet(LS_ORD) === 'original' ? 'original' : 'top', esc: null, ctx: null, escTs: 0, escCargando: false };
+            orden: lsGet(LS_ORD) === 'original' ? 'original' : 'top', esc: null, ctx: null, escTs: 0, escCargando: false, dormido: false, tDisp: 0 };
 
 const esperar = ms => new Promise(r => setTimeout(r, ms));
 async function api(metodo, ruta, cuerpo) {
@@ -172,6 +172,8 @@ async function refrescar() {
     } : null;
     S.t0 = Date.now(); S.error = '';
   } catch (e) { S.error = e && e.status && e.status < 500 ? textoError(e) : ''; if (e && e.status === 401) S.est = null; }
+  if (S.est) S.dormido = false;
+  else if (leerToken() && (S.abierto || S.dormido || leerPend()) && Date.now() - S.tDisp > 15000) await verDispositivos();
   pintar();
 }
 const posActual = () => !S.est ? 0 : Math.min(S.est.dur, S.est.pos + (S.est.playing ? Date.now() - S.t0 : 0));
@@ -191,6 +193,17 @@ async function reproducir(cuerpo) {
 const leerPend = () => { try { const p = JSON.parse(lsGet(LS_PEND) || 'null'); return p && Date.now() - p.t < 5 * 60 * 1000 ? p : null; } catch (e) { return null; } };
 const guardarPend = p => { if (p) lsSet(LS_PEND, JSON.stringify(p)); else lsDel(LS_PEND); };
 const esSinDispositivo = e => !!e && (e.sinDispositivo || e.status === 404);
+/* «Salto» a Spotify, como hace Nike Run Club con el SDK nativo: iOS solo deja despertar a Spotify abriéndolo un instante.
+   Debe lanzarse dentro del toque del usuario. Al volver a Maps (botón « Maps de arriba a la izquierda) se reintenta sola. */
+function irASpotify(uri) {
+  lsSet(LS_REAB, JSON.stringify({ t: Date.now(), l: S.lista }));
+  const a = document.createElement('a'); a.href = uri; a.rel = 'noopener'; a.style.display = 'none';
+  document.body.appendChild(a); a.click(); setTimeout(() => a.remove(), 600);
+}
+async function verDispositivos() {   // ¿Spotify está despierto como dispositivo? (iOS lo duerme al pasar a segundo plano sin música)
+  S.tDisp = Date.now();
+  try { const d = await api('GET', '/me/player/devices'); S.dormido = !((d && d.devices) || []).length; } catch (e) {}
+}
 // A dónde llevar a Spotify: a la playlist o canción que se pidió (o a la app, si fue play/pausa).
 const uriApp = (tipo, extra, extra2) => tipo === 'pista' || tipo === 'uris' ? (extra2 || 'spotify:') : tipo === 'lista' ? (extra || 'spotify:') : 'spotify:';
 function ejecutar(tipo, extra, extra2) {
@@ -201,6 +214,11 @@ function ejecutar(tipo, extra, extra2) {
 }
 async function accion(tipo, extra, extra2) {
   setMsg(''); guardarPend(null);
+  if (S.dormido && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista' || tipo === 'uris') && !(S.est && S.est.playing)) {
+    guardarPend({ tipo, extra, extra2, t: Date.now() });   // Spotify duerme: salto directo, sin pasos intermedios
+    setMsg('Abriendo Spotify… regresa a Maps con el botón « Maps (arriba a la izquierda) y empezará sola.');
+    irASpotify(uriApp(tipo, extra, extra2)); return;
+  }
   try {
     if (tipo === 'pp') {
       if (S.est && S.est.playing) { await api('PUT', '/me/player/pause'); S.est.pos = posActual(); S.est.playing = false; S.t0 = Date.now(); }
@@ -208,11 +226,11 @@ async function accion(tipo, extra, extra2) {
     } else if (tipo === 'sig') await api('POST', '/me/player/next');
     else if (tipo === 'ant') await api('POST', '/me/player/previous');
     else if (tipo === 'lista' || tipo === 'pista' || tipo === 'uris') await ejecutar(tipo, extra, extra2);
-    pintar();
+    S.dormido = false; pintar();
     setTimeout(refrescar, 800);   // Spotify tarda un instante en reflejar el cambio
   } catch (e) {
     const sin = esSinDispositivo(e) && (tipo === 'pp' || tipo === 'lista' || tipo === 'pista' || tipo === 'uris');
-    if (sin) guardarPend({ tipo, extra, extra2, t: Date.now() });
+    if (sin) { guardarPend({ tipo, extra, extra2, t: Date.now() }); S.dormido = true; }
     S.marca = null; marcarActual();
     const msg = textoError(sin ? { sinDispositivo: true } : e);
     setMsg(msg, sin ? uriApp(tipo, extra, extra2) : '');
@@ -224,12 +242,14 @@ async function reintentarPendiente() {
   const p = leerPend(); if (!p || S.reintentando || !leerToken()) return;
   S.reintentando = true; guardarPend(null);
   try {
-    for (const espera of [700, 1500, 3000]) {
+    setMsg('Esperando a que Spotify despierte…');
+    for (const espera of [600, 1000, 1000, 1500, 1500, 2000, 2000, 2000, 3000, 3000, 3000]) {   // ~21 s: Spotify sigue vivo unos segundos al pasar a segundo plano
       await new Promise(r => setTimeout(r, espera));
-      try { await ejecutar(p.tipo, p.extra, p.extra2); setMsg(''); setTimeout(refrescar, 800); return; }
+      try { await ejecutar(p.tipo, p.extra, p.extra2); S.dormido = false; setMsg(''); setTimeout(refrescar, 800); return; }
       catch (e) { if (!esSinDispositivo(e)) { setMsg(textoError(e)); return; } }
     }
-    setMsg(textoError({ sinDispositivo: true }), uriApp(p.tipo, p.extra, p.extra2));
+    S.dormido = true;
+    setMsg('Spotify no despertó. Toca el botón verde: se abrirá en esa playlist y, si no arranca sola, pulsa ▶ allí.', uriApp(p.tipo, p.extra, p.extra2));
     guardarPend(p);
   } finally { S.reintentando = false; }
 }
@@ -440,7 +460,7 @@ function asegurarUi() {
 
   f.addEventListener('click', e => { if (e.target === f) cerrar(); });
   $('spCerrar').addEventListener('click', cerrar);
-  f.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); if (S.lista) volver(); else cerrar(); } });
+  document.addEventListener('keydown', e => { if (S.abierto && e.key === 'Escape') { e.stopPropagation(); if (S.lista) volver(); else cerrar(); } }, true);   // en el documento: al redibujar las filas el foco se pierde
   f.addEventListener('input', e => { if (e.target.id === 'spFiltro') { S.filtro = e.target.value; pintarListas(); } });
   f.addEventListener('click', e => {
     const b = e.target.closest('[data-a]');
@@ -526,7 +546,7 @@ function setMsg(t, appUri) {
   m.innerHTML = (!t && !appUri) ? '' : '<span class="sp-msgt">' + esc(t || '') + '</span>' + (appUri ? '<a class="sp-btn" id="spAbrirApp" href="' + esc(appUri) + '">Abrir Spotify y volver aquí</a>' : '');
 }
 
-const sinAcentos = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const sinAcentos = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 function pintarListas() {
   const c = $('spListas'); if (!c) return;
   const fl = $('spFiltro');
