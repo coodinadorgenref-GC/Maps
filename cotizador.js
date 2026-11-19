@@ -160,23 +160,88 @@ function precioConPromo(sku, cantidad, lista) {
   const mejor = cand.length ? Math.min.apply(null, cand) : null;
   return (mejor !== null && mejor < lista) ? { valor: mejor, oferta: true } : { valor: lista, oferta: false };
 }
+/* ───────────── Descuento escalonado Bajaj (los escalones viven en la hoja «DescuentosBajaj»; el núcleo está en index.html) ───────────── */
+const fmtPct = n => String(Math.round(Number(n) * 100) / 100).replace(/\.0+$/, '');
+/** ¿El SKU se vende en la sección Bajaj? Misma regla con la que se asigna la sección a una línea. */
+function esBajajSku(sku) {
+  const i = infoSku(sku); if (!i) return false;
+  const s = seccionDe(i);
+  return s ? s === 'BAJAJ' : (i.secciones.length === 1 && i.secciones[0] === 'BAJAJ');
+}
+const esBajajItem = it => !!it && (it.seccion ? it.seccion === 'BAJAJ' : esBajajSku(it.sku));
+/** Pieza en liquidación a su precio de liquidación: no participa del descuento Bajaj. */
+const liqAplica = (sku, lista) => { const q = liqDe(sku); return q !== null && (!(lista > 0) || q < lista); };
+/** partidas: [{ lista, cant }] de piezas Bajaj con precio de lista y sin liquidación → escalón alcanzado. */
+function tierBajaj(partidas) {
+  const base = Math.round(partidas.reduce((t, x) => t + x.lista * x.cant, 0) * 100) / 100;
+  const t = (typeof descBajajPara === 'function') ? descBajajPara(base) : { base: base, pct: 0, min: 0, sig: null, falta: 0, escalones: [] };
+  t.hay = partidas.length > 0; return t;
+}
+/** Con el descuento Bajaj la partida queda con el precio más bajo entre su promoción/mayoreo y el escalón (nunca se acumulan). */
+function conBajaj(r, lista, pct) {
+  if (!(pct > 0) || r.liquidacion) return r;
+  const vb = precioDescBajaj(lista, pct);
+  return vb < r.valor ? { valor: vb, oferta: true, bajaj: pct } : r;
+}
+/** Escalón de la cotización que se está capturando. */
+function tierForm() {
+  const ps = [];
+  lineas.forEach(l => {
+    if (l.tipo !== 'catalogo' || secDeLinea(l) !== 'BAJAJ' || !(listaGC && listaGC[skuN(l.sku)])) return;
+    const lista = arriba(listaGC[skuN(l.sku)].precio);
+    if (!(lista > 0) || liqAplica(l.sku, lista)) return;
+    ps.push({ lista: lista, cant: Number(l.cantidad) || 0 });
+  });
+  return tierBajaj(ps);
+}
+const listaDeItem = it => (Number(it.precioLista) > 0 ? Number(it.precioLista) : Number(it.precio));
+/** Escalón de una cotización ya valuada (precio de lista de cada partida, aunque ya traiga la promoción aplicada). */
+function tierItems(items) {
+  const ps = [];
+  (items || []).forEach(it => {
+    if (!it || it.tipo === 'pedido' || it.precioAprox === true || !String(it.sku || '').trim() || !esBajajItem(it)) return;
+    const lista = listaDeItem(it), cant = Number(it.cantidad);
+    if (!(lista > 0) || !(cant > 0) || liqAplica(it.sku, lista)) return;
+    ps.push({ lista: lista, cant: cant });
+  });
+  return tierBajaj(ps);
+}
+/** Aviso del descuento Bajaj (cotización y nota): escalón actual, cuánto falta para el siguiente y barra de avance. */
+function avisoBajajHtml(t) {
+  if (!t || !t.hay || !t.escalones || !t.escalones.length) return '';
+  const titulo = t.pct > 0 ? 'Descuento Bajaj −' + fmtPct(t.pct) + '% aplicado' : 'Descuento Bajaj disponible';
+  let det = 'Compra Bajaj: ' + moneda(t.base) + '. ';
+  if (t.sig) det += 'Con más de ' + moneda(t.sig.min) + ' tienes ' + fmtPct(t.sig.pct) + '% (te faltan ' + moneda(t.falta) + ').';
+  else if (t.pct > 0) det += 'Ya tienes el descuento máximo.';
+  const avance = t.sig ? Math.max(0, Math.min(100, Math.round(t.base / t.sig.min * 100))) : 100;
+  const barra = t.sig ? '<div class="cz-barra" role="progressbar" aria-label="Avance hacia el siguiente descuento Bajaj" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + avance + '"><span style="width:' + avance + '%"></span></div>' : '';
+  return '<b>' + IC.etiqueta + ' ' + esc(titulo) + '</b><div>' + esc(det) + '</div>' + barra + '<div class="cz-ayuda" style="margin:2px 0 0">No se suma a otras promociones: cada pieza queda con su mejor precio.</div>';
+}
+function pintarBajaj() {
+  const el = $('cz-bajaj'); if (!el) return;
+  const h = avisoBajajHtml(tierForm()); el.innerHTML = h; el.hidden = !h;
+}
+const chipBajaj = pct => '<div class="cz-avisos"><span class="cz-chip cz-promo">' + IC.etiqueta + ' Descuento Bajaj −' + fmtPct(pct) + '%</span></div>';
+
 /** El servidor devuelve la cotización valuada a precio de lista. Aquí se aplica a cada partida de catálogo la promoción o el
- *  mayoreo vigente según su cantidad, y se recalculan total, subtotal e IVA (los precios ya traen IVA). No modifica la
- *  cotización original y es idempotente: aplicarla dos veces da el mismo resultado. */
+ *  mayoreo vigente según su cantidad, y el descuento escalonado Bajaj (el más bajo de los dos, nunca acumulados), y se
+ *  recalculan total, subtotal e IVA (los precios ya traen IVA). No modifica la cotización original y es idempotente:
+ *  aplicarla dos veces da el mismo resultado (por eso guarda el precio de lista en precioLista). */
 function cotConPromos(cot) {
   if (!cot || !Array.isArray(cot.items)) return cot;
+  const tier = tierItems(cot.items);
   let cambio = 0, hubo = false;
   const items = cot.items.map(it => {
     if (!it || it.tipo === 'pedido' || it.precioAprox === true || !String(it.sku || '').trim()) return it;
-    const lista = Number(it.precio), cant = Number(it.cantidad);
+    const lista = listaDeItem(it), cant = Number(it.cantidad);
     if (!(lista > 0) || !(cant > 0)) return it;
-    const r = precioConPromo(it.sku, cant, lista);
+    const r = conBajaj(precioConPromo(it.sku, cant, lista), lista, esBajajItem(it) ? tier.pct : 0);
     if (!r.oferta) return it;
     const importe = Math.round(r.valor * cant * 100) / 100, antes = Number(it.importe);
     const dif = importe - (isFinite(antes) ? antes : lista * cant);
     cambio += dif; hubo = true;
     // ahorroPromo = lo que se ahorra en esta partida frente al precio de lista (se acumula, así aplicarla otra vez no lo pierde)
-    return Object.assign({}, it, { precio: r.valor, importe: importe, liquidacion: !!r.liquidacion || it.liquidacion === true, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
+    return Object.assign({}, it, { precio: r.valor, precioLista: lista, importe: importe, liquidacion: !!r.liquidacion || it.liquidacion === true, descBajaj: r.bajaj || 0, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
   });
   if (!hubo) return cot;
   const total = Math.round(((Number(cot.total) || 0) + cambio) * 100) / 100, sub = Math.round(total / 1.16 * 100) / 100;
@@ -260,6 +325,12 @@ const CSS = `
 .cz-aten{background:rgba(255,138,30,.18);color:var(--ochre)}
 .cz-cons{background:var(--surface-2);color:var(--text-dim)}
 .cz-promo{background:rgba(196,214,0,.18);color:var(--accent)}
+.cz-bajaj{border:1px solid var(--teal);background:rgba(79,168,160,.1);border-radius:12px;padding:10px 12px;margin:0 0 10px;font-size:13.5px;line-height:1.4}
+.cz-bajaj[hidden]{display:none}
+.cz-bajaj>b{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.cz-barra{height:8px;border-radius:999px;background:rgba(127,127,127,.28);margin:8px 0 6px;overflow:hidden}
+.cz-barra>span{display:block;height:100%;background:var(--teal);border-radius:999px;transition:width .25s ease-out}
+@media (prefers-reduced-motion:reduce){.cz-barra>span{transition:none}}
 .cz-liq{background:rgba(244,114,128,.12);color:#eba0a9;white-space:nowrap}
 html[data-theme="claro"] .cz-liq{background:rgba(190,45,65,.09);color:#a1303f}
 .cz-pold{font-size:12px;color:var(--text-dim);text-decoration:line-through;margin-left:6px;font-weight:400}
@@ -400,6 +471,7 @@ const HTML = `
       <button type="button" class="cz-btn-linea" id="cz-add-pedido">+ Producto bajo pedido (número de parte)</button>
     </fieldset>
     <div class="cz-pie">
+      <div class="cz-bajaj" id="cz-bajaj" hidden role="status" aria-live="polite"></div>
       <div class="cz-total"><span>Total con IVA</span><span id="cz-total">$0.00</span></div>
       <p class="cz-aviso" id="cz-aviso" role="status"></p>
       <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente y la sección 2 (motocicleta y vigencia) son opcionales.</p>
@@ -522,8 +594,9 @@ function pintarResultados() {
 /* ───────────── Líneas ───────────── */
 function precioLinea(l) {
   if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) {
-    const r = precioConPromo(l.sku, l.cantidad, arriba(listaGC[skuN(l.sku)].precio));   // promoDe ya devuelve null si la promoción venció
-    return { valor: r.valor, lista: true, oferta: r.oferta, liquidacion: !!r.liquidacion };
+    const lista = arriba(listaGC[skuN(l.sku)].precio);
+    const r = conBajaj(precioConPromo(l.sku, l.cantidad, lista), lista, secDeLinea(l) === 'BAJAJ' ? tierForm().pct : 0);   // promoDe ya devuelve null si la promoción venció
+    return { valor: r.valor, lista: true, oferta: r.oferta, liquidacion: !!r.liquidacion, bajaj: r.bajaj || 0 };
   }
   if (l.tipo === 'catalogo' && liqDe(l.sku) !== null) return { valor: liqDe(l.sku), lista: true, oferta: true, liquidacion: true };   // liquidación sin precio en la lista
   const a = Number(l.precioAprox); return a > 0 ? { valor: arriba(a), lista: false } : { valor: null, lista: false };
@@ -531,8 +604,14 @@ function precioLinea(l) {
 function actualizarImportes() {
   guardarBorrador();
   let total = 0, sin = 0;
-  lineas.forEach(l => { const p = precioLinea(l), el = $('cz-imp-' + l.id); if (p.valor === null) { sin++; if (el) el.textContent = '—'; } else { total += p.valor * l.cantidad; if (el) el.textContent = moneda(p.valor * l.cantidad); } });
+  lineas.forEach(l => {
+    const p = precioLinea(l), el = $('cz-imp-' + l.id);
+    if (p.valor === null) { sin++; if (el) el.textContent = '—'; } else { total += p.valor * l.cantidad; if (el) el.textContent = moneda(p.valor * l.cantidad); }
+    const cu = $('cz-cu-' + l.id); if (cu && p.valor !== null) cu.textContent = moneda(p.valor) + ' c/u';
+    const bj = $('cz-bjw-' + l.id); if (bj) bj.innerHTML = p.bajaj ? chipBajaj(p.bajaj) : '';
+  });
   $('cz-total').textContent = moneda(total);
+  pintarBajaj();
   avisoTxt(sin ? sin + (sin === 1 ? ' producto sin precio: captura uno aproximado o se guarda sin importe.' : ' productos sin precio: captura uno aproximado o se guardan sin importe.') : '');
 }
 function pintarLineas() {
@@ -551,9 +630,9 @@ function pintarLineas() {
         + '<input id="cz-np-' + l.id + '" data-id="' + l.id + '" data-campo="numeroParte" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="' + esc(l.numeroParte) + '">'
         + '<p class="cz-ayuda" id="cz-vn-' + l.id + '" role="status" aria-live="polite">' + esc(l.vnTexto || '') + '</p></div>'
         + '<div class="cz-campo"><label for="cz-ds-' + l.id + '">Descripción</label><input id="cz-ds-' + l.id + '" data-id="' + l.id + '" data-campo="descripcion" type="text" autocomplete="off" value="' + esc(l.descripcion) + '"></div>' + disp + '</div>'
-      : '<div style="min-width:0"><div class="cz-desc">' + esc(l.descripcion || 'SKU ' + l.sku) + '</div><div class="cz-sku">' + esc(l.sku) + '</div>' + disp + avisoStock + avisosHtml(l.sku, true) + origen + '</div>';
+      : '<div style="min-width:0"><div class="cz-desc">' + esc(l.descripcion || 'SKU ' + l.sku) + '</div><div class="cz-sku">' + esc(l.sku) + '</div>' + disp + avisoStock + avisosHtml(l.sku, true) + '<span id="cz-bjw-' + l.id + '">' + (p.bajaj ? chipBajaj(p.bajaj) : '') + '</span>' + origen + '</div>';
     const precioHtml = (!ped && p.lista)
-      ? '<div class="cz-ayuda" style="margin:0">' + moneda(p.valor) + ' c/u</div><div class="cz-imp" id="cz-imp-' + l.id + '">' + moneda(p.valor * l.cantidad) + '</div>'
+      ? '<div class="cz-ayuda" style="margin:0" id="cz-cu-' + l.id + '">' + moneda(p.valor) + ' c/u</div><div class="cz-imp" id="cz-imp-' + l.id + '">' + moneda(p.valor * l.cantidad) + '</div>'
       : '<div class="cz-campo" style="margin:0"><label for="cz-pa-' + l.id + '">' + (ped ? 'Precio aproximado' : 'Sin precio en lista: captura uno') + '</label><input id="cz-pa-' + l.id + '" data-id="' + l.id + '" data-campo="precioAprox" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.precioAprox) + '"' + (precioBloqueado(l) ? ' readonly aria-readonly="true" title="Precio sugerido de VENTO: solo administración lo puede cambiar"' : '') + '></div>'
         + '<div class="cz-imp" id="cz-imp-' + l.id + '">' + (p.valor === null ? '—' : moneda(p.valor * l.cantidad)) + '</div>';
     return '<div class="cz-linea" id="cz-l-' + l.id + '"><div class="cz-linea-top">' + cabeza
@@ -757,7 +836,7 @@ function reiniciar() {
   $('cz-form').hidden = false; $('cz-listo').hidden = true; errGeneral(''); avisoTxt(''); mostrarErrores([]); $('cz-borrador').hidden = true; pintarLineas();
 }
 function sincronizarDatos() {
-  try { sincronizarPreciosCalculados(); sincronizarExistenciasCatalogo(); sincronizarPromociones(); sincronizarKits(); } catch (e) {}
+  try { sincronizarPreciosCalculados(); sincronizarExistenciasCatalogo(); sincronizarPromociones(); sincronizarKits(); sincronizarDescuentosBajaj(); } catch (e) {}
 }
 function mostrar() {
   $('cz-overlay').hidden = false; document.body.style.overflow = 'hidden'; pintarSecciones();
@@ -1057,6 +1136,16 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         if (pr.mayoreo) l.push('Mayoreo desde ' + pr.mayoreo.min + ' pzas: ' + moneda(pr.mayoreo.precio) + hasta);
         if (l.length) promos.push({ sku: sku, desc: txt(it.descripcion), l: l });
     });
+    try {   // Descuento escalonado Bajaj: se le explica al cliente en el bloque de promociones (solo si la hoja lleva piezas Bajaj)
+        const tb = tierItems(items);
+        if (tb.hay && tb.escalones.length) {
+            const lb = [];
+            if (tb.pct > 0) lb.push('Aplicado en esta compra: ' + fmtPct(tb.pct) + '% (compra Bajaj ' + moneda(tb.base) + ')');
+            tb.escalones.forEach(e => lb.push('Compras Bajaj mayores a ' + moneda(e.min) + ': ' + fmtPct(e.pct) + '% de descuento'));
+            lb.push('No acumulable con otras promociones.');
+            promos.push({ cab: 'DESCUENTO POR COMPRA · MARCAS BAJAJ', sku: '', desc: '', l: lb });
+        }
+    } catch (e) {}
     if (promos.length) {
         y += 8;
         const encPromo = () => { doc.setFillColor(VERDE_TXT[0], VERDE_TXT[1], VERDE_TXT[2]); doc.rect(MX, y, TW, 6.5, 'F'); fuente('bold', 8, [255, 255, 255]); doc.text('PROMOCIONES', MX + 2, y + 4.5); y += 6.5; };
@@ -1064,7 +1153,7 @@ function hojaCotizacionConstruir(jsPDF, cot, logo) {
         encPromo();
         promos.forEach(pm => {
             fuente('bold', 8.5, OSC);
-            const cab = doc.splitTextToSize(pm.sku + (pm.desc ? ' · ' + pm.desc : ''), TW - 4).slice(0, 2), h = cab.length * 4 + pm.l.length * 4.2 + 3;
+            const cab = doc.splitTextToSize(pm.cab || (pm.sku + (pm.desc ? ' · ' + pm.desc : '')), TW - 4).slice(0, 2), h = cab.length * 4 + pm.l.length * 4.2 + 3;
             if (y + h > LIM) { doc.addPage(); y = 14; encPromo(); }
             fuente('bold', 8.5, OSC); doc.text(cab, MX + 2, y + 4.6);
             fuente('bold', 8.5, VERDE_TXT); pm.l.forEach((t, k) => doc.text(t, MX + 2, y + 4.6 + cab.length * 4 + k * 4.2));
@@ -1444,6 +1533,6 @@ function iniciar() {
   const orig = window.actualizarVisibilidadBotonVenta;   // Maps la llama al iniciar sesión: ahí se muestran u ocultan los botones
   if (typeof orig === 'function') window.actualizarVisibilidadBotonVenta = function () { const r = orig.apply(this, arguments); try { visibilidadBotones(); } catch (e) {} return r; };
 }
-window.Cotizador = { desdeNota: desdeNota, verCotizacion: cvAbrir, abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
+window.Cotizador = { esBajajSku: esBajajSku, avisoBajajHtml: avisoBajajHtml, desdeNota: desdeNota, verCotizacion: cvAbrir, abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();

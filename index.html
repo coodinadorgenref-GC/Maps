@@ -1298,6 +1298,7 @@ html[data-theme="claro"] .text-dim, html[data-theme="claro"] .drawer-sub{ color:
     </fieldset>
 
     <div class="venta-pie">
+      <div class="cz-bajaj" id="ventaDescBajaj" hidden role="status" aria-live="polite"></div>
       <div class="venta-total"><span>Total con IVA</span><span id="ventaTotalMostrado">$0.00</span></div>
       <p class="cz-ayuda">Los campos con <span class="cz-req" aria-hidden="true">*</span> son obligatorios. El ID de cliente y el teléfono son opcionales.</p>
       <div class="venta-error" id="ventaError" role="alert"></div>
@@ -10689,6 +10690,7 @@ async function sincronizarPromociones(){
 async function sincronizarPreciosRuta(){
   sincronizarPromociones();
   sincronizarKits();
+  sincronizarDescuentosBajaj();
   if(!SHEET_ENDPOINT || !navigator.onLine) return;
   try{
     const resp = await fetch(`${SHEET_ENDPOINT}?recurso=precios`);
@@ -11105,25 +11107,57 @@ function escalonVigente(sku){
   if (!precio){ const c = preciosCalculados[String(sku || '').trim()]; precio = c ? (Number(c.precioMayoreo) || 0) : 0; }
   return precio > 0 ? { min: min, precio: precio } : null;
 }
+let ultimoDescBajajVenta = null;
 function aplicarEscalonesVenta(){
   const esPedido = esVentaPedido();
-  ventaItemsActuales.forEach(function(it){
-    if (it.manual || it.liquidacion || it.precioEditado){ if(!it.liquidacion) it.mayoreo = false; return; }
-    const sku = String(it.sku || '').trim(); if (!sku) return;
+  // 1) Qué trae cada partida (precio base, mayoreo y si cuenta para el descuento Bajaj)
+  const partidas = ventaItemsActuales.map(function(it){
+    if (it.manual || it.liquidacion || it.precioEditado){ if(!it.liquidacion) it.mayoreo = false; it.descBajaj = 0; return null; }
+    const sku = String(it.sku || '').trim(); if (!sku) return null;
     const r = resolverProductoPorSku(sku, esPedido);
-    if (!r || r.liquidacion) return;
+    if (!r || r.liquidacion) return null;
     const base = Number(r.precio) || 0;
     const esc = escalonVigente(sku);
     const p = Number(it.precio) || 0;
-    if (p !== base && p !== it._precioAuto && !(esc && p === esc.precio)){ it.precioEditado = true; it.mayoreo = false; return; } // lo cambió una persona
-    const aplica = !!esc && (Number(it.cantidad) || 0) >= esc.min;
-    it.precio = aplica ? esc.precio : base;
-    it._precioAuto = it.precio;
-    it.mayoreo = aplica;
+    if (p !== base && p !== it._precioAuto && !(esc && p === esc.precio)){ it.precioEditado = true; it.mayoreo = false; it.descBajaj = 0; return null; } // lo cambió una persona
+    // Descuento Bajaj: se mide sobre el precio de LISTA (igual que la cotización, para que el precio no cambie al pasar a nota)
+    const lg = listaGC[normSkuMaps(sku)];
+    const lista = (lg && Number(lg.precio) > 0) ? Math.ceil(Math.round(Number(lg.precio) * 100) / 100) : 0;
+    let bajaj = false;
+    try { bajaj = lista > 0 && !!(window.Cotizador && Cotizador.esBajajSku && Cotizador.esBajajSku(sku)); } catch(e){}
+    return { it: it, base: base, esc: esc, lista: lista, bajaj: bajaj };
   });
+  // 2) Escalón según la compra Bajaj a precio de lista
+  let baseBajaj = 0, hay = false;
+  partidas.forEach(function(x){ if (x && x.bajaj){ hay = true; baseBajaj += x.lista * (Number(x.it.cantidad) || 0); } });
+  const tier = descBajajPara(Math.round(baseBajaj * 100) / 100);
+  tier.hay = hay;
+  ultimoDescBajajVenta = tier;
+  // 3) Precio de cada partida: el más bajo entre su mayoreo/precio y el escalón (nunca se acumulan)
+  partidas.forEach(function(x){
+    if (!x) return;
+    const it = x.it;
+    const aplica = !!x.esc && (Number(it.cantidad) || 0) >= x.esc.min;
+    let precio = aplica ? x.esc.precio : x.base, bajaj = 0;
+    if (x.bajaj && tier.pct > 0){
+      const vb = precioDescBajaj(x.lista, tier.pct);
+      if (vb < precio){ precio = vb; bajaj = tier.pct; }
+    }
+    it.precio = precio;
+    it._precioAuto = precio;
+    it.mayoreo = aplica && !bajaj;
+    it.descBajaj = bajaj;
+  });
+}
+function pintarAvisoBajajVenta(){
+  const el = document.getElementById('ventaDescBajaj'); if (!el) return;
+  let h = '';
+  try { h = (window.Cotizador && Cotizador.avisoBajajHtml && ultimoDescBajajVenta) ? Cotizador.avisoBajajHtml(ultimoDescBajajVenta) : ''; } catch(e){}
+  el.innerHTML = h; el.hidden = !h;
 }
 function actualizarTotalVenta(){
   aplicarEscalonesVenta();
+  pintarAvisoBajajVenta();
   const total = totalRedondeado(ventaItemsActuales);
   document.getElementById("ventaTotalMostrado").innerText = "$" + total.toFixed(2);
   actualizarImportesVenta();
@@ -11139,7 +11173,7 @@ function actualizarImportesVenta(){
       const pu = fila.querySelector('[data-pu]');
       if (pu) pu.textContent = '$' + (Number(it.precio) || 0).toFixed(2);
       const esc = (it.manual || it.liquidacion || it.precioEditado) ? null : escalonVigente(it.sku);
-      const txt = it.kit ? ('🧰 Kit ' + it.kit + (it.kitPct ? ' · −' + it.kitPct + '%' : '')) : it.mayoreo ? '✓ Precio de mayoreo' : (esc ? ('Desde ' + esc.min + ' pzs: $' + esc.precio.toFixed(2) + ' c/u') : '');
+      const txt = it.kit ? ('🧰 Kit ' + it.kit + (it.kitPct ? ' · −' + it.kitPct + '%' : '')) : it.descBajaj ? ('✓ Descuento Bajaj −' + it.descBajaj + '%') : it.mayoreo ? '✓ Precio de mayoreo' : (esc ? ('Desde ' + esc.min + ' pzs: $' + esc.precio.toFixed(2) + ' c/u') : '');
       let tag = fila.querySelector('.vv-mayo');
       if (txt){
         if (!tag){
@@ -11209,6 +11243,57 @@ async function sincronizarKits(){
 }
 _actualizarClaseKits();
 document.addEventListener('DOMContentLoaded', _actualizarClaseKits);
+
+/* ---------- Descuento escalonado BAJAJ (hoja "DescuentosBajaj") ----------
+   Compras de la sección Bajaj por arriba de un monto (con IVA, a precio de lista) reciben un % de descuento.
+   Los escalones viven en la hoja (montoMinimo, porcentaje, activo, vigenteDesde, vigenteHasta): se agregan sin tocar código.
+   "Mayor a": exactamente el monto no entra. No se acumula con promoción ni mayoreo: cada partida queda con el precio más
+   bajo entre su promoción/mayoreo y el escalón. La liquidación no participa. Cotización y nota usan esta misma regla. */
+const DESC_BAJAJ_KEY = 'gc_desc_bajaj_v1';
+const DESC_BAJAJ_DEFECTO = [ { montoMinimo: 1000, porcentaje: 5 }, { montoMinimo: 5000, porcentaje: 10 } ]; // solo mientras la hoja no responde
+let descBajajCache = null; // null = aún no llega la hoja
+try { const c = JSON.parse(localStorage.getItem(DESC_BAJAJ_KEY) || 'null'); if (c && Array.isArray(c.datos)) descBajajCache = c.datos; } catch(e){}
+
+function _pctDescBajaj(v){
+  let n = Number(String(v == null ? '' : v).replace(/[%\s]/g, ''));
+  if (n > 0 && n < 1) n = n * 100; // la hoja puede devolver 0.05 si la celda tiene formato de porcentaje
+  return n > 0 ? n : 0;
+}
+function escalonesDescBajaj(){
+  const fuente = Array.isArray(descBajajCache) ? descBajajCache : DESC_BAJAJ_DEFECTO;
+  return fuente.filter(function(e){
+    if (!e) return false;
+    const t = String(e.activo != null ? e.activo : '').trim().toUpperCase();
+    return t !== 'NO' && t !== '0' && t !== 'FALSE' && promoVigente(e);
+  }).map(function(e){ return { min: _numEsp(e.montoMinimo), pct: _pctDescBajaj(e.porcentaje) }; })
+    .filter(function(e){ return e.min > 0 && e.pct > 0 && e.pct < 100; })
+    .sort(function(a, b){ return a.min - b.min; });
+}
+/** base = compra Bajaj a precio de lista (con IVA). Devuelve el escalón alcanzado (pct 0 si ninguno) y el siguiente por alcanzar. */
+function descBajajPara(base){
+  const esc = escalonesDescBajaj(); base = Number(base) || 0;
+  let act = null, sig = null;
+  esc.forEach(function(e){ if (base > e.min && (!act || e.pct > act.pct)) act = e; });
+  esc.forEach(function(e){ if (base <= e.min && e.pct > (act ? act.pct : 0) && (!sig || e.min < sig.min)) sig = e; });
+  return { base: base, pct: act ? act.pct : 0, min: act ? act.min : 0, sig: sig,
+           falta: sig ? Math.round((sig.min - base + 0.01) * 100) / 100 : 0, escalones: esc };
+}
+function precioDescBajaj(lista, pct){ return Math.round(Number(lista) * (1 - Number(pct) / 100) * 100) / 100; }
+async function sincronizarDescuentosBajaj(){
+  if (!SHEET_ENDPOINT || !navigator.onLine) return;
+  try {
+    const resp = await fetch(SHEET_ENDPOINT + '?recurso=descuentosBajaj');
+    const lista = await resp.json();
+    if (!Array.isArray(lista)) return;
+    const ok = lista.filter(function(x){ return x && 'montoMinimo' in x && 'porcentaje' in x; });
+    // Si el servidor aún no conoce este recurso devuelve otra hoja: se ignora y se conserva lo que ya había.
+    if (lista.length && !ok.length) return;
+    descBajajCache = ok;
+    try { localStorage.setItem(DESC_BAJAJ_KEY, JSON.stringify({ t: Date.now(), datos: ok })); } catch(e){}
+    if (!document.getElementById('ventaOverlay').hidden) renderizarItemsVenta();
+  } catch(e){ /* sin señal: se queda con la copia local */ }
+}
+sincronizarDescuentosBajaj();
 
 function _kitCalcular(kit, esPedido, cants){
   const pct = _kitPct(kit); cants = cants || {};
