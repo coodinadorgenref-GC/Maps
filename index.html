@@ -1020,21 +1020,23 @@ html[data-theme="claro"] .text-dim, html[data-theme="claro"] .drawer-sub{ color:
     <div class="login-marca">Maps GC</div>
     <div class="login-sub">Inicia sesión con tu cuenta del catálogo</div>
     <div class="login-error" id="loginError" role="alert"></div>
+    <form id="loginForm" novalidate onsubmit="event.preventDefault(); manejarInicioDeSesionMaps(); return false;">
     <div class="login-campo">
       <label for="loginCorreo">Correo o teléfono</label>
-      <input type="text" id="loginCorreo" placeholder="ejemplo@gmail.com o 5512345678" autocomplete="username" autocapitalize="off" spellcheck="false" inputmode="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPin').focus();">
+      <input type="text" id="loginCorreo" placeholder="ejemplo@gmail.com o 5512345678" autocomplete="username" autocapitalize="off" spellcheck="false" inputmode="email" onkeydown="if(event.key==='Enter' && !document.getElementById('loginPin').value){ event.preventDefault(); document.getElementById('loginPin').focus(); }">
     </div>
     <div class="login-campo">
       <label for="loginPin">Código de acceso</label>
       <div class="login-pin-wrap">
-        <input type="password" id="loginPin" placeholder="Código de acceso" autocomplete="current-password" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter')manejarInicioDeSesionMaps();">
+        <input type="password" id="loginPin" placeholder="Código de acceso" autocomplete="current-password" autocapitalize="off" spellcheck="false">
         <button type="button" class="login-ojo" id="loginOjo" onclick="alternarVisibilidadPinMaps()" aria-label="Mostrar código">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5C21.27 7.61 17 4.5 12 4.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
         </button>
       </div>
     </div>
     <label class="login-recordarme"><input type="checkbox" id="loginRecordarme"> Recuérdame en este dispositivo</label>
-    <button class="login-btn" id="loginBtn" onclick="manejarInicioDeSesionMaps()">Entrar</button>
+    <button class="login-btn" id="loginBtn" type="submit">Entrar</button>
+    </form>
   </div>
 </div>
 
