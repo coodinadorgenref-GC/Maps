@@ -1640,7 +1640,7 @@ async function verificarSesionGuardadaMaps(){
         const r = await fetchConTimeoutMaps(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
           body: JSON.stringify({ action:"validarSesion", correo:s.correo, token:s.token }) }, 6000);
         const rs = await r.json();
-        estado = rs.success ? "valida" : "invalida";
+        estado = rs.success ? "valida" : (respuestaDeSesionInvalidaMaps(rs) ? "invalida" : "sin-red");   // límite de solicitudes o error ≠ sesión inválida
       } catch(e){ estado = "sin-red"; }
     }
     if(btn){ btn.disabled = false; btn.innerText = txt; }
@@ -1696,13 +1696,31 @@ function cerrarSesionPorInactividadMaps(){
   mostrarAvisoSesionMaps("Sesión cerrada por inactividad", "Tu sesión se cerró automáticamente por " + minutos + " minutos de inactividad.");
 }
 
+/** ¿La respuesta del servidor dice DE VERDAD que la sesión ya no existe? Un límite de solicitudes del Worker («Demasiadas
+ *  solicitudes»), un error 429/5xx, un fallo de Google o una respuesta que no es JSON NO son sesión inválida: sacar a la
+ *  persona por eso la desconectaba aunque su sesión siguiera viva en el servidor. */
+function respuestaDeSesionInvalidaMaps(rs){
+  if(!rs || rs.success) return false;
+  if(rs.sesionInvalida === true) return true;
+  const m = String(rs.message || "");
+  if(/demasiad|solicitud|intenta de nuevo|ocupad|tiempo de espera|timeout|cuota|quota|servicio/i.test(m)) return false;
+  return /sesi[oó]n/i.test(m) && /(ya no est[aá] activa|inv[aá]lida|expirada|vuelve a iniciar)/i.test(m);
+}
+let _ultimoHeartbeatMapsMs = 0;
 async function heartbeatSesionMaps(){
   if(!usuarioActual || !tokenActual) return;
+  // Al cambiar de ventana se disparan «focus» y «visibilitychange» a la vez (y también en catálogo y reporteador, desde la misma red):
+  // sin este tope se acumulaban llamadas y el Worker las rechazaba por exceso de solicitudes.
+  const ahora = Date.now();
+  if(ahora - _ultimoHeartbeatMapsMs < 45000) return;
+  _ultimoHeartbeatMapsMs = ahora;
   try{
     const r = await fetch(LOGIN_API_URL, { method:"POST", mode:"cors", headers:{"Content-Type":"text/plain"},
       body: JSON.stringify({ action:"validarSesion", correo:usuarioActual, token:tokenActual }) });
-    const rs = await r.json();
-    if(!rs.success) manejarSesionInvalidaMaps(rs.message);
+    if(r.status === 429 || r.status >= 500) return;   // el servidor está limitando o falló: se reintenta en el siguiente ciclo
+    let rs = null;
+    try{ rs = await r.json(); }catch(e){ return; }
+    if(respuestaDeSesionInvalidaMaps(rs)) manejarSesionInvalidaMaps(rs.message);
   } catch(e){ /* sin conexión: se reintenta en el siguiente ciclo */ }
 }
 
