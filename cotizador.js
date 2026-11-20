@@ -806,6 +806,7 @@ function borradorMasReciente() {
 const leerRespaldo = () => leerClave(claveRespaldo(), () => { try { localStorage.removeItem(claveRespaldo()); } catch (e) {} });
 function pintarRespaldo() {
   const r = leerRespaldo(), b = $('cz-respaldo'); if (!b) return;
+  if (guardada) { b.hidden = true; return; }
   if (r && !borradorVacio(r)) { $('cz-respaldo-hace').textContent = haceCuanto(r.t); b.hidden = false; } else b.hidden = true;
 }
 /** Antes de abrir con datos precargados (desde una nota o un punto del mapa) el borrador que había no se pierde: queda de respaldo. */
@@ -833,7 +834,7 @@ function reiniciar() {
   ['cz-cliente', 'cz-telefono', 'cz-moto', 'cz-anio', 'cz-idcliente', 'cz-buscador'].forEach(id => { $(id).value = ''; });
   $('cz-vigencia').value = vigOmision(); $('cz-titulo').textContent = 'Nueva cotización'; $('cz-guardar').textContent = 'Guardar cotización'; $('cz-listo-titulo').textContent = 'Cotización guardada';
   $('cz-id-estado').textContent = 'Con el ID o el teléfono se traen el nombre y el teléfono.'; $('cz-id-resultados').hidden = true; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; $('cz-oferta').hidden = true;
-  $('cz-form').hidden = false; $('cz-listo').hidden = true; errGeneral(''); avisoTxt(''); mostrarErrores([]); $('cz-borrador').hidden = true; pintarLineas();
+  $('cz-form').hidden = false; $('cz-listo').hidden = true; errGeneral(''); avisoTxt(''); mostrarErrores([]); $('cz-borrador').hidden = true; pintarRespaldo(); pintarLineas();
 }
 function sincronizarDatos() {
   try { sincronizarPreciosCalculados(); sincronizarExistenciasCatalogo(); sincronizarPromociones(); sincronizarKits(); sincronizarDescuentosBajaj(); } catch (e) {}
@@ -911,6 +912,7 @@ async function guardar() {
       moto: datos.moto, anio: datos.anio, vigencia: vigIso(rs.vigencia) || datos.vigencia, vendedorAgencia: rs.vendedorAgencia, vendedorWhats: rs.vendedorWhats, vendedorRol: rs.vendedorRol || (ed && ed.base.vendedorRol) || '',
       vendedorNombre: (ed && ed.base.vendedorNombre) || nombreActual || '', total: rs.total, subtotal: rs.subtotal, iva: rs.iva, items: (rs.items || []).map(it => { if (it.seccion) return it; const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(it.sku)); return l ? Object.assign({}, it, { seccion: secDeLinea(l) }) : it; }) });
     $('cz-form').hidden = true; $('cz-listo').hidden = false; $('cz-folio').textContent = ultima.folio;
+    $('cz-borrador').hidden = true; $('cz-respaldo').hidden = true;   // esos avisos son del formulario: no se mezclan con la pantalla de «guardada»
     $('cz-listo-detalle').textContent = rs.items.length + (rs.items.length === 1 ? ' producto' : ' productos') + ' · Total ' + moneda(ultima.total) + ' · Estado: ' + ultima.estado + ' · Vigente hasta el ' + fechaLarga(ultima.vigencia);
     $('cz-listo-aviso').textContent = rs.sinPrecio ? rs.sinPrecio + ' sin precio: revisa antes de enviarla al cliente.' : '';
     try { $('cz-whats').focus(); } catch (e) {}
