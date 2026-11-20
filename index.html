@@ -4303,7 +4303,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '18-nov · v100 · corrige mira de ubicación manual que no desaparecía; Spotify despertador';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '19-nov · v104 · descuento escalonado Bajaj; login con un Enter; la sesión ya no se cierra por límite de solicitudes';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
