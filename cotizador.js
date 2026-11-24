@@ -353,6 +353,11 @@ const CSS = `
 html[data-theme="claro"] .cz-liq{background:rgba(190,45,65,.09);color:#a1303f}
 .cz-pold{font-size:12px;color:var(--text-dim);text-decoration:line-through;margin-left:6px;font-weight:400}
 .cz-lista[hidden]{display:none}
+.cz-bc{align-items:center;padding:12px;z-index:2700}
+.cz-bc-card{width:min(520px,100%);max-height:min(80vh,640px);display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;color:var(--text)}
+.cz-bc-card h2{margin:0;font-size:17px}
+.cz-bc-lista{overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;min-height:0}
+.cz-bc-lista .cz-res[aria-selected="true"]{outline:2px solid var(--accent);outline-offset:-2px}
 html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-kit{background:rgba(255,138,30,.18);color:var(--ochre)}
 .cz-avisos{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
@@ -457,6 +462,7 @@ const HTML = `
           <button type="button" class="cz-btn-buscar" id="cz-id-buscar">${IC.lupa} Buscar</button>
         </div>
         <p class="cz-ayuda" id="cz-id-estado" role="status" aria-live="polite">Con el ID o el teléfono se traen el nombre y el teléfono.</p>
+        <p class="cz-ayuda" style="margin-top:2px"><button type="button" class="cz-link" id="cz-id-f2">Buscar por nombre (F2)</button></p>
         <div class="cz-lista" id="cz-id-resultados" hidden></div></div>
       <div class="cz-campo"><label for="cz-cliente">Nombre del cliente <span class="cz-req" aria-hidden="true">*</span></label>
         <input id="cz-cliente" type="text" autocomplete="off" autocapitalize="words" maxlength="80" required aria-required="true" placeholder="Solo letras" enterkeyhint="next" aria-describedby="cz-cliente-err">
@@ -817,6 +823,61 @@ function elegirCliente(m) {
   idResuelto = m.id || ''; $('cz-idcliente').value = m.id || ''; $('cz-cliente').value = soloLetras(m.nombre || '').trim(); $('cz-telefono').value = soloDigitos(m.telefono || '');
   $('cz-id-resultados').hidden = true; $('cz-id-estado').textContent = 'Cliente: ' + (m.nombre || '') + ' · ID ' + (m.id || ''); $('cz-moto').focus();
 }
+/* ───────────── F2: cuadro para buscar al mecánico por nombre, ID o teléfono ───────────── */
+let _bcEl = null, _bcLista = [], _bcSel = -1, _bcT = null, _bcSeq = 0;
+function _bcCrear() {
+  if (_bcEl) return _bcEl;
+  const d = document.createElement('div');
+  d.id = 'cz-bc'; d.className = 'cz-overlay cz-bc'; d.hidden = true; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', 'cz-bc-titulo');
+  d.innerHTML = '<div class="cz-bc-card"><h2 id="cz-bc-titulo">Buscar cliente</h2>'
+    + '<div class="cz-campo" style="margin:0"><label for="cz-bc-q">Nombre, ID o teléfono</label><input id="cz-bc-q" type="text" autocomplete="off" aria-controls="cz-bc-lista" placeholder="Ej. Juan Pérez"></div>'
+    + '<p class="cz-ayuda" id="cz-bc-estado" role="status" aria-live="polite" style="margin:0">Escribe al menos 2 letras o números. ↑ ↓ para moverte, Enter para elegir, Esc para cerrar.</p>'
+    + '<div class="cz-bc-lista" id="cz-bc-lista" role="listbox"></div>'
+    + '<button type="button" class="cz-btn cz-sec2" id="cz-bc-cerrar">Cerrar</button></div>';
+  document.body.appendChild(d); _bcEl = d;
+  const q = d.querySelector('#cz-bc-q');
+  q.addEventListener('input', () => { clearTimeout(_bcT); _bcT = setTimeout(_bcBuscar, 350); });
+  q.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (_bcLista.length) _bcMover(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Enter') { e.preventDefault(); clearTimeout(_bcT); if (_bcSel >= 0 && _bcLista[_bcSel]) _bcElegir(_bcSel); else _bcBuscar(); }
+  });
+  d.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); _bcCerrar(); } });
+  d.addEventListener('mousedown', e => { if (e.target === d) _bcCerrar(); });
+  d.querySelector('#cz-bc-cerrar').addEventListener('click', _bcCerrar);
+  d.querySelector('#cz-bc-lista').addEventListener('click', e => { const b = e.target.closest('[data-bc]'); if (b) _bcElegir(Number(b.dataset.bc)); });
+  return d;
+}
+function _bcAbrir() {
+  const d = _bcCrear(); if (!d.hidden) return;
+  const q = d.querySelector('#cz-bc-q'); q.value = ''; _bcLista = []; _bcSel = -1; d.querySelector('#cz-bc-lista').innerHTML = '';
+  d.querySelector('#cz-bc-estado').textContent = 'Escribe al menos 2 letras o números. ↑ ↓ para moverte, Enter para elegir, Esc para cerrar.';
+  d.hidden = false; setTimeout(() => q.focus(), 30);
+}
+function _bcCerrar() { if (!_bcEl || _bcEl.hidden) return; _bcEl.hidden = true; clearTimeout(_bcT); _bcSeq++; try { $('cz-idcliente').focus(); } catch (e) {} }
+function _bcMover(d) {
+  _bcSel = (_bcSel + d + _bcLista.length) % _bcLista.length;
+  _bcEl.querySelectorAll('[data-bc]').forEach((b, k) => { b.setAttribute('aria-selected', k === _bcSel ? 'true' : 'false'); if (k === _bcSel) b.scrollIntoView({ block: 'nearest' }); });
+}
+async function _bcBuscar() {
+  const q = _bcEl.querySelector('#cz-bc-q').value.trim(), est = _bcEl.querySelector('#cz-bc-estado'), cont = _bcEl.querySelector('#cz-bc-lista'), mi = ++_bcSeq;
+  if (q.length < 2) { _bcLista = []; _bcSel = -1; cont.innerHTML = ''; est.textContent = 'Escribe al menos 2 letras o números.'; return; }
+  if (!navigator.onLine) { est.textContent = 'Sin señal: captura el nombre y el teléfono a mano.'; return; }
+  est.textContent = 'Buscando…';
+  try {
+    const rs = await api('buscarMecanicoDirectorio', { consulta: q });
+    if (mi !== _bcSeq) return;   // llegó tarde: ya se tecleó otra cosa
+    if (!rs || !rs.success) { est.textContent = (rs && rs.message) || 'No se pudo buscar.'; return; }
+    _bcLista = rs.coincidencias || []; _bcSel = _bcLista.length ? 0 : -1;
+    est.textContent = _bcLista.length ? _bcLista.length + (_bcLista.length === 1 ? ' coincidencia' : ' coincidencias') + ': elige una.' : 'Sin coincidencias. Cierra y captura el nombre y el teléfono a mano.';
+    cont.innerHTML = _bcLista.map((m, k) => '<button type="button" class="cz-res" role="option" data-bc="' + k + '" aria-selected="' + (k === 0 ? 'true' : 'false') + '"><b>' + esc(m.nombre) + '</b><span class="cz-sub">ID ' + esc(m.id) + ' · ' + esc(m.telefono) + '</span></button>').join('');
+  } catch (e) { if (mi === _bcSeq) est.textContent = 'No se pudo buscar. Revisa tu conexión.'; }
+}
+function _bcElegir(k) {
+  const m = _bcLista[k]; if (!m) return;
+  _bcEl.hidden = true; clearTimeout(_bcT); _bcSeq++;
+  elegirCliente({ id: m.id, nombre: m.nombre, telefono: m.telefono }); guardarBorrador();
+}
+document.addEventListener('keydown', e => { if (e.key === 'F2' && e.target && e.target.id === 'cz-idcliente') { e.preventDefault(); _bcAbrir(); } });
 const motoClave = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 async function cargarMotos() { if (motosCargadas || !navigator.onLine) return; try { const rs = await api('listarMotos'); if (rs && rs.success && Array.isArray(rs.motos)) { motos = rs.motos; motosCargadas = true; try { localStorage.setItem('czMotos', JSON.stringify(motos)); } catch (e) {} } } catch (e) {} }
 function sugerirMotos() {
@@ -1513,6 +1574,7 @@ function enlazar() {
   const idc = $('cz-idcliente'); idc.addEventListener('input', () => { const v = soloDigitos(idc.value); if (v !== idc.value) idc.value = v; idResuelto = ''; clearTimeout(idc._t); idc._t = setTimeout(buscarCliente, 600); });
   idc.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(idc._t); buscarCliente(); } });
   $('cz-id-buscar').addEventListener('click', () => { clearTimeout(idc._t); buscarCliente(); });
+  $('cz-id-f2').addEventListener('click', () => { clearTimeout(idc._t); _bcAbrir(); });
   $('cz-id-resultados').addEventListener('click', e => { const b = e.target.closest('[data-cli]'); if (b) elegirCliente(coincidencias[Number(b.dataset.cli)]); });
   const filtrar = (id, fn) => { const el = $(id); el.addEventListener('input', () => { const v = fn(el.value); if (v !== el.value) el.value = v; }); };
   filtrar('cz-cliente', soloLetras); filtrar('cz-telefono', v => soloDigitos(v).slice(0, 15)); filtrar('cz-anio', v => soloDigitos(v).slice(0, 4));
