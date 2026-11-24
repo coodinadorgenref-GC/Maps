@@ -183,6 +183,24 @@ function conBajaj(r, lista, pct) {
   const vb = precioDescBajaj(lista, pct);
   return vb < r.valor ? { valor: vb, oferta: true, bajaj: pct } : r;
 }
+/* ───────────── Descuento adicional 5 % / 10 % (solo cotización de Maps) ─────────────
+   Lo elige el asesor. No se acumula: cada pieza queda con su mejor precio entre promoción / mayoreo / Bajaj y este descuento sobre la
+   lista. Las piezas en liquidación y las que no tienen precio de lista no participan. Se guarda por folio en este dispositivo
+   (el servidor valúa a precio de lista) y viaja como descuentoPct en los datos de la cotización. */
+const DESC_EXTRA = [5, 10];
+const _descPct = v => { const n = Number(v); return DESC_EXTRA.indexOf(n) !== -1 ? n : 0; };
+const _claveDesc = folio => 'czDesc:' + String(folio || '');
+function descGuardado(folio) { try { return folio ? _descPct(localStorage.getItem(_claveDesc(folio))) : 0; } catch (e) { return 0; } }
+function descGuardar(folio, pct) { try { if (!folio) return; if (_descPct(pct)) localStorage.setItem(_claveDesc(folio), String(_descPct(pct))); else localStorage.removeItem(_claveDesc(folio)); } catch (e) {} }
+const descActual = () => { const el = $('cz-descuento'); return el ? _descPct(el.value) : 0; };
+function conDescExtra(r, lista, pct) {
+  pct = _descPct(pct);
+  if (!pct || !(lista > 0) || r.liquidacion) return r;
+  const vd = arriba(lista * (100 - pct) / 100);
+  return vd < r.valor ? { valor: vd, oferta: true, descExtra: pct } : r;
+}
+const chipDescExtra = pct => '<div class="cz-avisos"><span class="cz-chip cz-promo">' + IC.etiqueta + ' Descuento −' + fmtPct(pct) + '%</span></div>';
+
 /** Escalón de la cotización que se está capturando. */
 function tierForm() {
   const ps = [];
@@ -229,23 +247,23 @@ const chipBajaj = pct => '<div class="cz-avisos"><span class="cz-chip cz-promo">
  *  aplicarla dos veces da el mismo resultado (por eso guarda el precio de lista en precioLista). */
 function cotConPromos(cot) {
   if (!cot || !Array.isArray(cot.items)) return cot;
-  const tier = tierItems(cot.items);
+  const tier = tierItems(cot.items), dx = cot.descuentoPct !== undefined ? _descPct(cot.descuentoPct) : descGuardado(cot.folio);
   let cambio = 0, hubo = false;
   const items = cot.items.map(it => {
     if (!it || it.tipo === 'pedido' || it.precioAprox === true || !String(it.sku || '').trim()) return it;
     const lista = listaDeItem(it), cant = Number(it.cantidad);
     if (!(lista > 0) || !(cant > 0)) return it;
-    const r = conBajaj(precioConPromo(it.sku, cant, lista), lista, esBajajItem(it) ? tier.pct : 0);
+    const r = conDescExtra(conBajaj(precioConPromo(it.sku, cant, lista), lista, esBajajItem(it) ? tier.pct : 0), lista, dx);
     if (!r.oferta) return it;
     const importe = Math.round(r.valor * cant * 100) / 100, antes = Number(it.importe);
     const dif = importe - (isFinite(antes) ? antes : lista * cant);
     cambio += dif; hubo = true;
     // ahorroPromo = lo que se ahorra en esta partida frente al precio de lista (se acumula, así aplicarla otra vez no lo pierde)
-    return Object.assign({}, it, { precio: r.valor, precioLista: lista, importe: importe, liquidacion: !!r.liquidacion || it.liquidacion === true, descBajaj: r.bajaj || 0, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
+    return Object.assign({}, it, { precio: r.valor, precioLista: lista, importe: importe, liquidacion: !!r.liquidacion || it.liquidacion === true, descBajaj: r.bajaj || 0, descExtra: r.descExtra || 0, ahorroPromo: Math.round(((Number(it.ahorroPromo) || 0) - dif) * 100) / 100 });
   });
   if (!hubo) return cot;
   const total = Math.round(((Number(cot.total) || 0) + cambio) * 100) / 100, sub = Math.round(total / 1.16 * 100) / 100;
-  return Object.assign({}, cot, { items: items, total: total, subtotal: sub, iva: Math.round((total - sub) * 100) / 100 });
+  return Object.assign({}, cot, { descuentoPct: dx, items: items, total: total, subtotal: sub, iva: Math.round((total - sub) * 100) / 100 });
 }
 function kitsDe(sku) {
   try {
@@ -459,6 +477,9 @@ const HTML = `
         <div class="cz-campo"><label for="cz-vigencia">Vigencia (válida hasta)</label>
           <input id="cz-vigencia" type="date" aria-describedby="cz-vigencia-err">
           <p class="cz-err" id="cz-vigencia-err" hidden></p></div>
+        <div class="cz-campo"><label for="cz-descuento">Descuento adicional</label>
+          <select id="cz-descuento"><option value="0">Sin descuento</option><option value="5">5 %</option><option value="10">10 %</option></select>
+          <p class="cz-ayuda">No se suma a otras promociones: cada pieza queda con su mejor precio. No aplica a liquidación.</p></div>
       </div>
     </fieldset>
     <fieldset class="cz-bloque"><legend>3 · Productos</legend>
@@ -615,8 +636,8 @@ function pintarResultados() {
 function precioLinea(l) {
   if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) {
     const lista = arriba(listaGC[skuN(l.sku)].precio);
-    const r = conBajaj(precioConPromo(l.sku, l.cantidad, lista), lista, secDeLinea(l) === 'BAJAJ' ? tierForm().pct : 0);   // promoDe ya devuelve null si la promoción venció
-    return { valor: r.valor, lista: true, oferta: r.oferta, liquidacion: !!r.liquidacion, bajaj: r.bajaj || 0 };
+    const r = conDescExtra(conBajaj(precioConPromo(l.sku, l.cantidad, lista), lista, secDeLinea(l) === 'BAJAJ' ? tierForm().pct : 0), lista, descActual());   // promoDe ya devuelve null si la promoción venció
+    return { valor: r.valor, lista: true, oferta: r.oferta, liquidacion: !!r.liquidacion, bajaj: r.bajaj || 0, descExtra: r.descExtra || 0 };
   }
   if (l.tipo === 'catalogo' && liqDe(l.sku) !== null) return { valor: liqDe(l.sku), lista: true, oferta: true, liquidacion: true };   // liquidación sin precio en la lista
   const a = Number(l.precioAprox); return a > 0 ? { valor: arriba(a), lista: false } : { valor: null, lista: false };
@@ -628,7 +649,7 @@ function actualizarImportes() {
     const p = precioLinea(l), el = $('cz-imp-' + l.id);
     if (p.valor === null) { sin++; if (el) el.textContent = '—'; } else { total += p.valor * l.cantidad; if (el) el.textContent = moneda(p.valor * l.cantidad); }
     const cu = $('cz-cu-' + l.id); if (cu && p.valor !== null) cu.textContent = moneda(p.valor) + ' c/u';
-    const bj = $('cz-bjw-' + l.id); if (bj) bj.innerHTML = p.bajaj ? chipBajaj(p.bajaj) : '';
+    const bj = $('cz-bjw-' + l.id); if (bj) bj.innerHTML = p.descExtra ? chipDescExtra(p.descExtra) : (p.bajaj ? chipBajaj(p.bajaj) : '');
   });
   $('cz-total').textContent = moneda(total);
   pintarBajaj();
@@ -817,7 +838,7 @@ const BORRADOR_DIAS = 7;
 const claveBorrador = sec => 'czBorrador:' + String(usuarioActual || '').toLowerCase() + ':' + (sec || seccion);
 const claveRespaldo = () => 'czRespaldo:' + String(usuarioActual || '').toLowerCase();
 function datosActuales() {
-  return { v: 1, t: Date.now(), sec: seccion, idCliente: idResuelto, idTexto: $('cz-idcliente').value, cliente: $('cz-cliente').value, telefono: $('cz-telefono').value, moto: $('cz-moto').value, anio: $('cz-anio').value, vigencia: $('cz-vigencia').value, lineas: lineas };
+  return { v: 1, t: Date.now(), sec: seccion, idCliente: idResuelto, idTexto: $('cz-idcliente').value, cliente: $('cz-cliente').value, telefono: $('cz-telefono').value, moto: $('cz-moto').value, anio: $('cz-anio').value, vigencia: $('cz-vigencia').value, desc: descActual(), lineas: lineas };
 }
 const borradorVacio = d => !d || (!d.idTexto && !String(d.cliente || '').trim() && !d.telefono && !String(d.moto || '').trim() && !d.anio && !(d.lineas || []).length);
 function borradorAhora() {
@@ -855,6 +876,7 @@ const haceCuanto = t => { const m = Math.round((Date.now() - t) / 60000); return
 function restaurarBorrador(d) {
   $('cz-idcliente').value = d.idTexto || ''; idResuelto = d.idCliente || ''; $('cz-cliente').value = d.cliente || ''; $('cz-telefono').value = d.telefono || ''; $('cz-moto').value = d.moto || ''; $('cz-anio').value = d.anio || '';
   if (d.vigencia && d.vigencia >= iso(new Date())) $('cz-vigencia').value = d.vigencia;
+  $('cz-descuento').value = String(_descPct(d.desc));
   lineas = (d.lineas || []).map(l => Object.assign({}, l, { id: ++seq }));
   $('cz-borrador-hace').textContent = haceCuanto(d.t); $('cz-borrador').hidden = false; pintarLineas(); verificarBloqueosPrecio();
 }
@@ -863,7 +885,7 @@ function restaurarBorrador(d) {
 function reiniciar() {
   lineas = []; guardada = false; edicion = null; idResuelto = '';
   ['cz-cliente', 'cz-telefono', 'cz-moto', 'cz-anio', 'cz-idcliente', 'cz-buscador'].forEach(id => { $(id).value = ''; });
-  $('cz-vigencia').value = vigOmision(); $('cz-titulo').textContent = 'Nueva cotización'; $('cz-guardar').textContent = 'Guardar cotización'; $('cz-listo-titulo').textContent = 'Cotización guardada';
+  $('cz-descuento').value = '0'; $('cz-vigencia').value = vigOmision(); $('cz-titulo').textContent = 'Nueva cotización'; $('cz-guardar').textContent = 'Guardar cotización'; $('cz-listo-titulo').textContent = 'Cotización guardada';
   $('cz-id-estado').textContent = 'Con el ID o el teléfono se traen el nombre y el teléfono.'; $('cz-id-resultados').hidden = true; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; $('cz-oferta').hidden = true;
   $('cz-form').hidden = false; $('cz-listo').hidden = true; errGeneral(''); avisoTxt(''); mostrarErrores([]); $('cz-borrador').hidden = true; pintarRespaldo(); pintarLineas();
 }
@@ -902,7 +924,7 @@ async function editar(c) {
   edicion = { folio: c.folio, base: c };
   $('cz-titulo').textContent = 'Editar ' + c.folio; $('cz-guardar').textContent = 'Guardar cambios'; $('cz-listo-titulo').textContent = 'Cotización actualizada';
   $('cz-cliente').value = soloLetras(c.cliente || '').trim(); $('cz-telefono').value = soloDigitos(c.telefono || ''); $('cz-idcliente').value = c.idCliente || ''; idResuelto = c.idCliente || '';
-  $('cz-moto').value = c.moto || ''; $('cz-anio').value = c.anio || ''; $('cz-vigencia').value = vigIso(c.vigencia) || vigOmision();
+  $('cz-moto').value = c.moto || ''; $('cz-anio').value = c.anio || ''; $('cz-vigencia').value = vigIso(c.vigencia) || vigOmision(); $('cz-descuento').value = String(descGuardado(c.folio));
   lineas = (c.items || []).map(it => {
     const cant = Math.max(1, Math.min(9999, Math.floor(Number(it.cantidad)) || 1));
     if (it.tipo === 'pedido') return { id: ++seq, tipo: 'pedido', sku: '', descripcion: it.descripcion || '', disponibilidad: 'Bajo pedido', seccion: sec, cantidad: cant, numeroParte: it.numeroParte || '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' };
@@ -928,7 +950,7 @@ async function guardar() {
   const btn = $('cz-guardar'); guardando = true; btn.disabled = true; btn.innerHTML = IC.girar + ' Guardando…';
   try {
     const datos = {
-      cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value || vigOmision(),
+      cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value || vigOmision(), descuentoPct: descActual(),
       agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccionPrincipal(), origen: 'PISO', app: 'maps',
       lineas: lineas.map(l => l.tipo === 'pedido'
         ? { tipo: 'pedido', seccion: secDeLinea(l), cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox }
@@ -939,10 +961,10 @@ async function guardar() {
     const rs = ed ? await api('editarCotizacion', { folio: ed.folio, datos: datos }) : await api('guardarCotizacion', { datos: datos });
     if (!rs.success) { errGeneral(rs.message || (ed ? 'No se pudieron guardar los cambios.' : 'No se pudo guardar la cotización.')); return; }
     guardada = true; borrarBorrador(); if (datos.moto && !motos.some(m => motoClave(m) === motoClave(datos.moto))) motos.push(datos.moto.toUpperCase());
-    ultima = cotConPromos({ folio: rs.folio || (ed && ed.folio), fecha: rs.fecha || (ed && ed.base.fecha), estado: rs.estado || (ed && ed.base.estado) || 'Borrador', agencia: datos.agencia, cliente: datos.cliente, telefono: datos.telefono, idCliente: datos.idCliente,
+    ultima = cotConPromos({ descuentoPct: datos.descuentoPct, folio: rs.folio || (ed && ed.folio), fecha: rs.fecha || (ed && ed.base.fecha), estado: rs.estado || (ed && ed.base.estado) || 'Borrador', agencia: datos.agencia, cliente: datos.cliente, telefono: datos.telefono, idCliente: datos.idCliente,
       moto: datos.moto, anio: datos.anio, vigencia: vigIso(rs.vigencia) || datos.vigencia, vendedorAgencia: rs.vendedorAgencia, vendedorWhats: rs.vendedorWhats, vendedorRol: rs.vendedorRol || (ed && ed.base.vendedorRol) || '',
       vendedorNombre: (ed && ed.base.vendedorNombre) || nombreActual || '', total: rs.total, subtotal: rs.subtotal, iva: rs.iva, items: (rs.items || []).map(it => { if (it.seccion) return it; const l = lineas.find(q => q.tipo === 'catalogo' && skuN(q.sku) === skuN(it.sku)); return l ? Object.assign({}, it, { seccion: secDeLinea(l) }) : it; }) });
-    $('cz-form').hidden = true; $('cz-listo').hidden = false; $('cz-folio').textContent = ultima.folio;
+    descGuardar(ultima.folio, datos.descuentoPct); $('cz-form').hidden = true; $('cz-listo').hidden = false; $('cz-folio').textContent = ultima.folio;
     $('cz-borrador').hidden = true; $('cz-respaldo').hidden = true;   // esos avisos son del formulario: no se mezclan con la pantalla de «guardada»
     $('cz-listo-detalle').textContent = rs.items.length + (rs.items.length === 1 ? ' producto' : ' productos') + ' · Total ' + moneda(ultima.total) + ' · Estado: ' + ultima.estado + ' · Vigente hasta el ' + fechaLarga(ultima.vigencia);
     $('cz-listo-aviso').textContent = rs.sinPrecio ? rs.sinPrecio + ' sin precio: revisa antes de enviarla al cliente.' : '';
@@ -1501,6 +1523,7 @@ function enlazar() {
   const elegirMoto = e => { const b = e.target.closest('[data-moto]'); if (b) { e.preventDefault(); $('cz-moto').value = sug._sug[Number(b.dataset.moto)]; ocultarMotos(); errCampo('cz-moto', ''); $('cz-anio').focus(); guardarBorrador(); } };
   sug.addEventListener('mousedown', elegirMoto); sug.addEventListener('touchstart', elegirMoto, { passive: false });
   $('cz-vigencia').addEventListener('focus', e => { e.target.min = iso(new Date()); });
+  $('cz-descuento').addEventListener('change', () => { actualizarImportes(); });
   // validación al salir del campo / mientras se corrige
   CAMPOS.filter(id => id !== 'cz-buscador').forEach(id => { const el = $(id); el.addEventListener('blur', () => { if (el.value.trim() || el.getAttribute('aria-invalid') === 'true') validarUno(id); }); el.addEventListener('input', () => { if (el.getAttribute('aria-invalid') === 'true') validarUno(id); }); });
   $('cz-form').addEventListener('input', guardarBorrador); $('cz-form').addEventListener('change', guardarBorrador);
