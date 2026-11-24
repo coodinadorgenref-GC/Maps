@@ -582,12 +582,32 @@ function filaResultado(p) {
     + (suc ? '<span class="cz-sub">' + suc + '</span>' : '')
     + avisosHtml(p.sku, false) + '</button>';
 }
+/* Número de parte → SKU (VENTO): el catálogo ya lo resuelve al teclear; aquí se consulta a la lista de VENTO y se muestra como un resultado más. */
+const _npCache = {};   // consulta normalizada -> SKU ('' = no está en la lista)
+let _npTimer = null;
+const pareceNumeroParte = q => /^[a-z0-9][a-z0-9\-\/]{5,}$/i.test(q) && /\d/.test(q) && puedeCotizarEn('VENTO');
+function _npSkuDe(q) { const k = _npCache[q]; return k ? infoSku(k) : null; }
+function consultarNumeroParte(q) {
+  clearTimeout(_npTimer);
+  if (!pareceNumeroParte(q) || _npCache[q] !== undefined) return;
+  _npTimer = setTimeout(async () => {
+    try {
+      const rs = await api('consultarParteVento', { numeroParte: q.toUpperCase() });
+      _npCache[q] = (rs && rs.success && rs.encontrado && (rs.tipo === 'PISO' || rs.tipo === 'SKU') && rs.sku) ? String(rs.sku) : '';
+    } catch (e) { return; }   // sin señal: no se cachea, se reintenta al volver a teclear
+    if (norm($('cz-buscador').value) === q) pintarResultados();
+  }, 400);
+}
 function pintarResultados() {
   const cont = $('cz-resultados'), q = norm($('cz-buscador').value);
   if (q.length < 2) { cont.hidden = true; cont.innerHTML = ''; return []; }
-  const res = buscar(q);
+  let res = buscar(q);
+  const np = _npSkuDe(q);
+  if (np && !res.some(x => x.k === np.k)) res = [np].concat(res);   // el SKU que corresponde al número de parte va primero
+  else if (!np) consultarNumeroParte(q);
   cont.hidden = false;
-  cont.innerHTML = res.length ? res.map(filaResultado).join('') : '<p class="cz-ayuda" style="padding:8px 4px">Sin resultados. Si no está en el inventario, agrégalo bajo pedido con su número de parte.</p>';
+  const aviso = np ? '<p class="cz-ayuda" style="padding:4px 4px 0">N.º de parte ' + esc(q.toUpperCase()) + ' → SKU ' + esc(np.sku) + '</p>' : '';
+  cont.innerHTML = res.length ? aviso + res.map(filaResultado).join('') : '<p class="cz-ayuda" style="padding:8px 4px">' + (pareceNumeroParte(q) && _npCache[q] === undefined ? 'Buscando número de parte…' : 'Sin resultados. Si no está en el inventario, agrégalo bajo pedido con su número de parte.') + '</p>';
   return res;
 }
 
@@ -700,8 +720,19 @@ function buscarParte(id, soloBloquear) {
       const l = lineas.find(x => x.id === id); if (!l || String(l.numeroParte || '').trim() !== np) return;
       if (!rs.success) { estado(rs.message || 'No se pudo consultar la lista de VENTO.'); return; }
       if (!rs.encontrado) { l.precioVento = 0; aplicarBloqueoPrecio(l); estado('No está en la lista de VENTO: captura el precio aproximado a mano.'); return; }
+      if (!soloBloquear && (rs.tipo === 'PISO' || rs.tipo === 'SKU') && rs.sku) {   // ya tiene SKU: deja de ser bajo pedido (igual que en el catálogo)
+        const info = infoSku(rs.sku), sec = info && seccionDe(info), idx = lineas.findIndex(x => x.id === id);
+        if (info && sec && idx >= 0) {
+          const ya = lineas.find(x => x.tipo === 'catalogo' && skuN(x.sku) === info.k), cant = Math.max(1, Math.min(9999, Number(l.cantidad) || 1));
+          if (ya) { ya.cantidad = Math.min(ya.cantidad + cant, 9999); lineas.splice(idx, 1); }
+          else lineas.splice(idx, 1, { id: ++seq, tipo: 'catalogo', sku: info.sku, descripcion: info.nombre || '', disponibilidad: stockEnSeccion(info, sec) > 0 ? 'En existencia' : 'Bajo pedido', seccion: sec, cantidad: cant, precioAprox: '' });
+          errGeneral(''); pintarLineas(); toast('El número de parte ' + np + ' ya tiene SKU ' + info.sku + ': pasó a producto de catálogo.');
+          return;
+        }
+      }
       if (!soloBloquear && !String(l.descripcion || '').trim() && rs.descripcion) { l.descripcion = rs.descripcion; const d = $('cz-ds-' + id); if (d) d.value = rs.descripcion; }
       const partes = [];
+      if ((rs.tipo === 'PISO' || rs.tipo === 'SKU') && rs.sku) partes.push('Ya tiene SKU ' + rs.sku + ': búscalo por SKU');
       if (rs.precio > 0) {
         l.precioVento = Number(rs.precio);
         if (!soloBloquear && (!l.precioManual || !soyAdminReal())) { l.precioAprox = Number(rs.precio).toFixed(2); const pa = $('cz-pa-' + id); if (pa) pa.value = l.precioAprox; }   // quien no es admin siempre queda con el precio de lista
@@ -1475,7 +1506,7 @@ function enlazar() {
   $('cz-form').addEventListener('input', guardarBorrador); $('cz-form').addEventListener('change', guardarBorrador);
   // buscador
   const b = $('cz-buscador'); ['input', 'search', 'focus'].forEach(ev => b.addEventListener(ev, pintarResultados));   // vacío o de 1 letra: no se muestra nada (ni promociones)
-  b.addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); const r = buscar(b.value).find(p => seccionDe(p)); if (r) agregarSku(r.sku); });
+  b.addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); const q = norm(b.value), np = _npSkuDe(q), r = (np && seccionDe(np)) ? np : buscar(b.value).find(p => seccionDe(p)); if (r) agregarSku(r.sku); });
   $('cz-resultados').addEventListener('click', e => {
     const k = e.target.closest('[data-kit]'); if (k) { abrirKit(k.dataset.kit, k.dataset.sku); return; }
     const r = e.target.closest('[data-sku]'); if (!r) return;
