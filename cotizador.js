@@ -588,7 +588,15 @@ function opcionesOrigen(sku, sec) {
   return Object.keys(info.sucursales).filter(s => seccionDeTexto(s) === sec).map(s => {
     const mia = esMiSucursal(s), zo = zonaDe(s);
     return { sucursal: s, cantidad: info.sucursales[s], mia: mia, propia: propia, zonaIgual: !!(zo && zd && zo === zd), eta: (!propia || mia || !zo || !zd) ? '' : (zo === zd ? ETA_MISMA_ZONA : ETA_OTRA_ZONA) };
-  }).sort((a, b) => (b.mia - a.mia) || (b.zonaIgual - a.zonaIgual) || (b.cantidad - a.cantidad));
+  }).sort((a, b) => (b.cantidad - a.cantidad) || (b.mia - a.mia) || (b.zonaIgual - a.zonaIgual));   // primero la sucursal con más existencia
+}
+/** Tope de cantidad: una línea con existencia no puede pasar de lo que hay en la sucursal elegida. Bajo pedido: sin tope. Devuelve true si recortó. */
+function limitarCantidad(l) {
+  if (!l || l.tipo === 'pedido') return false;
+  const cur = origenActual(l).cur; if (!cur) return false;
+  const max = Math.max(1, Number(cur.cantidad) || 1);
+  if (l.cantidad > max) { l.cantidad = max; return true; }
+  return false;
 }
 function origenActual(l) { const o = opcionesOrigen(l.sku, secDeLinea(l)), cur = o.find(x => x.sucursal === l.origen) || o[0] || null; if (cur) l.origen = cur.sucursal; return { opc: o, cur: cur }; }
 
@@ -697,8 +705,9 @@ function agregarSku(sku, cant, silencioso) {
   const sec = seccionDe(info);
   if (!sec) { if (!silencioso) toast('Solo consulta: ese producto es de ' + info.secciones.map(s => SECCIONES[s]).join(', ') + ' y tu cuenta no puede cotizarlo.'); return false; }
   const n = Math.max(1, Math.min(9999, Math.floor(Number(cant)) || 1)), ya = lineas.find(l => l.tipo === 'catalogo' && skuN(l.sku) === info.k);
-  if (ya) ya.cantidad = Math.min(ya.cantidad + n, 9999);
+  if (ya) { ya.cantidad = Math.min(ya.cantidad + n, 9999); if (limitarCantidad(ya)) toast('Solo hay ' + ya.cantidad + ' en ' + ya.origen + '.'); }
   else lineas.push({ id: ++seq, tipo: 'catalogo', sku: info.sku, descripcion: info.nombre || '', disponibilidad: stockEnSeccion(info, sec) > 0 ? 'En existencia' : 'Bajo pedido', seccion: sec, cantidad: n, precioAprox: '' });
+  if (!ya) { const nl = lineas[lineas.length - 1]; if (limitarCantidad(nl)) toast('Solo hay ' + nl.cantidad + ' en ' + nl.origen + '.'); }
   errGeneral(''); errCampo('cz-buscador', '');
   if (!silencioso) { $('cz-buscador').value = ''; $('cz-resultados').hidden = true; $('cz-resultados').innerHTML = ''; mostrarOferta(info.sku); try { $('cz-buscador').focus(); } catch (e) {} }
   pintarLineas();
@@ -1605,13 +1614,13 @@ function enlazar() {
     const x = e.target.closest('[data-act]'); if (!x) return; const id = Number(x.dataset.id), l = lineas.find(q => q.id === id); if (!l) return;
     if (x.dataset.act === 'quitar') { lineas = lineas.filter(q => q.id !== id); pintarLineas(); }
     else if (x.dataset.act === 'menos') { l.cantidad = Math.max(1, l.cantidad - 1); pintarLineas(); }
-    else if (x.dataset.act === 'mas') { l.cantidad = Math.min(9999, l.cantidad + 1); pintarLineas(); }
+    else if (x.dataset.act === 'mas') { l.cantidad = Math.min(9999, l.cantidad + 1); if (limitarCantidad(l)) toast('Solo hay ' + l.cantidad + ' en ' + l.origen + '.'); pintarLineas(); }
   });
-  lin.addEventListener('change', e => { const s = e.target.closest('[data-act="origen"]'); if (!s) return; const l = lineas.find(q => q.id === Number(s.dataset.id)); if (l) { l.origen = s.value; pintarLineas(); } });
+  lin.addEventListener('change', e => { const s = e.target.closest('[data-act="origen"]'); if (!s) return; const l = lineas.find(q => q.id === Number(s.dataset.id)); if (l) { l.origen = s.value; limitarCantidad(l); pintarLineas(); } });
   lin.addEventListener('input', e => {
     const i = e.target.closest('[data-campo]'); if (!i) return; const l = lineas.find(q => q.id === Number(i.dataset.id)); if (!l) return;
     if (i.dataset.campo === 'precioAprox' && precioBloqueado(l)) { i.value = l.precioAprox; return; }   // precio sugerido de VENTO: solo administración
-    if (i.dataset.campo === 'cantidad') { const n = Math.floor(Number(i.value)); l.cantidad = n >= 1 ? Math.min(n, 9999) : 1; }
+    if (i.dataset.campo === 'cantidad') { const n = Math.floor(Number(i.value)); l.cantidad = n >= 1 ? Math.min(n, 9999) : 1; if (limitarCantidad(l)) { i.value = l.cantidad; toast('Solo hay ' + l.cantidad + ' en ' + l.origen + '.'); } }
     else l[i.dataset.campo] = i.value;
     if (i.dataset.campo === 'precioAprox') l.precioManual = true;
     if (i.dataset.campo === 'numeroParte') buscarParte(l.id);
