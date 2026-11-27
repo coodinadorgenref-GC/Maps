@@ -411,6 +411,12 @@ html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-btn-buscar{flex:none;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 14px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .cz-pie{margin:2px 0 12px}
 .cz-hcard[data-folio]{cursor:pointer}
+.cz-peds{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:var(--surface-2);font-size:13px}
+.cz-ped{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--line)}
+.cz-ped code{font-weight:700;user-select:all}
+.cz-ped a{color:var(--accent)}
+.cz-copiar{min-height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text);font:600 12px/1 inherit;cursor:pointer}
+#cv-pedidos .cz-peds{margin:0 0 10px}
 .cz-cv{z-index:2650}
 .cz-cv-marco{display:block;width:100%;height:min(54dvh,520px);border:1px solid var(--line);border-radius:10px;background:#fff}
 .cz-acciones a{min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 13px/1 inherit;display:inline-flex;align-items:center;gap:6px;text-decoration:none;cursor:pointer}
@@ -531,6 +537,7 @@ const CV_HTML = `
   <iframe id="cv-marco" class="cz-cv-marco" title="Vista previa de la cotización"></iframe>
   <p class="cz-ayuda" style="text-align:center"><a id="cv-aparte" href="#" target="_blank" rel="noopener" style="color:inherit">¿No se ve bien? Ábrela aparte</a></p>
   <p class="cz-ayuda" id="cv-seg" role="status" aria-live="polite"></p>
+  <div id="cv-pedidos"></div>
   <div class="cz-acciones">
     <button type="button" class="cz-prim" id="cv-wa">Reenviar por WhatsApp</button>
     <a id="cv-descargar" href="#" download="Cotización.pdf" role="button">${IC.bajar} Descargar</a>
@@ -1384,6 +1391,25 @@ async function cargarHistorial(pag) {
   } catch (e) { if (!/sesi/i.test(e.message || '')) info.textContent = 'No se pudo cargar. Revisa tu conexión.'; }
 }
 /** Tarjeta de una cotización (la usan el historial en modal y la pestaña «Historial» de Maps). Con `insignia` lleva la etiqueta COTIZACIÓN para distinguirla de las notas de venta. */
+/** Productos bajo pedido de una cotización, con lo que se necesita para pedirlos (número de parte, link de Mercado Libre, costo). Solo lo ve el vendedor; no sale en la hoja. */
+const pedidosDeCot = c => ((c && c.items) || []).filter(it => it && it.tipo === 'pedido' && (String(it.numeroParte || '').trim() || linkMLValido(it.linkML)));
+function bloquePedidosHtml(c) {
+  const ps = pedidosDeCot(c); if (!ps.length) return '';
+  const cp = (txt, etiqueta) => '<button type="button" class="cz-copiar" data-h="copiar" data-txt="' + esc(txt) + '">' + etiqueta + '</button>';
+  return '<div class="cz-peds"><b>Para pedir (' + ps.length + ')</b>' + ps.map(it => {
+    const np = String(it.numeroParte || '').trim(), lk = linkMLValido(it.linkML) ? String(it.linkML).trim() : '', co = Number(it.costoML) > 0 ? Number(it.costoML) : 0, pr = Number(it.precio) > 0 ? Number(it.precio) : 0;
+    return '<div class="cz-ped"><div>' + esc(it.cantidad || 1) + ' × ' + esc(it.descripcion || 'Refacción bajo pedido') + '</div>'
+      + (np ? '<div>N.º de parte: <code>' + esc(np) + '</code> ' + cp(np, 'Copiar') + '</div>' : '')
+      + (lk ? '<div><a data-h="link" href="' + esc(lk) + '" target="_blank" rel="noopener noreferrer">Abrir Mercado Libre ↗</a> ' + cp(lk, 'Copiar link') + '</div>' : '')
+      + ((co || pr) ? '<div class="cz-ayuda" style="margin:2px 0 0">' + (co ? 'Costo ' + moneda(co) : '') + (co && pr ? ' · ' : '') + (pr ? 'Cotizado ' + moneda(pr) + ' c/u' : '') + '</div>' : '') + '</div>';
+  }).join('') + '</div>';
+}
+/** Copia al portapapeles (con respaldo para navegadores que no lo permiten). */
+async function copiarTexto(t) {
+  t = String(t || ''); if (!t) return;
+  try { await navigator.clipboard.writeText(t); toast('Copiado'); return; } catch (e) {}
+  try { const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); document.body.removeChild(ta); toast(ok ? 'Copiado' : 'No se pudo copiar'); } catch (e) { toast('No se pudo copiar'); }
+}
 function tarjetaCot(c, insignia) {
     const venc = vencida(c), editable = !motivoNoEditable(c) && puedeCotizarEn(seccionDeAgencia(c.agencia));
     const tot = (c.total === '' || c.total == null) ? 'por confirmar' : moneda(c.total);
@@ -1392,6 +1418,7 @@ function tarjetaCot(c, insignia) {
       + '<div class="cz-sub"><span>' + esc(String(c.fecha || '').slice(0, 10)) + '</span><span>' + esc(c.moto || '') + (c.anio ? ' ' + esc(c.anio) : '') + '</span><span class="cz-precio">' + esc(tot) + '</span>'
       + (venc ? '<span class="cz-badge cz-aten">' + IC.aviso + ' Vencida</span>' : (vigIso(c.vigencia) ? '<span>Vigente hasta ' + esc(fechaCorta(c.vigencia)) + '</span>' : '')) + '</div>'
       + '<div class="cz-sub">' + esc(c.vendedorNombre || '') + ' · ' + esc(c.agencia || '') + '</div>'
+      + bloquePedidosHtml(c)
       + '<div class="cz-acciones">'
       + '<button type="button" class="cz-prim" data-h="ver">Vista previa</button><button type="button" data-h="whats">WhatsApp</button>'
       + (editable ? '<button type="button" data-h="editar">Editar</button>' : '')
@@ -1442,6 +1469,7 @@ async function listarParaHistorial(pagina, texto, estado) {
 function accionHistorial(c, a, b, repintar) {
   if (a === 'ver') cvAbrir(c, 'hist', repintar); else if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(repintar || (() => {}));
   else if (a === 'editar') editar(c); else if (a === 'estado') cambiarEstadoPanel(c, repintar); else if (a === 'nota') convertirEnNota(c);
+  else if (a === 'copiar' && b) copiarTexto(b.dataset.txt);
 }
 
 /* ───────────── Cotización ↔ Nota de venta (Maps) ───────────── */
@@ -1530,6 +1558,7 @@ function cvPintar() {
   const vig = vigIso(c.vigencia), tot = (c.total === '' || c.total == null) ? '' : moneda(c.total);
   $('cv-sub').textContent = [c.cliente, tot, c.estado, vig ? (vencida(c) ? 'Venció el ' : 'Vigente hasta el ') + fechaLarga(vig) : ''].filter(Boolean).join(' · ');
   $('cv-seg').textContent = textoSeguimiento(c);
+  $('cv-pedidos').innerHTML = bloquePedidosHtml(c);
   $('cv-editar').hidden = !(!motivoNoEditable(c) && puedeCotizarEn(seccionDeAgencia(c.agencia)));
   $('cv-nota').hidden = c.estado === 'Rechazado';
 }
@@ -1654,6 +1683,7 @@ function enlazar() {
     if (i.dataset.campo === 'numeroParte') buscarParte(l.id);
     actualizarImportes();
   });
+  $('cv-pedidos').addEventListener('click', e => { const b = e.target.closest('[data-h="copiar"]'); if (b) copiarTexto(b.dataset.txt); });
   $('cz-oferta').addEventListener('click', e => { const k = e.target.closest('[data-kit]'); if (k) abrirKit(k.dataset.kit, k.dataset.sku); });
   $('cz-panel').addEventListener('mousedown', e => { if (e.target === $('cz-panel')) cerrarPanel(); });
   // historial
@@ -1666,6 +1696,7 @@ function enlazar() {
     const b = e.target.closest('[data-h]'), a = b ? b.dataset.h : 'ver';   // tocar la tarjeta = vista previa
     if (a === 'ver') cvAbrir(c, 'hist', pintarHistorial); else if (a === 'pdf') hojaCotizacionPdf(c, b); else if (a === 'whats') enviarWhats(c, b).then(pintarHistorial);
     else if (a === 'editar') editar(c); else if (a === 'estado') cambiarEstadoPanel(c); else if (a === 'nota') convertirEnNota(c);
+    else if (a === 'copiar') copiarTexto(b.dataset.txt);   // 'link' no hace nada: el enlace se abre solo
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
