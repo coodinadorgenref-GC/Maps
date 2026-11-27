@@ -411,6 +411,8 @@ html[data-theme="claro"] .cz-promo{color:#6b7400}
 .cz-btn-buscar{flex:none;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 14px/1 inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .cz-pie{margin:2px 0 12px}
 .cz-hcard[data-folio]{cursor:pointer}
+input[data-campo="costoML"]{-moz-appearance:textfield;appearance:textfield}
+input[data-campo="costoML"]::-webkit-outer-spin-button,input[data-campo="costoML"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .cz-peds{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:var(--surface-2);font-size:13px}
 .cz-ped{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--line)}
 .cz-ped code{font-weight:700;user-select:all}
@@ -661,8 +663,7 @@ const linkMLValido = v => /^https?:\/\/\S+$/i.test(String(v || '').trim());
 function detalleML(l) {
   const c = Number(l.costoML); if (!(c > 0)) return '';
   if (precioBloqueado(l)) return 'El precio de VENTO está bloqueado: no se usa el costo.';
-  const p = precioDesdeCosto(c);
-  return 'Costo ' + moneda(c) + ' × 1.16 ÷ 0.85 = ' + moneda(p) + ' → se cotiza ' + moneda(arriba(p));
+  return '';   // la fórmula (costo × 1.16 ÷ 0.85) se aplica sin mostrarse
 }
 /** Costo capturado: recalcula el precio aproximado de la línea. */
 function aplicarPrecioML(l) {
@@ -1684,6 +1685,7 @@ function enlazar() {
     actualizarImportes();
   });
   $('cv-pedidos').addEventListener('click', e => { const b = e.target.closest('[data-h="copiar"]'); if (b) copiarTexto(b.dataset.txt); });
+  document.addEventListener('wheel', e => { const t = e.target; if (t && t.matches && t.matches('input[data-campo="costoML"]') && document.activeElement === t) t.blur(); }, { passive: true });   // la rueda no cambia el costo
   $('cz-oferta').addEventListener('click', e => { const k = e.target.closest('[data-kit]'); if (k) abrirKit(k.dataset.kit, k.dataset.sku); });
   $('cz-panel').addEventListener('mousedown', e => { if (e.target === $('cz-panel')) cerrarPanel(); });
   // historial
