@@ -495,7 +495,7 @@ const HTML = `
         <div class="cz-lista" id="cz-resultados" hidden></div></div>
       <div class="cz-oferta" id="cz-oferta" hidden role="status" aria-live="polite"></div>
       <div id="cz-lineas"></div>
-      <button type="button" class="cz-btn-linea" id="cz-add-pedido">+ Producto bajo pedido (número de parte)</button>
+      <button type="button" class="cz-btn-linea" id="cz-add-pedido">+ Producto bajo pedido (número de parte o link de Mercado Libre)</button>
     </fieldset>
     <div class="cz-pie">
       <div class="cz-bajaj" id="cz-bajaj" hidden role="status" aria-live="polite"></div>
@@ -555,7 +555,7 @@ function validarCampos() {
   if (anio && (!/^\d{4}$/.test(anio) || Number(anio) < 1950 || Number(anio) > new Date().getFullYear() + 1)) e.push(['cz-anio', 'El año debe ser de 4 números (por ejemplo 2022).']);
   if (vig && vig < iso(new Date())) e.push(['cz-vigencia', 'La vigencia no puede ser anterior a hoy.']);
   if (!lineas.length) e.push(['cz-buscador', 'Agrega al menos un producto.']);
-  else if (lineas.find(l => l.tipo === 'pedido' && !String(l.numeroParte).trim())) e.push(['cz-buscador', 'Captura el número de parte de cada producto bajo pedido.']);
+  else if (lineas.find(l => l.tipo === 'pedido' && !String(l.numeroParte).trim() && !String(l.linkML || '').trim())) e.push(['cz-buscador', 'Captura el número de parte o el link de Mercado Libre de cada producto bajo pedido.']);
   return e;
 }
 const validarUno = id => { const hit = validarCampos().find(x => x[0] === id); errCampo(id, hit ? hit[1] : ''); };
@@ -647,6 +647,22 @@ function pintarResultados() {
 }
 
 /* ───────────── Líneas ───────────── */
+/** Precio desde el costo de Mercado Libre: costo × 1.16 ÷ 0.85 (costo + IVA, con 15 % de margen sobre el precio final). */
+const precioDesdeCosto = c => { const n = Number(c); return n > 0 ? Math.round(n * 1.16 / 0.85 * 100) / 100 : 0; };
+const mlActivo = l => !!l && l.tipo === 'pedido' && Number(l.costoML) > 0 && !precioBloqueado(l);   // el precio bloqueado de VENTO (vendedores) manda sobre el costo
+const linkMLValido = v => /^https?:\/\/\S+$/i.test(String(v || '').trim());
+function detalleML(l) {
+  const c = Number(l.costoML); if (!(c > 0)) return '';
+  if (precioBloqueado(l)) return 'El precio de VENTO está bloqueado: no se usa el costo.';
+  const p = precioDesdeCosto(c);
+  return 'Costo ' + moneda(c) + ' × 1.16 ÷ 0.85 = ' + moneda(p) + ' → se cotiza ' + moneda(arriba(p));
+}
+/** Costo capturado: recalcula el precio aproximado de la línea. */
+function aplicarPrecioML(l) {
+  if (!mlActivo(l)) return;
+  l.precioAprox = precioDesdeCosto(l.costoML).toFixed(2);
+  const pa = $('cz-pa-' + l.id); if (pa) { pa.value = l.precioAprox; pa.readOnly = true; pa.setAttribute('aria-readonly', 'true'); pa.title = 'Calculado desde el costo de Mercado Libre: borra el costo para capturar el precio a mano'; }
+}
 function precioLinea(l) {
   if (l.tipo === 'catalogo' && listaGC && listaGC[skuN(l.sku)]) {
     const lista = arriba(listaGC[skuN(l.sku)].precio);
@@ -684,11 +700,17 @@ function pintarLineas() {
       ? '<div style="flex:1;min-width:0"><div class="cz-campo"><label for="cz-np-' + l.id + '">Número de parte (solo lo ves tú; no sale en la hoja)</label>'
         + '<input id="cz-np-' + l.id + '" data-id="' + l.id + '" data-campo="numeroParte" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" value="' + esc(l.numeroParte) + '">'
         + '<p class="cz-ayuda" id="cz-vn-' + l.id + '" role="status" aria-live="polite">' + esc(l.vnTexto || '') + '</p></div>'
-        + '<div class="cz-campo"><label for="cz-ds-' + l.id + '">Descripción</label><input id="cz-ds-' + l.id + '" data-id="' + l.id + '" data-campo="descripcion" type="text" autocomplete="off" value="' + esc(l.descripcion) + '"></div>' + disp + '</div>'
+        + '<div class="cz-campo"><label for="cz-ds-' + l.id + '">Descripción</label><input id="cz-ds-' + l.id + '" data-id="' + l.id + '" data-campo="descripcion" type="text" autocomplete="off" value="' + esc(l.descripcion) + '"></div>'
+        + '<div class="cz-campo"><label for="cz-ml-' + l.id + '">Link de Mercado Libre (solo lo ves tú; no sale en la hoja)</label>'
+        + '<input id="cz-ml-' + l.id + '" data-id="' + l.id + '" data-campo="linkML" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://articulo.mercadolibre.com.mx/…" value="' + esc(l.linkML || '') + '">'
+        + '<p class="cz-ayuda" id="cz-mla-' + l.id + '">' + (linkMLValido(l.linkML) ? '<a href="' + esc(String(l.linkML).trim()) + '" target="_blank" rel="noopener noreferrer">Abrir publicación ↗</a>' : '') + '</p></div>'
+        + '<div class="cz-campo"><label for="cz-co-' + l.id + '">Costo en Mercado Libre (con envío, si aplica)</label>'
+        + '<input id="cz-co-' + l.id + '" data-id="' + l.id + '" data-campo="costoML" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.costoML || '') + '"' + (precioBloqueado(l) ? ' disabled' : '') + '>'
+        + '<p class="cz-ayuda" id="cz-cod-' + l.id + '" role="status" aria-live="polite">' + esc(detalleML(l)) + '</p></div>' + disp + '</div>'
       : '<div style="min-width:0"><div class="cz-desc">' + esc(l.descripcion || 'SKU ' + l.sku) + '</div><div class="cz-sku">' + esc(l.sku) + '</div>' + disp + avisoStock + avisosHtml(l.sku, true) + '<span id="cz-bjw-' + l.id + '">' + (p.bajaj ? chipBajaj(p.bajaj) : '') + '</span>' + origen + '</div>';
     const precioHtml = (!ped && p.lista)
       ? '<div class="cz-ayuda" style="margin:0" id="cz-cu-' + l.id + '">' + moneda(p.valor) + ' c/u</div><div class="cz-imp" id="cz-imp-' + l.id + '">' + moneda(p.valor * l.cantidad) + '</div>'
-      : '<div class="cz-campo" style="margin:0"><label for="cz-pa-' + l.id + '">' + (ped ? 'Precio aproximado' : 'Sin precio en lista: captura uno') + '</label><input id="cz-pa-' + l.id + '" data-id="' + l.id + '" data-campo="precioAprox" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.precioAprox) + '"' + (precioBloqueado(l) ? ' readonly aria-readonly="true" title="Precio sugerido de VENTO: solo administración lo puede cambiar"' : '') + '></div>'
+      : '<div class="cz-campo" style="margin:0"><label for="cz-pa-' + l.id + '">' + (ped ? 'Precio aproximado' : 'Sin precio en lista: captura uno') + '</label><input id="cz-pa-' + l.id + '" data-id="' + l.id + '" data-campo="precioAprox" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(l.precioAprox) + '"' + (precioBloqueado(l) ? ' readonly aria-readonly="true" title="Precio sugerido de VENTO: solo administración lo puede cambiar"' : (mlActivo(l) ? ' readonly aria-readonly="true" title="Calculado desde el costo de Mercado Libre: borra el costo para capturar el precio a mano"' : '')) + '></div>'
         + '<div class="cz-imp" id="cz-imp-' + l.id + '">' + (p.valor === null ? '—' : moneda(p.valor * l.cantidad)) + '</div>';
     return '<div class="cz-linea" id="cz-l-' + l.id + '"><div class="cz-linea-top">' + cabeza
       + '<button type="button" class="cz-quitar" data-id="' + l.id + '" data-act="quitar" aria-label="Quitar ' + esc(ped ? (l.numeroParte || 'producto bajo pedido') : l.sku) + '">' + IC.quitar + '</button></div>'
@@ -771,7 +793,7 @@ function buscarParte(id, soloBloquear) {
       if ((rs.tipo === 'PISO' || rs.tipo === 'SKU') && rs.sku) partes.push('Ya tiene SKU ' + rs.sku + ': búscalo por SKU');
       if (rs.precio > 0) {
         l.precioVento = Number(rs.precio);
-        if (!soloBloquear && (!l.precioManual || !soyAdminReal())) { l.precioAprox = Number(rs.precio).toFixed(2); const pa = $('cz-pa-' + id); if (pa) pa.value = l.precioAprox; }   // quien no es admin siempre queda con el precio de lista
+        if (!soloBloquear && !mlActivo(l) && (!l.precioManual || !soyAdminReal())) { l.precioAprox = Number(rs.precio).toFixed(2); const pa = $('cz-pa-' + id); if (pa) pa.value = l.precioAprox; }   // quien no es admin siempre queda con el precio de lista
         partes.push('Precio sugerido de lista: ' + moneda(rs.precio) + (soyAdminReal() ? ' (editable)' : ' (solo administración lo modifica)'));
       } else { l.precioVento = 0; partes.push('Precio pendiente en la lista: captura uno aproximado'); }
       aplicarBloqueoPrecio(l);
@@ -997,7 +1019,7 @@ async function editar(c) {
   $('cz-moto').value = c.moto || ''; $('cz-anio').value = c.anio || ''; $('cz-vigencia').value = vigIso(c.vigencia) || vigOmision(); $('cz-descuento').value = String(descGuardado(c.folio));
   lineas = (c.items || []).map(it => {
     const cant = Math.max(1, Math.min(9999, Math.floor(Number(it.cantidad)) || 1));
-    if (it.tipo === 'pedido') return { id: ++seq, tipo: 'pedido', sku: '', descripcion: it.descripcion || '', disponibilidad: 'Bajo pedido', seccion: sec, cantidad: cant, numeroParte: it.numeroParte || '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' };
+    if (it.tipo === 'pedido') return { id: ++seq, tipo: 'pedido', sku: '', descripcion: it.descripcion || '', disponibilidad: 'Bajo pedido', seccion: sec, cantidad: cant, numeroParte: it.numeroParte || '', linkML: it.linkML || '', costoML: Number(it.costoML) > 0 ? String(it.costoML) : '', precioAprox: Number(it.precio) > 0 ? String(it.precio) : '' };
     const info = infoSku(it.sku);
     return { id: ++seq, tipo: 'catalogo', sku: String(it.sku || ''), descripcion: it.descripcion || (info && info.nombre) || '', disponibilidad: it.disponibilidad || 'En existencia', seccion: it.seccion || (info && seccionDe(info)) || sec, cantidad: cant, origen: it.origen || '', precioAprox: it.precioAprox && Number(it.precio) > 0 ? String(it.precio) : '' };
   });
@@ -1023,7 +1045,7 @@ async function guardar() {
       cliente: $('cz-cliente').value.trim(), telefono: $('cz-telefono').value, idCliente: idResuelto, moto: $('cz-moto').value.trim(), anio: $('cz-anio').value.trim(), vigencia: $('cz-vigencia').value || vigOmision(), descuentoPct: descActual(),
       agencia: edicion ? (edicion.base.agencia || agenciaAuto()) : agenciaAuto(), seccion: seccionPrincipal(), origen: 'PISO', app: 'maps',
       lineas: lineas.map(l => l.tipo === 'pedido'
-        ? { tipo: 'pedido', seccion: secDeLinea(l), cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox }
+        ? { tipo: 'pedido', seccion: secDeLinea(l), cantidad: l.cantidad, numeroParte: l.numeroParte, descripcion: l.descripcion, precioAprox: l.precioAprox, linkML: String(l.linkML || '').trim(), costoML: Number(l.costoML) > 0 ? Number(l.costoML) : '' }
         : (() => { const o = origenActual(l), cur = o.cur; return { tipo: 'catalogo', sku: l.sku, seccion: secDeLinea(l), cantidad: l.cantidad, descripcion: l.descripcion, disponibilidad: l.disponibilidad, precioAprox: l.precioAprox,
             origen: cur ? cur.sucursal : '', traspaso: !!(cur && cur.propia && !cur.mia), eta: cur ? cur.eta : '' }; })())
     };
@@ -1622,7 +1644,13 @@ function enlazar() {
     if (i.dataset.campo === 'precioAprox' && precioBloqueado(l)) { i.value = l.precioAprox; return; }   // precio sugerido de VENTO: solo administración
     if (i.dataset.campo === 'cantidad') { const n = Math.floor(Number(i.value)); l.cantidad = n >= 1 ? Math.min(n, 9999) : 1; if (limitarCantidad(l)) { i.value = l.cantidad; toast('Solo hay ' + l.cantidad + ' en ' + l.origen + '.'); } }
     else l[i.dataset.campo] = i.value;
-    if (i.dataset.campo === 'precioAprox') l.precioManual = true;
+    if (i.dataset.campo === 'precioAprox') { if (mlActivo(l)) { i.value = l.precioAprox; return; } l.precioManual = true; }
+    if (i.dataset.campo === 'linkML') { const a = $('cz-mla-' + l.id); if (a) a.innerHTML = linkMLValido(i.value) ? '<a href="' + esc(i.value.trim()) + '" target="_blank" rel="noopener noreferrer">Abrir publicación ↗</a>' : ''; }
+    if (i.dataset.campo === 'costoML') {
+      if (Number(l.costoML) > 0) aplicarPrecioML(l);
+      else { const pa = $('cz-pa-' + l.id); if (pa && !precioBloqueado(l)) { pa.readOnly = false; pa.setAttribute('aria-readonly', 'false'); pa.title = ''; } }
+      const d = $('cz-cod-' + l.id); if (d) d.textContent = detalleML(l);
+    }
     if (i.dataset.campo === 'numeroParte') buscarParte(l.id);
     actualizarImportes();
   });
