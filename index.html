@@ -4303,7 +4303,7 @@ let basePref = (() => {
   let v = null; try{ v = localStorage.getItem(BASE_KEY); } catch(e){}
   return (v === 'clasico' || v === 'positron' || v === 'satelite') ? v : 'liberty';
 })();
-const APP_BUILD = '27-nov · v113';   // sello para saber si el celular ya cargó la versión nueva de la app
+const APP_BUILD = '28-nov · v114';   // sello para saber si el celular ya cargó la versión nueva de la app
 let estadoBase = { fase: 'inicio', detalle: '' };
 let ultimoErrorGL = '';
 function textoEstadoBase(){
@@ -10604,6 +10604,7 @@ async function sincronizarExistenciasCatalogo(){
       mapa[sku] = rs.data[sku].map(function(x){ return { sucursal: x[0], almacen: x[1], cantidad: Number(x[2]) || 0 }; });
     });
     existenciasCatalogo = mapa;
+    avisarCotizador();
     if (!document.getElementById('ventaOverlay').hidden){ renderizarItemsVenta(); pintarResultadosVenta(); }
     try { localStorage.setItem(EXISTENCIAS_ORIGEN_KEY, JSON.stringify({ t: Date.now(), datos: mapa })); } catch(e){}
   } catch(e){ /* sin señal: se queda con la última copia */ }
@@ -10665,6 +10666,7 @@ async function sincronizarPreciosCalculados(){
 const LISTA_GC_KEY = 'gc_lista_precios_v1';
 const LISTA_GC_TTL_MS = 3 * 60 * 1000;
 let listaGC = {};
+function avisarCotizador(){ try { if (window.Cotizador && window.Cotizador.refrescar) window.Cotizador.refrescar(); } catch(e){} }   // el cotizador abierto vuelve a calcular precios con lo recién cargado
 try { const c = JSON.parse(localStorage.getItem(LISTA_GC_KEY) || 'null'); if (c && c.datos) listaGC = c.datos; } catch(e){}
 
 async function sincronizarListaPreciosGC(){
@@ -10682,6 +10684,7 @@ async function sincronizarListaPreciosGC(){
     });
     listaGC = mapa;
     try { localStorage.setItem(LISTA_GC_KEY, JSON.stringify({ t: Date.now(), datos: mapa })); } catch(e){}
+    avisarCotizador();
     if (!document.getElementById('ventaOverlay').hidden){ renderizarItemsVenta(); pintarResultadosVenta(); }
   } catch(e){ /* sin señal: se queda con la copia local */ }
 }
@@ -10704,6 +10707,7 @@ async function sincronizarPromociones(){
     });
     promocionesCache = mapa;
     try { localStorage.setItem(PROMOS_KEY, JSON.stringify({ t: Date.now(), datos: mapa })); } catch(e){}
+    avisarCotizador();
     if (!document.getElementById('ventaOverlay').hidden) renderizarItemsVenta();
   } catch(e){ /* sin señal: se queda con la copia local */ }
 }
@@ -11310,6 +11314,7 @@ async function sincronizarDescuentosBajaj(){
     if (lista.length && !ok.length) return;
     descBajajCache = ok;
     try { localStorage.setItem(DESC_BAJAJ_KEY, JSON.stringify({ t: Date.now(), datos: ok })); } catch(e){}
+    avisarCotizador();
     if (!document.getElementById('ventaOverlay').hidden) renderizarItemsVenta();
   } catch(e){ /* sin señal: se queda con la copia local */ }
 }

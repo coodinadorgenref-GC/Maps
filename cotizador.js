@@ -693,6 +693,18 @@ function actualizarImportes() {
   pintarBajaj();
   avisoTxt(sin ? sin + (sin === 1 ? ' producto sin precio: captura uno aproximado o se guarda sin importe.' : ' productos sin precio: captura uno aproximado o se guardan sin importe.') : '');
 }
+/** Avisa que llegaron datos nuevos (lista de precios, promociones, descuentos, existencias): vuelve a calcular las líneas abiertas.
+ *  Así un borrador recuperado no se queda «sin precio» si la lista llega después de pintarlo. */
+let refrescarT = 0;
+function refrescarPrecios() {
+  clearTimeout(refrescarT);
+  refrescarT = setTimeout(() => {
+    const ov = $('cz-overlay'); if (!ov || ov.hidden || !lineas.length) return;
+    const cont = $('cz-lineas'), enfocado = cont && cont.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (enfocado) actualizarImportes();   // están escribiendo en una línea: solo se actualizan importes, sin redibujar
+    else pintarLineas();
+  }, 120);
+}
 function pintarLineas() {
   const cont = $('cz-lineas');
   if (!lineas.length) { cont.innerHTML = '<p class="cz-ayuda" style="margin-top:10px">Aún no hay productos. Busca un SKU o agrega uno bajo pedido.</p>'; actualizarImportes(); return; }
@@ -1721,6 +1733,6 @@ function iniciar() {
   const orig = window.actualizarVisibilidadBotonVenta;   // Maps la llama al iniciar sesión: ahí se muestran u ocultan los botones
   if (typeof orig === 'function') window.actualizarVisibilidadBotonVenta = function () { const r = orig.apply(this, arguments); try { visibilidadBotones(); } catch (e) {} return r; };
 }
-window.Cotizador = { esBajajSku: esBajajSku, avisoBajajHtml: avisoBajajHtml, desdeNota: desdeNota, verCotizacion: cvAbrir, abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
+window.Cotizador = { refrescar: refrescarPrecios, esBajajSku: esBajajSku, avisoBajajHtml: avisoBajajHtml, desdeNota: desdeNota, verCotizacion: cvAbrir, abrir: abrir, abrirHistorial: abrirHistorial, listarParaHistorial: listarParaHistorial, tarjetaCot: tarjetaCot, accionHistorial: accionHistorial, puede: puedeUsarCotizador, editar: editar, convertirEnNota: convertirEnNota, seccionesQueCotizo: seccionesQueCotizo, _universo: universo, _construirPdf: hojaCotizacionConstruir };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();
