@@ -236,7 +236,8 @@ async function generarImagenes(promos, kits) {
 }
 
 /* ───────────── pantalla (pestaña del panel) ───────────── */
-const estado = { marca: '', kits: true, imgs: [], urls: [], gen: 0, firma: '' };
+const estado = { marca: '', modo: 'todo',   // modo: 'promos' (solo promociones) · 'todo' (promociones y kits) · 'kits' (solo kits)
+   imgs: [], urls: [], gen: 0, firma: '' };
 const CSS = `
 .pm-wrap{display:flex;flex-direction:column;gap:12px}
 .pm-fila{display:flex;align-items:center;gap:8px;justify-content:space-between}
@@ -245,8 +246,15 @@ const CSS = `
 .pm-chips{display:flex;flex-wrap:wrap;gap:8px}
 .pm-chip{min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 14px/1 inherit;cursor:pointer;touch-action:manipulation;transition:background .15s,color .15s}
 .pm-chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-.pm-check{display:flex;align-items:center;gap:10px;min-height:44px;font-size:15px;cursor:pointer}
-.pm-check input{width:22px;height:22px;accent-color:var(--accent)}
+.pm-seg{margin:0;padding:0;border:0;min-width:0;display:flex;flex-wrap:wrap;gap:8px}
+.pm-seg legend{padding:0;margin:0 0 8px;font-size:13px;font-weight:600;color:var(--text-dim)}
+.pm-op{position:relative;flex:1 1 140px;display:flex;cursor:pointer}
+.pm-op input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.pm-op span{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:8px 12px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);font:600 14px/1.25 inherit;text-align:center;touch-action:manipulation;transition:background .15s,color .15s,border-color .15s}
+.pm-op input:checked+span{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pm-op input:checked+span::before{content:"✓";font-weight:700}
+.pm-op input:focus-visible+span{outline:3px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.pm-op span,.pm-chip{transition:none}}
 .pm-vista{display:flex;flex-direction:column;gap:16px}
 .pm-fig{margin:0;display:flex;flex-direction:column;gap:8px;max-width:560px;width:100%;align-self:center}
 .pm-img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:#fff}
@@ -259,7 +267,7 @@ const CSS = `
 .pm-btn:disabled{opacity:.45;cursor:not-allowed}
 .pm-copiar{min-height:44px}
 .pm-icono{min-width:44px;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);color:var(--text);display:grid;place-items:center;cursor:pointer}
-.pm-wrap button:focus-visible,.pm-check input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.pm-wrap button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .pm-vacio{padding:24px 8px;text-align:center;color:var(--text-dim);font-size:14px;line-height:1.5}
 `;
 function asegurarCss() {
@@ -269,7 +277,7 @@ function asegurarCss() {
 const el = id => document.getElementById(id);
 function liberarUrls() { estado.urls.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} }); estado.urls = []; }
 function activarBotones(si) { ['pmEnviar', 'pmBajar', 'pmWeb'].forEach(id => { const b = el(id); if (b) b.disabled = !si; }); }
-const firmaDe = d => JSON.stringify([d.todas, d.kits, estado.marca, estado.kits]);
+const firmaDe = d => JSON.stringify([d.todas, d.kits, estado.marca, estado.modo]);
 
 async function generar() {
   const mi = ++estado.gen, vista = el('pmVista'); if (!vista) return;
@@ -285,14 +293,16 @@ async function generar() {
   if (mi !== estado.gen) return;
   try {
     if (!d) d = recopilar();
-    pintarMarcas(d.marcas);
-    const promos = estado.marca ? d.todas.filter(p => p.marca === estado.marca) : d.todas;
-    const kits = estado.kits ? d.kits : [];
-    el('pmResumen').textContent = 'Vigentes: ' + promos.length + (promos.length === 1 ? ' promoción' : ' promociones') + ' · ' + kits.length + (kits.length === 1 ? ' kit' : ' kits');
+    const soloKits = estado.modo === 'kits';
+    pintarMarcas(soloKits ? [] : d.marcas);   // la marca solo filtra promociones: con «Solo kits» no aplica
+    const promos = soloKits ? [] : (estado.marca ? d.todas.filter(p => p.marca === estado.marca) : d.todas);
+    const kits = estado.modo === 'promos' ? [] : d.kits;
+    const txtP = promos.length + (promos.length === 1 ? ' promoción' : ' promociones'), txtK = kits.length + (kits.length === 1 ? ' kit' : ' kits');
+    el('pmResumen').textContent = 'Vigentes: ' + (soloKits ? txtK : estado.modo === 'promos' ? txtP : txtP + ' · ' + txtK);
     if (!promos.length && !kits.length) {
       if (mi !== estado.gen) return;
       liberarUrls(); estado.imgs = [];
-      vista.innerHTML = '<div class="pm-vacio">No hay promociones vigentes en este momento.<br>Si acabas de abrir la app, toca «Actualizar» con señal.</div>';
+      vista.innerHTML = '<div class="pm-vacio">' + (soloKits ? 'No hay kits de servicio vigentes en este momento.' : 'No hay promociones vigentes en este momento.') + '<br>Si acabas de abrir la app, toca «Actualizar» con señal.</div>';
       vista.setAttribute('aria-busy', 'false'); return;
     }
     const imgs = await generarImagenes(promos, kits);
@@ -301,7 +311,7 @@ async function generar() {
     const copiable = !esTactil() && !!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem);
     vista.innerHTML = imgs.map((im, i) => {
       const u = URL.createObjectURL(im.blob); estado.urls.push(u);
-      return '<figure class="pm-fig"><img class="pm-img" src="' + u + '" width="' + im.ancho + '" height="' + im.alto + '" alt="Promociones vigentes, imagen ' + (i + 1) + ' de ' + imgs.length + '" decoding="async">'
+      return '<figure class="pm-fig"><img class="pm-img" src="' + u + '" width="' + im.ancho + '" height="' + im.alto + '" alt="' + (estado.modo === 'kits' ? 'Kits de servicio vigentes' : 'Promociones vigentes') + ', imagen ' + (i + 1) + ' de ' + imgs.length + '" decoding="async">'
         + (copiable ? '<button type="button" class="pm-btn pm-copiar" data-i="' + i + '">' + IC.copiar + ' Copiar imagen ' + (i + 1) + ' de ' + imgs.length + '</button>' : '') + '</figure>';
     }).join('');
     vista.setAttribute('aria-busy', 'false'); activarBotones(true);
@@ -341,7 +351,7 @@ async function actualizar() {
 }
 
 /* Compartir: las imágenes YA están hechas antes del toque, así el navegador acepta navigator.share (exige un toque reciente). */
-const nombreArchivo = (i, n) => 'promociones-' + isoHoy() + (n > 1 ? '-' + (i + 1) : '') + '.jpg';
+const nombreArchivo = (i, n) => (estado.modo === 'kits' ? 'kits-' : 'promociones-') + isoHoy() + (n > 1 ? '-' + (i + 1) : '') + '.jpg';
 function descargar() {
   estado.imgs.forEach((im, i) => setTimeout(() => {
     const u = URL.createObjectURL(im.blob), a = document.createElement('a');
@@ -353,9 +363,9 @@ async function compartir() {
   if (!estado.imgs.length) return;
   const n = estado.imgs.length;
   const archivos = estado.imgs.map((im, i) => new File([im.blob], nombreArchivo(i, n), { type: 'image/jpeg' }));
-  const texto = 'Promociones vigentes CARABELA · ' + fechaHoy();
+  const titulo = estado.modo === 'kits' ? 'Kits de servicio vigentes' : 'Promociones vigentes', texto = titulo + ' CARABELA · ' + fechaHoy();
   if (navigator.canShare && navigator.canShare({ files: archivos })) {
-    try { await navigator.share({ files: archivos, title: 'Promociones vigentes', text: texto }); return; }
+    try { await navigator.share({ files: archivos, title: titulo, text: texto }); return; }
     catch (e) { if (e && e.name === 'AbortError') return; }   // cerró la hoja a propósito
   }
   // Respaldo: baja la(s) imagen(es) y abre WhatsApp para adjuntarlas.
@@ -392,7 +402,10 @@ window.renderPromosImagen = function () {
     + '<button type="button" class="pm-icono" id="pmActualizar" aria-label="Actualizar promociones">' + IC.girar + '</button></div>'
     + (pc ? '<p class="pm-ayuda">En PC: toca «Copiar imagen» y pégala (Ctrl+V) en WhatsApp Web, o usa «Guardar» y arrastra los archivos al chat.</p>' : '')
     + '<div class="pm-chips" id="pmMarcas" role="group" aria-label="Filtrar por marca" hidden></div>'
-    + '<label class="pm-check"><input type="checkbox" id="pmKits"' + (estado.kits ? ' checked' : '') + '> Incluir kits de servicio mayor</label>'
+    + '<fieldset class="pm-seg" id="pmModo"><legend>Qué incluir en la imagen</legend>'
+    + [['promos', 'Solo promociones'], ['todo', 'Promociones y kits de servicio mayor'], ['kits', 'Solo kits de servicio mayor']].map(o =>
+        '<label class="pm-op"><input type="radio" name="pmModo" value="' + o[0] + '"' + (estado.modo === o[0] ? ' checked' : '') + '><span>' + o[1] + '</span></label>').join('')
+    + '</fieldset>'
     + '<div class="pm-vista" id="pmVista" aria-live="polite" aria-busy="true"></div>'
     + '<div class="pm-barra">'
     + (pc
@@ -405,7 +418,7 @@ window.renderPromosImagen = function () {
   el('pmBajar').addEventListener('click', descargar);
   if (el('pmWeb')) el('pmWeb').addEventListener('click', abrirWhatsAppWeb);
   el('pmActualizar').addEventListener('click', actualizar);
-  el('pmKits').addEventListener('change', e => { estado.kits = e.target.checked; generar(); });
+  el('pmModo').addEventListener('change', e => { if (e.target && e.target.name === 'pmModo') { estado.modo = e.target.value; generar(); } });
   el('pmMarcas').addEventListener('click', e => {
     const b = e.target.closest('.pm-chip'); if (!b) return;
     estado.marca = b.getAttribute('data-m') || ''; generar();
